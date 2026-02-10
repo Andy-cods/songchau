@@ -1,9 +1,11 @@
 import { useState, useEffect } from 'react'
-import { X, Edit, Building2, MapPin, DollarSign } from 'lucide-react'
-import type { Customer, Activity } from '@/lib/api'
-import { fetchActivities, createActivity, markFollowUpDone } from '@/lib/api'
+import { useNavigate } from 'react-router-dom'
+import { X, Edit, Building2, MapPin, DollarSign, FileText, ShoppingCart } from 'lucide-react'
+import type { Customer, Activity, Quotation, Order } from '@/lib/api'
+import { fetchActivities, createActivity, markFollowUpDone, fetchQuotations, fetchOrders } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { CUSTOMER_TYPE_COLORS, TIER_COLORS } from '@/lib/constants'
+import { format } from 'date-fns'
 import ContactCard from '../shared/ContactCard'
 import ActivityTimeline from '../shared/ActivityTimeline'
 
@@ -20,15 +22,22 @@ export default function CustomerDetail({
   onClose,
   onEdit,
 }: CustomerDetailProps) {
+  const navigate = useNavigate()
   const [activeTab, setActiveTab] = useState<'overview' | 'purchase' | 'activities'>(
     'overview'
   )
   const [activities, setActivities] = useState<Activity[]>([])
   const [loadingActivities, setLoadingActivities] = useState(false)
+  const [quotations, setQuotations] = useState<Quotation[]>([])
+  const [orders, setOrders] = useState<Order[]>([])
+  const [loadingPurchase, setLoadingPurchase] = useState(false)
 
   useEffect(() => {
     if (isOpen && customer && activeTab === 'activities') {
       loadActivities()
+    }
+    if (isOpen && customer && activeTab === 'purchase') {
+      loadPurchaseHistory()
     }
   }, [isOpen, customer, activeTab])
 
@@ -45,6 +54,23 @@ export default function CustomerDetail({
       console.error('Failed to load activities:', error)
     } finally {
       setLoadingActivities(false)
+    }
+  }
+
+  const loadPurchaseHistory = async () => {
+    if (!customer) return
+    setLoadingPurchase(true)
+    try {
+      const [quotationsRes, ordersRes] = await Promise.all([
+        fetchQuotations({ customerId: customer.id, limit: 20 }),
+        fetchOrders({ customerId: customer.id, limit: 20 }),
+      ])
+      setQuotations(quotationsRes.data)
+      setOrders(ordersRes.data)
+    } catch (error) {
+      console.error('Failed to load purchase history:', error)
+    } finally {
+      setLoadingPurchase(false)
     }
   }
 
@@ -72,12 +98,12 @@ export default function CustomerDetail({
     <>
       {/* Backdrop */}
       <div
-        className="fixed inset-0 bg-black/60 backdrop-blur-sm z-40"
+        className="fixed inset-0 bg-black/60 backdrop-blur-sm z-40 slide-over-backdrop"
         onClick={onClose}
       />
 
       {/* Slide-over Panel */}
-      <div className="fixed inset-y-0 right-0 w-full max-w-3xl bg-slate-900 border-l border-slate-700 z-50 overflow-y-auto">
+      <div className="fixed inset-y-0 right-0 w-full max-w-3xl bg-slate-900 border-l border-slate-700 z-50 overflow-y-auto slide-over-panel">
         {/* Header */}
         <div className="sticky top-0 z-10 flex items-center justify-between bg-slate-900/95 backdrop-blur border-b border-slate-700 px-6 py-4">
           <div>
@@ -356,12 +382,113 @@ export default function CustomerDetail({
 
           {/* Purchase History Tab */}
           {activeTab === 'purchase' && (
-            <div className="rounded-xl bg-slate-800/50 border border-slate-700/50 p-6 text-center">
-              <p className="text-slate-400">Purchase history - Coming soon</p>
-              <p className="text-sm text-slate-500 mt-2">
-                Integrate with orders/quotations module
-              </p>
-            </div>
+            <>
+              {loadingPurchase ? (
+                <div className="space-y-3">
+                  {[1, 2, 3].map((i) => (
+                    <div key={i} className="h-16 bg-slate-800/50 animate-pulse rounded-lg" />
+                  ))}
+                </div>
+              ) : (
+                <>
+                  {/* Quotations */}
+                  <div className="rounded-xl bg-slate-800/50 border border-slate-700/50 p-6">
+                    <div className="flex items-center gap-2 mb-4">
+                      <FileText className="h-5 w-5 text-blue-400" />
+                      <h3 className="font-display text-lg font-semibold text-slate-50">
+                        Báo giá ({quotations.length})
+                      </h3>
+                    </div>
+                    {quotations.length === 0 ? (
+                      <p className="text-sm text-slate-500 text-center py-4">Chưa có báo giá</p>
+                    ) : (
+                      <div className="space-y-2">
+                        {quotations.map((q) => (
+                          <div
+                            key={q.id}
+                            onClick={() => { navigate(`/quotations`); onClose() }}
+                            className="flex items-center justify-between p-3 rounded-lg bg-slate-900/50 hover:bg-slate-900 cursor-pointer transition-colors"
+                          >
+                            <div className="flex items-center gap-3">
+                              <span className="font-mono text-sm text-blue-400">{q.quoteNumber}</span>
+                              <span className={cn(
+                                'badge border text-xs',
+                                q.status === 'accepted' ? 'bg-green-500/10 text-green-400 border-green-500/20' :
+                                q.status === 'sent' ? 'bg-amber-500/10 text-amber-400 border-amber-500/20' :
+                                q.status === 'rejected' ? 'bg-red-500/10 text-red-400 border-red-500/20' :
+                                'bg-slate-700/50 text-slate-300 border-slate-600'
+                              )}>
+                                {q.status}
+                              </span>
+                            </div>
+                            <div className="flex items-center gap-4">
+                              <span className="text-sm font-mono text-slate-300">
+                                {q.totalAmount ? new Intl.NumberFormat('vi-VN').format(q.totalAmount) + ' ' + q.currency : '—'}
+                              </span>
+                              <span className="text-xs text-slate-500">
+                                {format(new Date(q.createdAt), 'dd/MM/yyyy')}
+                              </span>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Orders */}
+                  <div className="rounded-xl bg-slate-800/50 border border-slate-700/50 p-6">
+                    <div className="flex items-center gap-2 mb-4">
+                      <ShoppingCart className="h-5 w-5 text-purple-400" />
+                      <h3 className="font-display text-lg font-semibold text-slate-50">
+                        Đơn hàng ({orders.length})
+                      </h3>
+                    </div>
+                    {orders.length === 0 ? (
+                      <p className="text-sm text-slate-500 text-center py-4">Chưa có đơn hàng</p>
+                    ) : (
+                      <div className="space-y-2">
+                        {orders.map((o) => (
+                          <div
+                            key={o.id}
+                            onClick={() => { navigate(`/orders/${o.id}`); onClose() }}
+                            className="flex items-center justify-between p-3 rounded-lg bg-slate-900/50 hover:bg-slate-900 cursor-pointer transition-colors"
+                          >
+                            <div className="flex items-center gap-3">
+                              <span className="font-mono text-sm text-purple-400">{o.orderNumber}</span>
+                              <span className={cn(
+                                'badge border text-xs',
+                                o.status === 'delivered' ? 'bg-green-500/10 text-green-400 border-green-500/20' :
+                                o.status === 'processing' ? 'bg-blue-500/10 text-blue-400 border-blue-500/20' :
+                                o.status === 'cancelled' ? 'bg-red-500/10 text-red-400 border-red-500/20' :
+                                'bg-slate-700/50 text-slate-300 border-slate-600'
+                              )}>
+                                {o.status}
+                              </span>
+                              <span className={cn(
+                                'badge border text-xs',
+                                o.paymentStatus === 'paid' ? 'bg-green-500/10 text-green-400 border-green-500/20' :
+                                o.paymentStatus === 'partial' ? 'bg-amber-500/10 text-amber-400 border-amber-500/20' :
+                                'bg-slate-700/50 text-slate-300 border-slate-600'
+                              )}>
+                                {o.paymentStatus}
+                              </span>
+                            </div>
+                            <div className="flex items-center gap-4">
+                              <span className="text-sm font-mono text-slate-300">
+                                {o.totalAmount ? new Intl.NumberFormat('vi-VN').format(o.totalAmount) + ' ' + o.currency : '—'}
+                              </span>
+                              <span className="text-xs text-slate-500">
+                                {format(new Date(o.createdAt), 'dd/MM/yyyy')}
+                              </span>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </>
+              )}
+            </>
           )}
 
           {/* Activities Tab */}

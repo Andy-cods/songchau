@@ -6,6 +6,8 @@ import { useDebounce } from '@/hooks/useDebounce'
 import { type Order } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { format } from 'date-fns'
+import { useToast } from '@/hooks/use-toast'
+import ConfirmDialog from '@/components/shared/ConfirmDialog'
 
 const ORDER_STATUSES = [
   { value: 'confirmed', label: 'Confirmed', color: 'blue' },
@@ -18,9 +20,9 @@ const ORDER_STATUSES = [
 ]
 
 const PAYMENT_STATUS_COLORS: Record<string, string> = {
-  unpaid: 'bg-red-500/10 text-red-400 border-red-500/30',
-  partial: 'bg-amber-500/10 text-amber-400 border-amber-500/30',
-  paid: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30',
+  unpaid: 'bg-red-500/10 text-red-400 border-red-500/20',
+  partial: 'bg-amber-500/10 text-amber-400 border-amber-500/20',
+  paid: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20',
 }
 
 const PAYMENT_LABELS: Record<string, string> = {
@@ -92,6 +94,8 @@ export default function Orders() {
   })
 
   const deleteMutation = useDeleteOrder()
+  const { toast } = useToast()
+  const [confirmDelete, setConfirmDelete] = useState<{ open: boolean; id: number; orderNumber: string }>({ open: false, id: 0, orderNumber: '' })
 
   const orders = ordersData?.data || []
   const pagination = ordersData?.pagination || { total: 0, totalPages: 0, page: 1 }
@@ -105,13 +109,19 @@ export default function Orders() {
     setPage(1)
   }
 
-  const handleDelete = async (id: number, orderNumber: string) => {
-    if (!confirm(`Bạn có chắc muốn xóa đơn hàng ${orderNumber}?`)) return
+  const handleDelete = (id: number, orderNumber: string) => {
+    setConfirmDelete({ open: true, id, orderNumber })
+  }
+
+  const handleConfirmDelete = async () => {
     try {
-      await deleteMutation.mutateAsync(id)
+      await deleteMutation.mutateAsync(confirmDelete.id)
+      toast({ title: 'Xóa đơn hàng thành công' })
     } catch (error) {
       console.error('Failed to delete order:', error)
-      alert('Xóa đơn hàng thất bại')
+      toast({ title: 'Xóa đơn hàng thất bại', variant: 'destructive' })
+    } finally {
+      setConfirmDelete({ open: false, id: 0, orderNumber: '' })
     }
   }
 
@@ -279,13 +289,13 @@ export default function Orders() {
                       <span
                         className={cn(
                           'badge border text-xs',
-                          order.status === 'confirmed' && 'bg-blue-500/10 text-blue-400 border-blue-500/30',
-                          order.status === 'purchasing' && 'bg-purple-500/10 text-purple-400 border-purple-500/30',
-                          order.status === 'in_transit' && 'bg-amber-500/10 text-amber-400 border-amber-500/30',
-                          order.status === 'quality_check' && 'bg-orange-500/10 text-orange-400 border-orange-500/30',
-                          order.status === 'delivered' && 'bg-green-500/10 text-green-400 border-green-500/30',
-                          order.status === 'completed' && 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30',
-                          order.status === 'cancelled' && 'bg-red-500/10 text-red-400 border-red-500/30'
+                          order.status === 'confirmed' && 'bg-blue-500/10 text-blue-400 border-blue-500/20',
+                          order.status === 'purchasing' && 'bg-purple-500/10 text-purple-400 border-purple-500/20',
+                          order.status === 'in_transit' && 'bg-amber-500/10 text-amber-400 border-amber-500/20',
+                          order.status === 'quality_check' && 'bg-orange-500/10 text-orange-400 border-orange-500/20',
+                          order.status === 'delivered' && 'bg-green-500/10 text-green-400 border-green-500/20',
+                          order.status === 'completed' && 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20',
+                          order.status === 'cancelled' && 'bg-red-500/10 text-red-400 border-red-500/20'
                         )}
                       >
                         {ORDER_STATUSES.find((s) => s.value === order.status)?.label || order.status}
@@ -347,6 +357,16 @@ export default function Orders() {
           </div>
         )}
       </div>
+
+      <ConfirmDialog
+        isOpen={confirmDelete.open}
+        title={`Xóa đơn hàng ${confirmDelete.orderNumber}?`}
+        description="Hành động này không thể hoàn tác."
+        confirmLabel="Xóa"
+        variant="danger"
+        onConfirm={handleConfirmDelete}
+        onCancel={() => setConfirmDelete({ open: false, id: 0, orderNumber: '' })}
+      />
     </div>
   )
 }

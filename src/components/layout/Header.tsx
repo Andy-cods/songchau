@@ -1,5 +1,8 @@
+import { useState } from 'react'
 import { Search, Bell } from 'lucide-react'
 import { useLocation } from 'react-router-dom'
+import { useNotifications } from '@/hooks/useNotifications'
+import NotificationPanel from './NotificationPanel'
 
 const pageTitles: Record<string, string> = {
   '/': 'Dashboard',
@@ -16,6 +19,8 @@ const pageTitles: Record<string, string> = {
 export default function Header() {
   const location = useLocation()
   const title = pageTitles[location.pathname] || 'Dashboard'
+  const [isNotifOpen, setIsNotifOpen] = useState(false)
+  const { count } = useNotifications()
 
   return (
     <header className="sticky top-0 z-30 h-16 bg-slate-900/80 backdrop-blur-xl border-b border-slate-800/50 flex items-center px-8 gap-6">
@@ -43,12 +48,20 @@ export default function Header() {
       </button>
 
       {/* Notifications */}
-      <button className="relative flex h-9 w-9 items-center justify-center rounded-lg hover:bg-slate-800/50 text-slate-400 hover:text-slate-200 transition-all duration-200">
-        <Bell className="h-5 w-5" strokeWidth={1.5} />
-        <span className="absolute -right-1 -top-1 flex h-4 w-4 items-center justify-center rounded-full bg-accent text-[9px] font-bold text-white ring-2 ring-slate-900">
-          3
-        </span>
-      </button>
+      <div className="relative">
+        <button
+          onClick={() => setIsNotifOpen((prev) => !prev)}
+          className="relative flex h-9 w-9 items-center justify-center rounded-lg hover:bg-slate-800/50 text-slate-400 hover:text-slate-200 transition-all duration-200"
+        >
+          <Bell className="h-5 w-5" strokeWidth={1.5} />
+          {count > 0 && (
+            <span className="absolute -right-1 -top-1 flex h-4 min-w-[16px] items-center justify-center rounded-full bg-accent px-0.5 text-[9px] font-bold text-white ring-2 ring-slate-900">
+              {count > 99 ? '99+' : count}
+            </span>
+          )}
+        </button>
+        <NotificationPanel isOpen={isNotifOpen} onClose={() => setIsNotifOpen(false)} />
+      </div>
     </header>
   )
 }

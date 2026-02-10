@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Plus, Search, X, ChevronLeft, ChevronRight } from 'lucide-react'
+import { Plus, Search, X, ChevronLeft, ChevronRight, Users } from 'lucide-react'
 import { fetchCustomers, createCustomer, updateCustomer, type Customer } from '@/lib/api'
 import CustomerDetail from '@/components/customers/CustomerDetail'
 import CustomerForm from '@/components/customers/CustomerForm'
@@ -136,7 +136,7 @@ export default function Customers() {
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 placeholder="Search company, contact, phone..."
-                className="w-full rounded-lg bg-slate-900 border border-slate-700 pl-9 pr-3 py-2 text-sm text-slate-200 placeholder-slate-500 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                className="w-full rounded-lg bg-slate-900/50 border border-slate-700/50 pl-9 pr-3 py-2 text-sm text-slate-200 placeholder-slate-500 focus:outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20"
               />
             </div>
           </div>
@@ -145,7 +145,7 @@ export default function Customers() {
           <select
             value={selectedType}
             onChange={(e) => setSelectedType(e.target.value)}
-            className="rounded-lg bg-slate-900 border border-slate-700 px-3 py-2 text-sm text-slate-200 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+            className="rounded-lg bg-slate-900/50 border border-slate-700/50 px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20"
           >
             <option value="">All Types</option>
             {CUSTOMER_TYPES.map((type) => (
@@ -159,7 +159,7 @@ export default function Customers() {
           <select
             value={selectedProvince}
             onChange={(e) => setSelectedProvince(e.target.value)}
-            className="rounded-lg bg-slate-900 border border-slate-700 px-3 py-2 text-sm text-slate-200 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+            className="rounded-lg bg-slate-900/50 border border-slate-700/50 px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20"
           >
             <option value="">All Provinces</option>
             {PROVINCES.map((prov) => (
@@ -173,7 +173,7 @@ export default function Customers() {
           <select
             value={selectedTier}
             onChange={(e) => setSelectedTier(e.target.value)}
-            className="rounded-lg bg-slate-900 border border-slate-700 px-3 py-2 text-sm text-slate-200 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+            className="rounded-lg bg-slate-900/50 border border-slate-700/50 px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20"
           >
             <option value="">All Tiers</option>
             {CUSTOMER_TIERS.map((tier) => (
@@ -200,27 +200,27 @@ export default function Customers() {
       <div className="rounded-xl bg-slate-800/50 border border-slate-700/50 overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full">
-            <thead className="bg-slate-900/50 border-b border-slate-700">
+            <thead className="bg-slate-800/30 border-b-2 border-slate-700/50">
               <tr>
-                <th className="px-4 py-3 text-left text-xs font-medium text-slate-400 uppercase tracking-wider">
+                <th className="px-4 py-3.5 text-left text-xs font-semibold text-slate-300 uppercase tracking-wider">
                   Company Name
                 </th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-slate-400 uppercase tracking-wider">
+                <th className="px-4 py-3.5 text-left text-xs font-semibold text-slate-300 uppercase tracking-wider">
                   Type
                 </th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-slate-400 uppercase tracking-wider">
+                <th className="px-4 py-3.5 text-left text-xs font-semibold text-slate-300 uppercase tracking-wider">
                   Industrial Zone
                 </th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-slate-400 uppercase tracking-wider">
+                <th className="px-4 py-3.5 text-left text-xs font-semibold text-slate-300 uppercase tracking-wider">
                   Contact
                 </th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-slate-400 uppercase tracking-wider">
+                <th className="px-4 py-3.5 text-left text-xs font-semibold text-slate-300 uppercase tracking-wider">
                   Phone
                 </th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-slate-400 uppercase tracking-wider">
+                <th className="px-4 py-3.5 text-left text-xs font-semibold text-slate-300 uppercase tracking-wider">
                   Tier
                 </th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-slate-400 uppercase tracking-wider">
+                <th className="px-4 py-3.5 text-left text-xs font-semibold text-slate-300 uppercase tracking-wider">
                   Notes
                 </th>
               </tr>
@@ -234,8 +234,16 @@ export default function Customers() {
                 </tr>
               ) : customers.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="px-4 py-8 text-center text-slate-400">
-                    No customers found
+                  <td colSpan={7} className="px-4 py-16 text-center">
+                    <div className="empty-state">
+                      <div className="empty-state-icon">
+                        <Users className="h-8 w-8 text-slate-500" />
+                      </div>
+                      <div>
+                        <p className="empty-state-title">No customers found</p>
+                        <p className="empty-state-description mt-1">Try adjusting your search or filters</p>
+                      </div>
+                    </div>
                   </td>
                 </tr>
               ) : (

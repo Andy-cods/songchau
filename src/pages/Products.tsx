@@ -1,10 +1,13 @@
 import { useState } from 'react'
 import { Plus, Search, X } from 'lucide-react'
-import { useProducts, useProductBrands, useProductModels } from '@/hooks/useProducts'
+import { useProducts, useProductBrands, useProductModels, useCreateProduct, useUpdateProduct } from '@/hooks/useProducts'
 import { useQuery } from '@tanstack/react-query'
 import { fetchCategories, type Product } from '@/lib/api'
 import { useDebounce } from '@/hooks/useDebounce'
 import { cn } from '@/lib/utils'
+import { MATERIAL_COLORS, BRAND_COLORS } from '@/lib/constants'
+import ProductForm from '@/components/products/ProductForm'
+import ProductDetail from '@/components/products/ProductDetail'
 
 const MATERIALS = ['CERAMIC', 'METAL', 'RUBBER', 'O-RING']
 
@@ -16,6 +19,12 @@ export default function Products() {
   const [selectedModel, setSelectedModel] = useState('')
   const [selectedMaterial, setSelectedMaterial] = useState('')
   const [page, setPage] = useState(1)
+
+  // UI State
+  const [selectedProduct, setSelectedProduct] = useState<Product | null>(null)
+  const [isDetailOpen, setIsDetailOpen] = useState(false)
+  const [isFormOpen, setIsFormOpen] = useState(false)
+  const [formMode, setFormMode] = useState<'create' | 'edit'>('create')
 
   // Debounce search
   const search = useDebounce(searchInput, 300)
@@ -39,6 +48,9 @@ export default function Products() {
   const { data: brandsData } = useProductBrands()
   const { data: modelsData } = useProductModels(selectedBrand || null)
 
+  const createMutation = useCreateProduct()
+  const updateMutation = useUpdateProduct()
+
   const products = productsData?.data || []
   const pagination = productsData?.pagination || { total: 0, totalPages: 0, page: 1 }
   const categories = categoriesData?.data || []
@@ -61,23 +73,34 @@ export default function Products() {
     setSelectedModel('') // Reset model when brand changes
   }
 
-  const materialColors: Record<string, string> = {
-    CERAMIC: 'bg-blue-500/10 text-blue-400 border-blue-500/30',
-    METAL: 'bg-slate-500/10 text-slate-400 border-slate-500/30',
-    RUBBER: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30',
-    'O-RING': 'bg-purple-500/10 text-purple-400 border-purple-500/30',
+  const handleRowClick = (product: Product) => {
+    setSelectedProduct(product)
+    setIsDetailOpen(true)
   }
 
-  const brandColors: Record<string, string> = {
-    Panasonic: 'bg-blue-500/10 text-blue-400 border-blue-500/30',
-    Fuji: 'bg-purple-500/10 text-purple-400 border-purple-500/30',
-    Samsung: 'bg-green-500/10 text-green-400 border-green-500/30',
-    JUKI: 'bg-orange-500/10 text-orange-400 border-orange-500/30',
-    Yamaha: 'bg-pink-500/10 text-pink-400 border-pink-500/30',
-    Hitachi: 'bg-indigo-500/10 text-indigo-400 border-indigo-500/30',
-    Casio: 'bg-yellow-500/10 text-yellow-400 border-yellow-500/30',
-    'ASM/Siemens': 'bg-red-500/10 text-red-400 border-red-500/30',
+  const handleAddProduct = () => {
+    setFormMode('create')
+    setSelectedProduct(null)
+    setIsFormOpen(true)
   }
+
+  const handleEditProduct = (product: Product) => {
+    setFormMode('edit')
+    setSelectedProduct(product)
+    setIsDetailOpen(false)
+    setIsFormOpen(true)
+  }
+
+  const handleFormSubmit = async (data: Partial<Product>) => {
+    if (formMode === 'create') {
+      await createMutation.mutateAsync(data)
+    } else if (selectedProduct) {
+      await updateMutation.mutateAsync({ id: selectedProduct.id, data })
+    }
+  }
+
+  const materialColors = MATERIAL_COLORS
+  const brandColors = BRAND_COLORS
 
   return (
     <div className="space-y-6">
@@ -89,7 +112,7 @@ export default function Products() {
             {isLoading ? 'Đang tải...' : `${pagination.total} sản phẩm trong catalog`}
           </p>
         </div>
-        <button className="btn btn-primary px-4 py-2.5 text-sm">
+        <button onClick={handleAddProduct} className="btn btn-primary px-4 py-2.5 text-sm">
           <Plus className="h-4 w-4 mr-2" />
           Thêm sản phẩm
         </button>
@@ -230,6 +253,7 @@ export default function Products() {
               products.map((product: Product, idx: number) => (
                 <tr
                   key={product.id}
+                  onClick={() => handleRowClick(product)}
                   className={cn(
                     'cursor-pointer transition-colors duration-150',
                     idx % 2 === 0 && 'even:bg-slate-800/10'
@@ -304,6 +328,23 @@ export default function Products() {
           </div>
         )}
       </div>
+
+      {/* Product Detail Slide-over */}
+      <ProductDetail
+        product={selectedProduct}
+        isOpen={isDetailOpen}
+        onClose={() => setIsDetailOpen(false)}
+        onEdit={handleEditProduct}
+      />
+
+      {/* Product Form Modal */}
+      <ProductForm
+        isOpen={isFormOpen}
+        onClose={() => setIsFormOpen(false)}
+        onSubmit={handleFormSubmit}
+        product={formMode === 'edit' ? selectedProduct : null}
+        mode={formMode}
+      />
     </div>
   )
 }

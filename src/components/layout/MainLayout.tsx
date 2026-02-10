@@ -3,9 +3,11 @@ import { Outlet } from 'react-router-dom'
 import Sidebar from './Sidebar'
 import Header from './Header'
 import CommandPalette from './CommandPalette'
+import { useKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts'
 
 export default function MainLayout() {
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false)
+  useKeyboardShortcuts()
 
   // Global keyboard shortcut for Command Palette
   useEffect(() => {

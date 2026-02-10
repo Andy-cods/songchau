@@ -1,9 +1,13 @@
 import { useState } from 'react'
 import { Plus, TrendingUp, DollarSign, Target, BarChart3, GripVertical } from 'lucide-react'
 import { usePipeline, usePipelineStats, useUpdateDealStage } from '@/hooks/usePipeline'
+import DealForm from '@/components/pipeline/DealForm'
+import DealDetail from '@/components/pipeline/DealDetail'
+import StageChangeModal from '@/components/pipeline/StageChangeModal'
 import { type PipelineDeal } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { format } from 'date-fns'
+import { useToast } from '@/hooks/use-toast'
 import {
   DndContext,
   closestCenter,
@@ -23,22 +27,14 @@ import {
 import { CSS } from '@dnd-kit/utilities'
 
 const STAGE_CONFIG = [
-  { value: 'lead', label: 'Lead', color: 'bg-purple-500/10 text-purple-400 border-purple-500/30' },
-  { value: 'qualified', label: 'Qualified', color: 'bg-blue-500/10 text-blue-400 border-blue-500/30' },
-  { value: 'proposal', label: 'Proposal', color: 'bg-amber-500/10 text-amber-400 border-amber-500/30' },
-  { value: 'negotiation', label: 'Negotiation', color: 'bg-orange-500/10 text-orange-400 border-orange-500/30' },
-  { value: 'won', label: 'Won', color: 'bg-green-500/10 text-green-400 border-green-500/30' },
-  { value: 'lost', label: 'Lost', color: 'bg-red-500/10 text-red-400 border-red-500/30' },
+  { value: 'lead', label: 'Lead', color: 'bg-purple-500/10 text-purple-400 border-purple-500/20' },
+  { value: 'qualified', label: 'Qualified', color: 'bg-blue-500/10 text-blue-400 border-blue-500/20' },
+  { value: 'proposal', label: 'Proposal', color: 'bg-amber-500/10 text-amber-400 border-amber-500/20' },
+  { value: 'negotiation', label: 'Negotiation', color: 'bg-orange-500/10 text-orange-400 border-orange-500/20' },
+  { value: 'won', label: 'Won', color: 'bg-green-500/10 text-green-400 border-green-500/20' },
+  { value: 'lost', label: 'Lost', color: 'bg-red-500/10 text-red-400 border-red-500/20' },
 ]
 
-const LOST_REASONS = [
-  { value: 'price', label: 'Giá cả' },
-  { value: 'quality', label: 'Chất lượng' },
-  { value: 'delivery', label: 'Thời gian giao hàng' },
-  { value: 'competitor', label: 'Đối thủ cạnh tranh' },
-  { value: 'no_budget', label: 'Không ngân sách' },
-  { value: 'other', label: 'Khác' },
-]
 
 interface DealCardProps {
   deal: PipelineDeal
@@ -72,7 +68,7 @@ function DealCard({ deal, isDragging, onClick }: DealCardProps) {
 
       <div className="flex items-center gap-3 mt-3">
         {deal.dealValue && (
-          <span className="badge bg-brand-500/10 text-brand-400 border-brand-500/30 text-xs px-2 py-0.5">
+          <span className="badge bg-brand-500/10 text-brand-400 border-brand-500/20 text-xs px-2 py-0.5">
             {formatCurrency(deal.dealValue)}
           </span>
         )}
@@ -89,7 +85,7 @@ function DealCard({ deal, isDragging, onClick }: DealCardProps) {
   )
 }
 
-function SortableDealCard({ deal }: { deal: PipelineDeal }) {
+function SortableDealCard({ deal, onClick }: { deal: PipelineDeal; onClick?: () => void }) {
   const {
     attributes,
     listeners,
@@ -106,13 +102,19 @@ function SortableDealCard({ deal }: { deal: PipelineDeal }) {
 
   return (
     <div ref={setNodeRef} style={style} {...attributes} {...listeners}>
-      <DealCard deal={deal} isDragging={isDragging} />
+      <DealCard deal={deal} isDragging={isDragging} onClick={onClick} />
     </div>
   )
 }
 
 export default function Pipeline() {
   const [activeId, setActiveId] = useState<number | null>(null)
+  const [isDealFormOpen, setIsDealFormOpen] = useState(false)
+  const [dealFormStage, setDealFormStage] = useState<string>('lead')
+  const [stageChangeModal, setStageChangeModal] = useState<{ open: boolean; type: 'lost' | 'won'; dealId: number; stage: string }>({ open: false, type: 'lost', dealId: 0, stage: '' })
+  const [selectedDeal, setSelectedDeal] = useState<PipelineDeal | null>(null)
+  const [isDealDetailOpen, setIsDealDetailOpen] = useState(false)
+  const { toast } = useToast()
 
   // Queries
   const { data: pipelineData, isLoading } = usePipeline({ limit: 1000 })
@@ -165,45 +167,43 @@ export default function Pipeline() {
     // Check if dropped on a different stage
     const overStage = over.id as string
     if (activeDeal.stage !== overStage) {
-      let lostReason: string | undefined
-      let quotationId: number | undefined
-
-      // Prompt for lost reason
-      if (overStage === 'lost') {
-        const reason = prompt(
-          'Lý do lost:\n' + LOST_REASONS.map((r, i) => `${i + 1}. ${r.label}`).join('\n') + '\n\nNhập số từ 1-6:'
-        )
-        if (reason) {
-          const idx = parseInt(reason) - 1
-          if (idx >= 0 && idx < LOST_REASONS.length) {
-            lostReason = LOST_REASONS[idx].value
-          }
-        }
+      // Show modal for lost/won stages
+      if (overStage === 'lost' || overStage === 'won') {
+        setStageChangeModal({ open: true, type: overStage as 'lost' | 'won', dealId: activeDeal.id, stage: overStage })
+        setActiveId(null)
+        return
       }
 
-      // Prompt for quotation link when won
-      if (overStage === 'won') {
-        const qid = prompt('Nhập ID báo giá liên kết (hoặc để trống):')
-        if (qid) {
-          quotationId = parseInt(qid)
-        }
-      }
-
-      // Update stage
+      // Direct stage change for other stages
       try {
         await updateStageMutation.mutateAsync({
           id: activeDeal.id,
           stage: overStage,
-          lostReason,
-          quotationId,
         })
+        toast({ title: `Chuyển sang ${overStage} thành công` })
       } catch (error) {
         console.error('Failed to update stage:', error)
-        alert('Cập nhật stage thất bại')
+        toast({ title: 'Cập nhật stage thất bại', variant: 'destructive' })
       }
     }
 
     setActiveId(null)
+  }
+
+  const handleStageChangeConfirm = async (data: { lostReason?: string; quotationId?: number }) => {
+    try {
+      await updateStageMutation.mutateAsync({
+        id: stageChangeModal.dealId,
+        stage: stageChangeModal.stage,
+        lostReason: data.lostReason,
+        quotationId: data.quotationId,
+      })
+      toast({ title: `Chuyển sang ${stageChangeModal.stage} thành công` })
+      setStageChangeModal((prev) => ({ ...prev, open: false }))
+    } catch (error) {
+      console.error('Failed to update stage:', error)
+      toast({ title: 'Cập nhật stage thất bại', variant: 'destructive' })
+    }
   }
 
   const handleDragCancel = () => {
@@ -229,7 +229,7 @@ export default function Pipeline() {
           <p className="text-sm text-slate-400 mt-1">{deals.length} deals</p>
         </div>
         <button
-          onClick={() => alert('Create deal modal coming soon')}
+          onClick={() => { setDealFormStage('lead'); setIsDealFormOpen(true) }}
           className="btn btn-primary px-4 py-2.5 text-sm"
         >
           <Plus className="h-4 w-4 mr-2" />
@@ -313,7 +313,7 @@ export default function Pipeline() {
                       <span className="text-xs text-slate-500">{stageDeals.length}</span>
                     </div>
                     <button
-                      onClick={() => alert('Create deal in this stage coming soon')}
+                      onClick={() => { setDealFormStage(stage.value); setIsDealFormOpen(true) }}
                       className="p-1 rounded hover:bg-slate-700/50 text-slate-400 hover:text-white transition-colors"
                       title="Add deal"
                     >
@@ -334,7 +334,13 @@ export default function Pipeline() {
                     {stageDeals.length === 0 ? (
                       <p className="text-center text-slate-600 text-sm py-8">Không có deal</p>
                     ) : (
-                      stageDeals.map((deal) => <SortableDealCard key={deal.id} deal={deal} />)
+                      stageDeals.map((deal) => (
+                        <SortableDealCard
+                          key={deal.id}
+                          deal={deal}
+                          onClick={() => { setSelectedDeal(deal); setIsDealDetailOpen(true) }}
+                        />
+                      ))
                     )}
                   </div>
                 </SortableContext>
@@ -356,6 +362,35 @@ export default function Pipeline() {
           ) : null}
         </DragOverlay>
       </DndContext>
+
+      {/* Deal Detail Slide-over */}
+      <DealDetail
+        deal={selectedDeal}
+        isOpen={isDealDetailOpen}
+        onClose={() => setIsDealDetailOpen(false)}
+        onEdit={(deal) => {
+          setIsDealDetailOpen(false)
+          setSelectedDeal(deal)
+          setDealFormStage(deal.stage)
+          setIsDealFormOpen(true)
+        }}
+      />
+
+      {/* Deal Form Modal */}
+      <DealForm
+        isOpen={isDealFormOpen}
+        onClose={() => setIsDealFormOpen(false)}
+        deal={isDealFormOpen && selectedDeal ? selectedDeal : undefined}
+        defaultStage={dealFormStage}
+      />
+
+      {/* Stage Change Modal (Lost/Won) */}
+      <StageChangeModal
+        isOpen={stageChangeModal.open}
+        type={stageChangeModal.type}
+        onConfirm={handleStageChangeConfirm}
+        onCancel={() => setStageChangeModal((prev) => ({ ...prev, open: false }))}
+      />
     </div>
   )
 }

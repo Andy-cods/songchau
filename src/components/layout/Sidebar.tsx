@@ -47,8 +47,8 @@ export default function Sidebar() {
               cn(
                 'group flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-200',
                 isActive
-                  ? 'text-white bg-brand-500/10 border-l-2 border-brand-500'
-                  : 'text-slate-400 hover:text-white hover:bg-white/5'
+                  ? 'text-white bg-brand-500/10 border-l-[3px] border-brand-400 shadow-sm shadow-brand-500/5'
+                  : 'text-slate-400 hover:text-white hover:bg-white/5 border-l-[3px] border-transparent'
               )
             }
           >
@@ -77,8 +77,8 @@ export default function Sidebar() {
             cn(
               'group flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-200',
               isActive
-                ? 'text-white bg-brand-500/10 border-l-2 border-brand-500'
-                : 'text-slate-400 hover:text-white hover:bg-white/5'
+                ? 'text-white bg-brand-500/10 border-l-[3px] border-brand-400 shadow-sm shadow-brand-500/5'
+                : 'text-slate-400 hover:text-white hover:bg-white/5 border-l-[3px] border-transparent'
             )
           }
         >

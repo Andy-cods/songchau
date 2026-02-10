@@ -1,57 +1,67 @@
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import { Plus, Search, X, ChevronLeft, ChevronRight, Star } from 'lucide-react'
-import { fetchSuppliers, type Supplier } from '@/lib/api'
+import { type Supplier } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { SUPPLIER_COUNTRIES, SUPPLIER_PLATFORMS } from '@/lib/constants'
+import { useSuppliers } from '@/hooks/useSuppliers'
+import { useDebounce } from '@/hooks/useDebounce'
+import SupplierForm from '@/components/suppliers/SupplierForm'
+import SupplierDetail from '@/components/suppliers/SupplierDetail'
 
 export default function Suppliers() {
-  const [suppliers, setSuppliers] = useState<Supplier[]>([])
-  const [loading, setLoading] = useState(true)
-
   // Filters
-  const [search, setSearch] = useState('')
+  const [searchInput, setSearchInput] = useState('')
   const [selectedCountry, setSelectedCountry] = useState('')
   const [selectedPlatform, setSelectedPlatform] = useState('')
   const [minRating, setMinRating] = useState('')
-
-  // Pagination
   const [page, setPage] = useState(1)
-  const [total, setTotal] = useState(0)
-  const [totalPages, setTotalPages] = useState(0)
-  const limit = 20
 
-  // Load suppliers when filters change
-  useEffect(() => {
-    loadSuppliers()
-  }, [page, search, selectedCountry, selectedPlatform, minRating])
+  // UI State
+  const [selectedSupplier, setSelectedSupplier] = useState<Supplier | null>(null)
+  const [isDetailOpen, setIsDetailOpen] = useState(false)
+  const [isFormOpen, setIsFormOpen] = useState(false)
+  const [formMode, setFormMode] = useState<'create' | 'edit'>('create')
 
-  const loadSuppliers = async () => {
-    setLoading(true)
-    try {
-      const response = await fetchSuppliers({
-        search,
-        country: selectedCountry,
-        platform: selectedPlatform,
-        minRating: minRating ? parseInt(minRating) : undefined,
-        page,
-        limit,
-      })
-      setSuppliers(response.data)
-      setTotal(response.pagination.total)
-      setTotalPages(response.pagination.totalPages)
-    } catch (error) {
-      console.error('Failed to load suppliers:', error)
-    } finally {
-      setLoading(false)
-    }
-  }
+  const search = useDebounce(searchInput, 300)
+
+  // React Query
+  const { data: suppliersData, isLoading: loading } = useSuppliers({
+    search,
+    country: selectedCountry || undefined,
+    platform: selectedPlatform || undefined,
+    minRating: minRating ? parseInt(minRating) : undefined,
+    page,
+    limit: 20,
+  })
+
+  const suppliers = suppliersData?.data || []
+  const total = suppliersData?.pagination?.total || 0
+  const totalPages = suppliersData?.pagination?.totalPages || 0
 
   const handleClearFilters = () => {
-    setSearch('')
+    setSearchInput('')
     setSelectedCountry('')
     setSelectedPlatform('')
     setMinRating('')
     setPage(1)
+  }
+
+  const handleRowClick = (supplier: Supplier) => {
+    setSelectedSupplier(supplier)
+    setIsDetailOpen(true)
+  }
+
+  const handleAddSupplier = () => {
+    setFormMode('create')
+    setSelectedSupplier(null)
+    setIsFormOpen(true)
+  }
+
+  const handleEditSupplier = (supplier: Supplier) => {
+    setFormMode('edit')
+    setSelectedSupplier(supplier)
+    setIsDetailOpen(false)
+    setIsFormOpen(true)
   }
 
   const renderStars = (rating: number | null) => {
@@ -109,22 +119,23 @@ export default function Suppliers() {
       <div className="flex items-center justify-between">
         <div>
           <h2 className="font-display text-2xl font-bold text-slate-50">
-            Supplier Management
+            Nhà cung cấp
           </h2>
           <p className="text-sm text-slate-400 mt-1">
-            {loading ? 'Loading...' : `${total} suppliers total`}
+            {loading ? 'Đang tải...' : `${total} nhà cung cấp`}
           </p>
         </div>
         <button
-          className="flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-blue-700 transition-colors shadow-lg shadow-blue-600/20"
+          onClick={handleAddSupplier}
+          className="btn btn-primary px-4 py-2.5 text-sm"
         >
-          <Plus className="h-4 w-4" />
+          <Plus className="h-4 w-4 mr-2" />
           Thêm nhà cung cấp
         </button>
       </div>
 
       {/* Filters */}
-      <div className="rounded-xl bg-slate-800/50 border border-slate-700/50 p-4">
+      <div className="card p-4">
         <div className="grid grid-cols-4 gap-3">
           {/* Search */}
           <div>
@@ -132,10 +143,10 @@ export default function Suppliers() {
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-500" />
               <input
                 type="text"
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                placeholder="Search company, contact..."
-                className="w-full rounded-lg bg-slate-900 border border-slate-700 pl-9 pr-3 py-2 text-sm text-slate-200 placeholder-slate-500 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                value={searchInput}
+                onChange={(e) => setSearchInput(e.target.value)}
+                placeholder="Tìm công ty, liên hệ..."
+                className="w-full rounded-lg bg-slate-900/50 border border-slate-700/50 pl-9 pr-3 py-2 text-sm text-slate-200 placeholder-slate-500 focus:outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20"
               />
             </div>
           </div>
@@ -144,9 +155,9 @@ export default function Suppliers() {
           <select
             value={selectedCountry}
             onChange={(e) => setSelectedCountry(e.target.value)}
-            className="rounded-lg bg-slate-900 border border-slate-700 px-3 py-2 text-sm text-slate-200 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+            className="rounded-lg bg-slate-900/50 border border-slate-700/50 px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20"
           >
-            <option value="">All Countries</option>
+            <option value="">Tất cả quốc gia</option>
             {SUPPLIER_COUNTRIES.map((country) => (
               <option key={country.value} value={country.value}>
                 {country.label}
@@ -158,9 +169,9 @@ export default function Suppliers() {
           <select
             value={selectedPlatform}
             onChange={(e) => setSelectedPlatform(e.target.value)}
-            className="rounded-lg bg-slate-900 border border-slate-700 px-3 py-2 text-sm text-slate-200 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+            className="rounded-lg bg-slate-900/50 border border-slate-700/50 px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20"
           >
-            <option value="">All Platforms</option>
+            <option value="">Tất cả platform</option>
             {SUPPLIER_PLATFORMS.map((platform) => (
               <option key={platform.value} value={platform.value}>
                 {platform.label}
@@ -172,160 +183,168 @@ export default function Suppliers() {
           <select
             value={minRating}
             onChange={(e) => setMinRating(e.target.value)}
-            className="rounded-lg bg-slate-900 border border-slate-700 px-3 py-2 text-sm text-slate-200 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+            className="rounded-lg bg-slate-900/50 border border-slate-700/50 px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20"
           >
-            <option value="">All Ratings</option>
-            <option value="4">4+ Stars</option>
-            <option value="3">3+ Stars</option>
+            <option value="">Tất cả rating</option>
+            <option value="4">4+ sao</option>
+            <option value="3">3+ sao</option>
           </select>
         </div>
 
         {/* Clear Filters */}
-        {(search || selectedCountry || selectedPlatform || minRating) && (
+        {(searchInput || selectedCountry || selectedPlatform || minRating) && (
           <button
             onClick={handleClearFilters}
             className="mt-3 flex items-center gap-2 text-sm text-slate-400 hover:text-slate-200 transition-colors"
           >
             <X className="h-4 w-4" />
-            Clear all filters
+            Xóa bộ lọc
           </button>
         )}
       </div>
 
       {/* Table */}
-      <div className="rounded-xl bg-slate-800/50 border border-slate-700/50 overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full">
-            <thead className="bg-slate-900/50 border-b border-slate-700">
+      <div className="table-wrapper">
+        <table className="table">
+          <thead>
+            <tr>
+              <th>Công ty</th>
+              <th>Quốc gia</th>
+              <th>Platform</th>
+              <th>Rating</th>
+              <th>Quality</th>
+              <th>Delivery</th>
+              <th>Price</th>
+              <th>Liên hệ</th>
+            </tr>
+          </thead>
+          <tbody>
+            {loading ? (
+              Array.from({ length: 8 }).map((_, idx) => (
+                <tr key={idx}>
+                  <td colSpan={8}>
+                    <div className="h-10 bg-slate-800/50 animate-pulse rounded" />
+                  </td>
+                </tr>
+              ))
+            ) : suppliers.length === 0 ? (
               <tr>
-                <th className="px-4 py-3 text-left text-xs font-medium text-slate-400 uppercase tracking-wider">
-                  Company Name
-                </th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-slate-400 uppercase tracking-wider">
-                  Country
-                </th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-slate-400 uppercase tracking-wider">
-                  Platform
-                </th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-slate-400 uppercase tracking-wider">
-                  Rating
-                </th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-slate-400 uppercase tracking-wider">
-                  Quality
-                </th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-slate-400 uppercase tracking-wider">
-                  Delivery
-                </th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-slate-400 uppercase tracking-wider">
-                  Price
-                </th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-slate-400 uppercase tracking-wider">
-                  Contact
-                </th>
+                <td colSpan={8} className="py-16 text-center">
+                  <div className="flex flex-col items-center gap-3">
+                    <div className="rounded-full bg-slate-800/50 p-4">
+                      <Search className="h-8 w-8 text-slate-500" />
+                    </div>
+                    <div>
+                      <p className="font-medium text-slate-300">Không tìm thấy nhà cung cấp</p>
+                      <p className="text-sm text-slate-500 mt-1">Thử thay đổi bộ lọc</p>
+                    </div>
+                  </div>
+                </td>
               </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-700">
-              {loading ? (
-                <tr>
-                  <td colSpan={8} className="px-4 py-8 text-center text-slate-400">
-                    Loading suppliers...
-                  </td>
-                </tr>
-              ) : suppliers.length === 0 ? (
-                <tr>
-                  <td colSpan={8} className="px-4 py-8 text-center text-slate-400">
-                    No suppliers found
-                  </td>
-                </tr>
-              ) : (
-                suppliers.map((supplier, idx) => (
-                  <tr
-                    key={supplier.id}
-                    className={cn(
-                      'cursor-pointer transition-colors',
-                      idx % 2 === 0 ? 'bg-slate-900/20' : 'bg-transparent',
-                      'hover:bg-slate-700/30'
-                    )}
-                  >
-                    <td className="px-4 py-3">
-                      <div>
-                        <p className="text-sm font-medium text-slate-200">
-                          {supplier.companyName}
+            ) : (
+              suppliers.map((supplier: Supplier, idx: number) => (
+                <tr
+                  key={supplier.id}
+                  onClick={() => handleRowClick(supplier)}
+                  className={cn(
+                    'cursor-pointer transition-colors duration-150',
+                    idx % 2 === 0 && 'even:bg-slate-800/10'
+                  )}
+                >
+                  <td>
+                    <div>
+                      <p className="text-sm font-medium text-slate-200">
+                        {supplier.companyName}
+                      </p>
+                      {supplier.companyNameLocal && (
+                        <p className="text-xs text-slate-400">
+                          {supplier.companyNameLocal}
                         </p>
-                        {supplier.companyNameLocal && (
-                          <p className="text-xs text-slate-400">
-                            {supplier.companyNameLocal}
-                          </p>
-                        )}
-                      </div>
-                    </td>
-                    <td className="px-4 py-3">
-                      <span className="text-xl">{getCountryFlag(supplier.country)}</span>
-                      <span className="ml-2 text-sm text-slate-300 capitalize">
-                        {supplier.country}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3">
-                      {supplier.platform ? (
-                        <span className="inline-block px-2 py-1 rounded bg-indigo-500/10 border border-indigo-500/20 text-xs font-medium text-indigo-400">
-                          {supplier.platform}
-                        </span>
-                      ) : (
-                        <span className="text-sm text-slate-500">—</span>
                       )}
-                    </td>
-                    <td className="px-4 py-3">{renderStars(supplier.rating)}</td>
-                    <td className="px-4 py-3 min-w-[120px]">
-                      {renderScoreBar(supplier.qualityScore)}
-                    </td>
-                    <td className="px-4 py-3 min-w-[120px]">
-                      {renderScoreBar(supplier.deliveryScore)}
-                    </td>
-                    <td className="px-4 py-3 min-w-[120px]">
-                      {renderScoreBar(supplier.priceScore)}
-                    </td>
-                    <td className="px-4 py-3">
-                      <div>
-                        <p className="text-sm text-slate-200">
-                          {supplier.contactName || '—'}
-                        </p>
-                        {supplier.contactPhone && (
-                          <p className="text-xs text-slate-400">{supplier.contactPhone}</p>
-                        )}
-                      </div>
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
+                    </div>
+                  </td>
+                  <td>
+                    <span className="text-xl">{getCountryFlag(supplier.country)}</span>
+                    <span className="ml-2 text-sm text-slate-300 capitalize">
+                      {supplier.country}
+                    </span>
+                  </td>
+                  <td>
+                    {supplier.platform ? (
+                      <span className="badge border bg-indigo-500/10 text-indigo-400 border-indigo-500/20">
+                        {supplier.platform}
+                      </span>
+                    ) : (
+                      <span className="text-sm text-slate-500">—</span>
+                    )}
+                  </td>
+                  <td>{renderStars(supplier.rating)}</td>
+                  <td className="min-w-[120px]">
+                    {renderScoreBar(supplier.qualityScore)}
+                  </td>
+                  <td className="min-w-[120px]">
+                    {renderScoreBar(supplier.deliveryScore)}
+                  </td>
+                  <td className="min-w-[120px]">
+                    {renderScoreBar(supplier.priceScore)}
+                  </td>
+                  <td>
+                    <div>
+                      <p className="text-sm text-slate-200">
+                        {supplier.contactName || '—'}
+                      </p>
+                      {supplier.contactPhone && (
+                        <p className="text-xs text-slate-400">{supplier.contactPhone}</p>
+                      )}
+                    </div>
+                  </td>
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
 
         {/* Pagination */}
         {!loading && totalPages > 1 && (
           <div className="flex items-center justify-between border-t border-slate-700 bg-slate-900/50 px-4 py-3">
             <p className="text-sm text-slate-400">
-              Page {page} of {totalPages} ({total} total)
+              Trang {page} / {totalPages} ({total} NCC)
             </p>
             <div className="flex items-center gap-2">
               <button
                 onClick={() => setPage((p) => Math.max(1, p - 1))}
                 disabled={page === 1}
-                className="flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 hover:bg-slate-800 hover:text-slate-200 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                className="btn btn-secondary px-3 py-1.5 text-xs disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                <ChevronLeft className="h-4 w-4" />
+                Trước
               </button>
               <button
                 onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
                 disabled={page === totalPages}
-                className="flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 hover:bg-slate-800 hover:text-slate-200 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                className="btn btn-secondary px-3 py-1.5 text-xs disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                <ChevronRight className="h-4 w-4" />
+                Sau
               </button>
             </div>
           </div>
         )}
       </div>
+
+      {/* Supplier Detail Slide-over */}
+      <SupplierDetail
+        supplier={selectedSupplier}
+        isOpen={isDetailOpen}
+        onClose={() => setIsDetailOpen(false)}
+        onEdit={handleEditSupplier}
+      />
+
+      {/* Supplier Form Modal */}
+      <SupplierForm
+        isOpen={isFormOpen}
+        onClose={() => setIsFormOpen(false)}
+        supplier={formMode === 'edit' ? selectedSupplier : null}
+        mode={formMode}
+      />
     </div>
   )
 }

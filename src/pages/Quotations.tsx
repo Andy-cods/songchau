@@ -1,32 +1,25 @@
 import { useState, useEffect } from 'react'
 import { Plus, Search, X, ChevronLeft, ChevronRight, Eye, Edit, Copy, Trash2, FileText } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
-import { fetchQuotations, deleteQuotation, type Quotation } from '@/lib/api'
+import { fetchQuotations, deleteQuotation, fetchQuotation, createQuotation, getNextQuoteNumber, type Quotation } from '@/lib/api'
 import { cn } from '@/lib/utils'
+import { QUOTATION_STATUS_COLORS, QUOTATION_STATUS_LABELS, QUOTATION_STATUSES } from '@/lib/constants'
 import { format } from 'date-fns'
-
-const STATUS_COLORS: Record<string, string> = {
-  draft: 'bg-slate-500/10 text-slate-400 border-slate-500/20',
-  sent: 'bg-blue-500/10 text-blue-400 border-blue-500/20',
-  viewed: 'bg-purple-500/10 text-purple-400 border-purple-500/20',
-  accepted: 'bg-green-500/10 text-green-400 border-green-500/20',
-  rejected: 'bg-red-500/10 text-red-400 border-red-500/20',
-  expired: 'bg-gray-500/10 text-gray-400 border-gray-500/20',
-}
-
-const STATUS_LABELS: Record<string, string> = {
-  draft: 'Draft',
-  sent: 'Sent',
-  viewed: 'Viewed',
-  accepted: 'Accepted',
-  rejected: 'Rejected',
-  expired: 'Expired',
-}
+import { useToast } from '@/hooks/use-toast'
+import ConfirmDialog from '@/components/shared/ConfirmDialog'
+import QuotationDetail from '@/components/quotations/QuotationDetail'
 
 export default function Quotations() {
   const navigate = useNavigate()
   const [quotations, setQuotations] = useState<Quotation[]>([])
   const [loading, setLoading] = useState(true)
+
+  const { toast } = useToast()
+
+  // Detail panel
+  const [selectedId, setSelectedId] = useState<number | null>(null)
+  const [detailOpen, setDetailOpen] = useState(false)
+  const [confirmDelete, setConfirmDelete] = useState<{ open: boolean; id: number; quoteNumber: string }>({ open: false, id: 0, quoteNumber: '' })
 
   // Filters
   const [search, setSearch] = useState('')
@@ -67,15 +60,20 @@ export default function Quotations() {
     setPage(1)
   }
 
-  const handleDelete = async (id: number, quoteNumber: string) => {
-    if (!confirm(`Bạn có chắc muốn xóa báo giá ${quoteNumber}?`)) return
+  const handleDelete = (id: number, quoteNumber: string) => {
+    setConfirmDelete({ open: true, id, quoteNumber })
+  }
 
+  const handleConfirmDelete = async () => {
     try {
-      await deleteQuotation(id)
+      await deleteQuotation(confirmDelete.id)
       loadQuotations()
+      toast({ title: 'Xóa báo giá thành công' })
     } catch (error) {
       console.error('Failed to delete quotation:', error)
-      alert('Failed to delete quotation')
+      toast({ title: 'Xóa báo giá thất bại', variant: 'destructive' })
+    } finally {
+      setConfirmDelete({ open: false, id: 0, quoteNumber: '' })
     }
   }
 
@@ -117,7 +115,7 @@ export default function Quotations() {
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 placeholder="Search quote number, notes..."
-                className="w-full rounded-lg bg-slate-900 border border-slate-700 pl-9 pr-3 py-2 text-sm text-slate-200 placeholder-slate-500 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                className="w-full rounded-lg bg-slate-900/50 border border-slate-700/50 pl-9 pr-3 py-2 text-sm text-slate-200 placeholder-slate-500 focus:outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20"
               />
             </div>
           </div>
@@ -126,15 +124,12 @@ export default function Quotations() {
           <select
             value={selectedStatus}
             onChange={(e) => setSelectedStatus(e.target.value)}
-            className="rounded-lg bg-slate-900 border border-slate-700 px-3 py-2 text-sm text-slate-200 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+            className="rounded-lg bg-slate-900/50 border border-slate-700/50 px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20"
           >
             <option value="">All Status</option>
-            <option value="draft">Draft</option>
-            <option value="sent">Sent</option>
-            <option value="viewed">Viewed</option>
-            <option value="accepted">Accepted</option>
-            <option value="rejected">Rejected</option>
-            <option value="expired">Expired</option>
+            {QUOTATION_STATUSES.map((s) => (
+              <option key={s.value} value={s.value}>{s.label}</option>
+            ))}
           </select>
         </div>
 
@@ -154,24 +149,24 @@ export default function Quotations() {
       <div className="rounded-xl bg-slate-800/50 border border-slate-700/50 overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full">
-            <thead className="bg-slate-900/50 border-b border-slate-700">
+            <thead className="bg-slate-800/30 border-b-2 border-slate-700/50">
               <tr>
-                <th className="px-4 py-3 text-left text-xs font-medium text-slate-400 uppercase tracking-wider">
+                <th className="px-4 py-3.5 text-left text-xs font-semibold text-slate-300 uppercase tracking-wider">
                   Quote Number
                 </th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-slate-400 uppercase tracking-wider">
+                <th className="px-4 py-3.5 text-left text-xs font-semibold text-slate-300 uppercase tracking-wider">
                   Customer
                 </th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-slate-400 uppercase tracking-wider">
+                <th className="px-4 py-3.5 text-left text-xs font-semibold text-slate-300 uppercase tracking-wider">
                   Created Date
                 </th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-slate-400 uppercase tracking-wider">
+                <th className="px-4 py-3.5 text-left text-xs font-semibold text-slate-300 uppercase tracking-wider">
                   Total Amount
                 </th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-slate-400 uppercase tracking-wider">
+                <th className="px-4 py-3.5 text-left text-xs font-semibold text-slate-300 uppercase tracking-wider">
                   Status
                 </th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-slate-400 uppercase tracking-wider">
+                <th className="px-4 py-3.5 text-left text-xs font-semibold text-slate-300 uppercase tracking-wider">
                   Actions
                 </th>
               </tr>
@@ -185,8 +180,16 @@ export default function Quotations() {
                 </tr>
               ) : quotations.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="px-4 py-8 text-center text-slate-400">
-                    No quotations found
+                  <td colSpan={6} className="px-4 py-16 text-center">
+                    <div className="empty-state">
+                      <div className="empty-state-icon">
+                        <FileText className="h-8 w-8 text-slate-500" />
+                      </div>
+                      <div>
+                        <p className="empty-state-title">No quotations found</p>
+                        <p className="empty-state-description mt-1">Try adjusting your search or filters</p>
+                      </div>
+                    </div>
                   </td>
                 </tr>
               ) : (
@@ -219,17 +222,21 @@ export default function Quotations() {
                       <span
                         className={cn(
                           'inline-block px-2 py-1 rounded border text-xs font-medium',
-                          STATUS_COLORS[quotation.status] ||
+                          QUOTATION_STATUS_COLORS[quotation.status] ||
                             'bg-slate-700/50 text-slate-300 border-slate-600'
                         )}
                       >
-                        {STATUS_LABELS[quotation.status] || quotation.status}
+                        {QUOTATION_STATUS_LABELS[quotation.status] || quotation.status}
                       </span>
                     </td>
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-2">
                         <button
-                          onClick={() => navigate(`/quotations/${quotation.id}`)}
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            setSelectedId(quotation.id)
+                            setDetailOpen(true)
+                          }}
                           className="p-1 rounded text-slate-400 hover:text-blue-400 hover:bg-blue-500/10 transition-colors"
                           title="View"
                         >
@@ -243,7 +250,38 @@ export default function Quotations() {
                           <Edit className="h-4 w-4" />
                         </button>
                         <button
-                          onClick={() => alert('Duplicate feature coming soon')}
+                          onClick={async (e) => {
+                            e.stopPropagation()
+                            try {
+                              const { data: original } = await fetchQuotation(quotation.id)
+                              const { quoteNumber } = await getNextQuoteNumber()
+                              await createQuotation({
+                                quoteNumber,
+                                customerId: original.customerId,
+                                status: 'draft',
+                                subtotal: original.subtotal,
+                                taxRate: original.taxRate,
+                                taxAmount: original.taxAmount,
+                                totalAmount: original.totalAmount,
+                                currency: original.currency,
+                                validUntil: original.validUntil,
+                                notes: original.notes,
+                                internalNotes: original.internalNotes,
+                                items: (original.items || []).map((item) => ({
+                                  productId: item.productId,
+                                  quantity: item.quantity,
+                                  unitPrice: item.unitPrice,
+                                  costPrice: item.costPrice ?? null,
+                                  amount: item.amount,
+                                  notes: item.notes || null,
+                                })),
+                              })
+                              loadQuotations()
+                            } catch (error) {
+                              console.error('Failed to duplicate:', error)
+                              toast({ title: 'Nhân bản báo giá thất bại', variant: 'destructive' })
+                            }
+                          }}
                           className="p-1 rounded text-slate-400 hover:text-purple-400 hover:bg-purple-500/10 transition-colors"
                           title="Duplicate"
                         >
@@ -290,6 +328,27 @@ export default function Quotations() {
           </div>
         )}
       </div>
+
+      {/* Detail Slide-over */}
+      <QuotationDetail
+        quotationId={selectedId}
+        isOpen={detailOpen}
+        onClose={() => {
+          setDetailOpen(false)
+          setSelectedId(null)
+          loadQuotations()
+        }}
+      />
+
+      <ConfirmDialog
+        isOpen={confirmDelete.open}
+        title={`Xóa báo giá ${confirmDelete.quoteNumber}?`}
+        description="Hành động này không thể hoàn tác."
+        confirmLabel="Xóa"
+        variant="danger"
+        onConfirm={handleConfirmDelete}
+        onCancel={() => setConfirmDelete({ open: false, id: 0, quoteNumber: '' })}
+      />
     </div>
   )
 }

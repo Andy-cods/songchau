@@ -13,6 +13,9 @@ import {
   MapPin,
   Users,
   AlertCircle,
+  Plus,
+  UserPlus,
+  Target,
 } from 'lucide-react'
 import {
   BarChart,
@@ -115,8 +118,26 @@ export default function Dashboard() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-96">
-        <p className="text-slate-400">Loading dashboard...</p>
+      <div className="space-y-6">
+        {/* KPI Skeletons */}
+        <div className="grid gap-4 grid-cols-1 md:grid-cols-2 lg:grid-cols-4">
+          {[1, 2, 3, 4].map((i) => (
+            <div key={i} className="rounded-xl bg-slate-800/50 border border-slate-700/50 p-6">
+              <div className="skeleton h-4 w-32 mb-3" />
+              <div className="skeleton h-8 w-24 mb-2" />
+              <div className="skeleton h-3 w-20" />
+            </div>
+          ))}
+        </div>
+        {/* Chart Skeletons */}
+        <div className="grid gap-6 grid-cols-1 lg:grid-cols-2">
+          {[1, 2].map((i) => (
+            <div key={i} className="rounded-xl bg-slate-800/50 border border-slate-700/50 p-6">
+              <div className="skeleton h-5 w-48 mb-4" />
+              <div className="skeleton h-[250px] w-full" />
+            </div>
+          ))}
+        </div>
       </div>
     )
   }
@@ -194,6 +215,48 @@ export default function Dashboard() {
             {stats ? formatCompactCurrency(stats.pipelineValue) : '0'}
           </p>
           <p className="mt-2 text-xs text-slate-400">Weighted total</p>
+        </div>
+      </div>
+
+      {/* Quick Actions */}
+      <div className="rounded-xl bg-slate-800/50 border border-slate-700/50 p-4">
+        <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3">Thao tác nhanh</h3>
+        <div className="flex gap-3">
+          <button
+            onClick={() => navigate('/quotations/new')}
+            className="flex items-center gap-2 rounded-lg bg-blue-600/10 border border-blue-500/20 px-4 py-2.5 text-sm font-medium text-blue-400 hover:bg-blue-600/20 hover:border-blue-500/40 transition-all"
+          >
+            <FileText className="h-4 w-4" />
+            Tạo báo giá
+          </button>
+          <button
+            onClick={() => navigate('/orders/new')}
+            className="flex items-center gap-2 rounded-lg bg-purple-600/10 border border-purple-500/20 px-4 py-2.5 text-sm font-medium text-purple-400 hover:bg-purple-600/20 hover:border-purple-500/40 transition-all"
+          >
+            <ShoppingCart className="h-4 w-4" />
+            Tạo đơn hàng
+          </button>
+          <button
+            onClick={() => navigate('/customers')}
+            className="flex items-center gap-2 rounded-lg bg-green-600/10 border border-green-500/20 px-4 py-2.5 text-sm font-medium text-green-400 hover:bg-green-600/20 hover:border-green-500/40 transition-all"
+          >
+            <UserPlus className="h-4 w-4" />
+            Thêm khách hàng
+          </button>
+          <button
+            onClick={() => navigate('/pipeline')}
+            className="flex items-center gap-2 rounded-lg bg-amber-600/10 border border-amber-500/20 px-4 py-2.5 text-sm font-medium text-amber-400 hover:bg-amber-600/20 hover:border-amber-500/40 transition-all"
+          >
+            <Target className="h-4 w-4" />
+            Tạo deal
+          </button>
+          <button
+            onClick={() => navigate('/products')}
+            className="flex items-center gap-2 rounded-lg bg-slate-700/50 border border-slate-600/50 px-4 py-2.5 text-sm font-medium text-slate-300 hover:bg-slate-700 hover:border-slate-500 transition-all"
+          >
+            <Plus className="h-4 w-4" />
+            Thêm sản phẩm
+          </button>
         </div>
       </div>
 
