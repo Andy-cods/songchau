@@ -1,0 +1,236 @@
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 222.2 84% 4.9%;
+    --foreground: 210 40% 98%;
+    --card: 222.2 84% 7%;
+    --card-foreground: 210 40% 98%;
+    --popover: 222.2 84% 7%;
+    --popover-foreground: 210 40% 98%;
+    --primary: 217.2 91.2% 59.8%;
+    --primary-foreground: 222.2 47.4% 11.2%;
+    --secondary: 217.2 32.6% 17.5%;
+    --secondary-foreground: 210 40% 98%;
+    --muted: 217.2 32.6% 17.5%;
+    --muted-foreground: 215 20.2% 65.1%;
+    --accent: 24.6 95% 53.1%;
+    --accent-foreground: 210 40% 98%;
+    --destructive: 0 62.8% 30.6%;
+    --destructive-foreground: 210 40% 98%;
+    --border: 217.2 32.6% 17.5%;
+    --input: 217.2 32.6% 17.5%;
+    --ring: 217.2 91.2% 59.8%;
+    --radius: 0.75rem;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-slate-950 text-slate-200 antialiased;
+    font-feature-settings: "rlig" 1, "calt" 1;
+  }
+
+  /* Selection color */
+  ::selection {
+    @apply bg-brand-500/30 text-white;
+  }
+
+  /* Scrollbar styling */
+  ::-webkit-scrollbar {
+    @apply w-2 h-2;
+  }
+
+  ::-webkit-scrollbar-track {
+    @apply bg-transparent;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    @apply bg-slate-700 rounded-full;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    @apply bg-slate-600;
+  }
+
+  /* Focus rings */
+  *:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 2px rgb(15 23 42), 0 0 0 4px rgb(59 130 246);
+  }
+
+  /* Smooth transitions for page changes */
+  .page-transition {
+    animation: fadeIn 200ms ease-in-out;
+  }
+
+  @keyframes fadeIn {
+    from {
+      opacity: 0;
+      transform: translateY(4px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  /* Smooth slide-in for modals/dialogs */
+  @keyframes slideIn {
+    from {
+      opacity: 0;
+      transform: translateY(-8px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  /* Smooth slide-up for bottom sheets */
+  @keyframes slideUp {
+    from {
+      opacity: 0;
+      transform: translateY(16px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  /* Scale animation for buttons */
+  @keyframes scaleIn {
+    from {
+      opacity: 0;
+      transform: scale(0.95);
+    }
+    to {
+      opacity: 1;
+      transform: scale(1);
+    }
+  }
+}
+
+@layer components {
+  /* Button base styles with micro-interactions */
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 rounded-lg font-medium transition-all duration-200;
+    @apply focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-900;
+    @apply disabled:pointer-events-none disabled:opacity-50;
+  }
+
+  .btn-primary {
+    @apply bg-brand-600 text-white hover:bg-brand-500 active:scale-95 shadow-lg shadow-brand-500/20;
+  }
+
+  .btn-secondary {
+    @apply bg-white/5 text-slate-200 hover:bg-white/10 active:scale-95 border border-slate-700/50;
+  }
+
+  .btn-ghost {
+    @apply text-slate-400 hover:text-white hover:bg-white/5 active:scale-95;
+  }
+
+  .btn-danger {
+    @apply bg-red-600 text-white hover:bg-red-500 active:scale-95 shadow-lg shadow-red-500/20;
+  }
+
+  /* Card styles */
+  .card {
+    @apply bg-slate-800/50 border border-slate-700/50 rounded-xl p-6 transition-all duration-200;
+    @apply hover:border-slate-600/50 hover:shadow-lg hover:shadow-black/10;
+  }
+
+  /* Input styles */
+  .input {
+    @apply w-full rounded-lg bg-slate-900/50 border border-slate-700/50 px-4 py-2.5 text-sm;
+    @apply text-slate-200 placeholder:text-slate-500;
+    @apply transition-all duration-200;
+    @apply focus:outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20;
+    @apply hover:border-slate-600/50;
+  }
+
+  /* Badge styles */
+  .badge {
+    @apply inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium;
+  }
+
+  .badge-primary {
+    @apply bg-brand-500/10 text-brand-400 border border-brand-500/20;
+  }
+
+  .badge-success {
+    @apply bg-green-500/10 text-green-400 border border-green-500/20;
+  }
+
+  .badge-warning {
+    @apply bg-amber-500/10 text-amber-400 border border-amber-500/20;
+  }
+
+  .badge-danger {
+    @apply bg-red-500/10 text-red-400 border border-red-500/20;
+  }
+
+  .badge-neutral {
+    @apply bg-slate-500/10 text-slate-400 border border-slate-500/20;
+  }
+
+  /* Table styles */
+  .table-wrapper {
+    @apply w-full overflow-auto rounded-lg border border-slate-700/50;
+  }
+
+  .table {
+    @apply w-full text-sm;
+  }
+
+  .table thead {
+    @apply bg-slate-800/50 sticky top-0 z-10;
+  }
+
+  .table th {
+    @apply px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-400;
+    @apply border-b border-slate-700/50;
+  }
+
+  .table td {
+    @apply px-4 py-3 text-slate-300;
+    @apply border-b border-slate-800/50;
+  }
+
+  .table tbody tr {
+    @apply transition-colors duration-150;
+    @apply hover:bg-slate-700/30;
+  }
+
+  /* Part number styling */
+  .part-number {
+    @apply font-mono tracking-wide text-brand-400 text-sm;
+  }
+
+  /* Status indicators */
+  .status-dot {
+    @apply inline-block w-2 h-2 rounded-full;
+  }
+
+  .status-dot-active {
+    @apply bg-green-500 shadow-lg shadow-green-500/50;
+  }
+
+  .status-dot-pending {
+    @apply bg-amber-500 shadow-lg shadow-amber-500/50;
+  }
+
+  .status-dot-inactive {
+    @apply bg-slate-500 shadow-lg shadow-slate-500/50;
+  }
+}
