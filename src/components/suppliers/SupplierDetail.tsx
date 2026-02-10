@@ -1,6 +1,6 @@
 import { X, Edit, Star, Globe, Phone, Mail, MessageCircle } from 'lucide-react'
 import type { Supplier } from '@/lib/api'
-import { cn } from '@/lib/utils'
+import { cn, safeParseJsonArray } from '@/lib/utils'
 import { SUPPLIER_COUNTRIES } from '@/lib/constants'
 
 interface SupplierDetailProps {
@@ -135,17 +135,29 @@ export default function SupplierDetail({ supplier, isOpen, onClose, onEdit }: Su
                 </p>
               </div>
 
-              {supplier.speciality && (
-                <div>
+              {safeParseJsonArray(supplier.speciality).length > 0 && (
+                <div className="col-span-2">
                   <label className="text-xs text-slate-500 uppercase tracking-wider">Chuyên môn</label>
-                  <p className="text-slate-200 mt-1">{supplier.speciality}</p>
+                  <div className="flex flex-wrap gap-1.5 mt-2">
+                    {safeParseJsonArray(supplier.speciality).map((item) => (
+                      <span key={item} className="inline-block px-2.5 py-1 rounded-lg bg-amber-500/10 border border-amber-500/20 text-xs font-medium text-amber-400">
+                        {item}
+                      </span>
+                    ))}
+                  </div>
                 </div>
               )}
 
-              {supplier.brands && (
-                <div>
+              {safeParseJsonArray(supplier.brands).length > 0 && (
+                <div className="col-span-2">
                   <label className="text-xs text-slate-500 uppercase tracking-wider">Brands</label>
-                  <p className="text-slate-200 mt-1">{supplier.brands}</p>
+                  <div className="flex flex-wrap gap-1.5 mt-2">
+                    {safeParseJsonArray(supplier.brands).map((item) => (
+                      <span key={item} className="inline-block px-2.5 py-1 rounded-lg bg-blue-500/10 border border-blue-500/20 text-xs font-medium text-blue-400">
+                        {item}
+                      </span>
+                    ))}
+                  </div>
                 </div>
               )}
 
@@ -156,10 +168,16 @@ export default function SupplierDetail({ supplier, isOpen, onClose, onEdit }: Su
                 </div>
               )}
 
-              {supplier.paymentMethods && (
+              {safeParseJsonArray(supplier.paymentMethods).length > 0 && (
                 <div>
                   <label className="text-xs text-slate-500 uppercase tracking-wider">Thanh toán</label>
-                  <p className="text-slate-200 mt-1">{supplier.paymentMethods}</p>
+                  <div className="flex flex-wrap gap-1.5 mt-2">
+                    {safeParseJsonArray(supplier.paymentMethods).map((item) => (
+                      <span key={item} className="inline-block px-2.5 py-1 rounded-lg bg-slate-700/80 border border-slate-600/50 text-xs font-medium text-slate-300">
+                        {item}
+                      </span>
+                    ))}
+                  </div>
                 </div>
               )}
             </div>

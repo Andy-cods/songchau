@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Plus, Search, X } from 'lucide-react'
+import { Plus, Search, X, LayoutGrid, List } from 'lucide-react'
 import { useProducts, useProductBrands, useProductModels, useCreateProduct, useUpdateProduct } from '@/hooks/useProducts'
 import { useQuery } from '@tanstack/react-query'
 import { fetchCategories, type Product } from '@/lib/api'
@@ -8,6 +8,7 @@ import { cn } from '@/lib/utils'
 import { MATERIAL_COLORS, BRAND_COLORS } from '@/lib/constants'
 import ProductForm from '@/components/products/ProductForm'
 import ProductDetail from '@/components/products/ProductDetail'
+import ProductCard from '@/components/products/ProductCard'
 
 const MATERIALS = ['CERAMIC', 'METAL', 'RUBBER', 'O-RING']
 
@@ -21,6 +22,7 @@ export default function Products() {
   const [page, setPage] = useState(1)
 
   // UI State
+  const [viewMode, setViewMode] = useState<'table' | 'grid'>('grid')
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null)
   const [isDetailOpen, setIsDetailOpen] = useState(false)
   const [isFormOpen, setIsFormOpen] = useState(false)
@@ -112,10 +114,37 @@ export default function Products() {
             {isLoading ? 'Đang tải...' : `${pagination.total} sản phẩm trong catalog`}
           </p>
         </div>
-        <button onClick={handleAddProduct} className="btn btn-primary px-4 py-2.5 text-sm">
-          <Plus className="h-4 w-4 mr-2" />
-          Thêm sản phẩm
-        </button>
+        <div className="flex items-center gap-3">
+          {/* View Toggle */}
+          <div className="flex items-center rounded-lg bg-slate-800/60 border border-slate-700/40 p-1">
+            <button
+              onClick={() => setViewMode('grid')}
+              className={cn(
+                'flex items-center justify-center rounded-md p-2 transition-all',
+                viewMode === 'grid'
+                  ? 'bg-brand-500/20 text-brand-400 shadow-sm'
+                  : 'text-slate-400 hover:text-slate-200'
+              )}
+            >
+              <LayoutGrid className="h-4 w-4" />
+            </button>
+            <button
+              onClick={() => setViewMode('table')}
+              className={cn(
+                'flex items-center justify-center rounded-md p-2 transition-all',
+                viewMode === 'table'
+                  ? 'bg-brand-500/20 text-brand-400 shadow-sm'
+                  : 'text-slate-400 hover:text-slate-200'
+              )}
+            >
+              <List className="h-4 w-4" />
+            </button>
+          </div>
+          <button onClick={handleAddProduct} className="btn btn-primary px-4 py-2.5 text-sm">
+            <Plus className="h-4 w-4 mr-2" />
+            Thêm sản phẩm
+          </button>
+        </div>
       </div>
 
       {/* Filter Bar */}
@@ -202,132 +231,174 @@ export default function Products() {
         </div>
       </div>
 
-      {/* Table */}
-      <div className="table-wrapper">
-        <table className="table">
-          <thead>
-            <tr>
-              <th>Part Number</th>
-              <th>Tên SP</th>
-              <th>Thương hiệu</th>
-              <th>Model máy</th>
-              <th>Vật liệu</th>
-              <th>Kích thước</th>
-              <th>Ghi chú</th>
-            </tr>
-          </thead>
-          <tbody>
-            {isLoading ? (
-              // Loading skeleton
-              Array.from({ length: 8 }).map((_, idx) => (
-                <tr key={idx}>
-                  <td colSpan={7}>
-                    <div className="h-10 bg-slate-800/50 animate-pulse rounded" />
-                  </td>
-                </tr>
-              ))
-            ) : products.length === 0 ? (
-              // Empty state
-              <tr>
-                <td colSpan={7} className="py-16 text-center">
-                  <div className="flex flex-col items-center gap-3">
-                    <div className="rounded-full bg-slate-800/50 p-4">
-                      <Search className="h-8 w-8 text-slate-500" />
-                    </div>
-                    <div>
-                      <p className="font-medium text-slate-300">Không tìm thấy sản phẩm</p>
-                      <p className="text-sm text-slate-500 mt-1">Thử thay đổi bộ lọc</p>
-                    </div>
-                    {activeFiltersCount > 0 && (
-                      <button
-                        onClick={handleClearFilters}
-                        className="btn btn-secondary px-3 py-1.5 text-xs"
-                      >
-                        Xóa bộ lọc
-                      </button>
-                    )}
-                  </div>
-                </td>
-              </tr>
-            ) : (
-              products.map((product: Product, idx: number) => (
-                <tr
-                  key={product.id}
-                  onClick={() => handleRowClick(product)}
-                  className={cn(
-                    'cursor-pointer transition-colors duration-150',
-                    idx % 2 === 0 && 'even:bg-slate-800/10'
-                  )}
-                >
-                  <td>
-                    <span className="part-number">{product.partNumber}</span>
-                  </td>
-                  <td className="text-sm text-slate-200">{product.name}</td>
-                  <td>
-                    {product.brand ? (
-                      <span
-                        className={cn(
-                          'badge border',
-                          brandColors[product.brand] || 'bg-slate-700/50 text-slate-300 border-slate-600'
-                        )}
-                      >
-                        {product.brand}
-                      </span>
-                    ) : (
-                      <span className="text-slate-500">—</span>
-                    )}
-                  </td>
-                  <td className="text-sm text-slate-400">{product.machineModel || '—'}</td>
-                  <td>
-                    {product.material ? (
-                      <span
-                        className={cn(
-                          'badge border',
-                          materialColors[product.material] || 'bg-slate-700/50 text-slate-300 border-slate-600'
-                        )}
-                      >
-                        {product.material}
-                      </span>
-                    ) : (
-                      <span className="text-slate-500">—</span>
-                    )}
-                  </td>
-                  <td className="font-mono text-sm">{product.size || '—'}</td>
-                  <td className="text-xs text-slate-500 truncate max-w-[200px]">{product.remark || '—'}</td>
-                </tr>
-              ))
-            )}
-          </tbody>
-        </table>
-
-        {/* Pagination */}
-        {!isLoading && pagination.totalPages > 1 && (
-          <div className="flex items-center justify-between border-t border-slate-700 bg-slate-900/50 px-4 py-3">
-            <p className="text-sm text-slate-400">
-              Hiển thị {(page - 1) * 20 + 1}-{Math.min(page * 20, pagination.total)} / {pagination.total} sản phẩm
-            </p>
-            <div className="flex items-center gap-2">
-              <button
-                onClick={() => setPage((p) => Math.max(1, p - 1))}
-                disabled={page === 1}
-                className="btn btn-secondary px-3 py-1.5 text-xs disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                Trước
-              </button>
-              <span className="text-sm text-slate-400">
-                Trang {page} / {pagination.totalPages}
-              </span>
-              <button
-                onClick={() => setPage((p) => Math.min(pagination.totalPages, p + 1))}
-                disabled={page === pagination.totalPages}
-                className="btn btn-secondary px-3 py-1.5 text-xs disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                Sau
-              </button>
+      {/* Grid View */}
+      {viewMode === 'grid' && (
+        <div>
+          {isLoading ? (
+            <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+              {Array.from({ length: 8 }).map((_, idx) => (
+                <div key={idx} className="rounded-xl bg-slate-800/50 border border-slate-700/50 p-5">
+                  <div className="skeleton h-4 w-24 mb-3" />
+                  <div className="skeleton h-5 w-full mb-2" />
+                  <div className="skeleton h-8 w-20 mb-3" />
+                  <div className="skeleton h-3 w-full" />
+                </div>
+              ))}
             </div>
+          ) : products.length === 0 ? (
+            <div className="flex flex-col items-center gap-3 py-16">
+              <div className="rounded-full bg-slate-800/50 p-4">
+                <Search className="h-8 w-8 text-slate-500" />
+              </div>
+              <p className="font-medium text-slate-300">Không tìm thấy sản phẩm</p>
+              <p className="text-sm text-slate-500">Thử thay đổi bộ lọc</p>
+              {activeFiltersCount > 0 && (
+                <button onClick={handleClearFilters} className="btn btn-secondary px-3 py-1.5 text-xs">
+                  Xóa bộ lọc
+                </button>
+              )}
+            </div>
+          ) : (
+            <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 stagger-children">
+              {products.map((product: Product) => (
+                <ProductCard
+                  key={product.id}
+                  product={product}
+                  onClick={() => handleRowClick(product)}
+                  onEdit={handleEditProduct}
+                />
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Table View */}
+      {viewMode === 'table' && (
+        <div className="table-wrapper">
+          <table className="table">
+            <thead>
+              <tr>
+                <th>Part Number</th>
+                <th>Tên SP</th>
+                <th>Thương hiệu</th>
+                <th>Model máy</th>
+                <th>Vật liệu</th>
+                <th>Kích thước</th>
+                <th>Ghi chú</th>
+              </tr>
+            </thead>
+            <tbody>
+              {isLoading ? (
+                Array.from({ length: 8 }).map((_, idx) => (
+                  <tr key={idx}>
+                    <td colSpan={7}>
+                      <div className="h-10 bg-slate-800/50 animate-pulse rounded" />
+                    </td>
+                  </tr>
+                ))
+              ) : products.length === 0 ? (
+                <tr>
+                  <td colSpan={7} className="py-16 text-center">
+                    <div className="flex flex-col items-center gap-3">
+                      <div className="rounded-full bg-slate-800/50 p-4">
+                        <Search className="h-8 w-8 text-slate-500" />
+                      </div>
+                      <div>
+                        <p className="font-medium text-slate-300">Không tìm thấy sản phẩm</p>
+                        <p className="text-sm text-slate-500 mt-1">Thử thay đổi bộ lọc</p>
+                      </div>
+                      {activeFiltersCount > 0 && (
+                        <button
+                          onClick={handleClearFilters}
+                          className="btn btn-secondary px-3 py-1.5 text-xs"
+                        >
+                          Xóa bộ lọc
+                        </button>
+                      )}
+                    </div>
+                  </td>
+                </tr>
+              ) : (
+                products.map((product: Product, idx: number) => (
+                  <tr
+                    key={product.id}
+                    onClick={() => handleRowClick(product)}
+                    className={cn(
+                      'cursor-pointer transition-colors duration-150',
+                      idx % 2 === 0 && 'even:bg-slate-800/10'
+                    )}
+                  >
+                    <td>
+                      <span className="part-number">{product.partNumber}</span>
+                    </td>
+                    <td className="text-sm text-slate-200">{product.name}</td>
+                    <td>
+                      {product.brand ? (
+                        <span
+                          className={cn(
+                            'badge border',
+                            brandColors[product.brand] || 'bg-slate-700/50 text-slate-300 border-slate-600'
+                          )}
+                        >
+                          {product.brand}
+                        </span>
+                      ) : (
+                        <span className="text-slate-500">—</span>
+                      )}
+                    </td>
+                    <td className="text-sm text-slate-400">{product.machineModel || '—'}</td>
+                    <td>
+                      {product.material ? (
+                        <span
+                          className={cn(
+                            'badge border',
+                            materialColors[product.material] || 'bg-slate-700/50 text-slate-300 border-slate-600'
+                          )}
+                        >
+                          {product.material}
+                        </span>
+                      ) : (
+                        <span className="text-slate-500">—</span>
+                      )}
+                    </td>
+                    <td className="font-mono text-sm">{product.size || '—'}</td>
+                    <td className="text-xs text-slate-500 truncate max-w-[200px]">{product.remark || '—'}</td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {/* Pagination */}
+      {!isLoading && pagination.totalPages > 1 && (
+        <div className="flex items-center justify-between rounded-xl bg-slate-800/60 border border-slate-700/40 px-4 py-3">
+          <p className="text-sm text-slate-400">
+            Hiển thị {(page - 1) * 20 + 1}-{Math.min(page * 20, pagination.total)} / {pagination.total} sản phẩm
+          </p>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setPage((p) => Math.max(1, p - 1))}
+              disabled={page === 1}
+              className="btn btn-secondary px-3 py-1.5 text-xs disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              Trước
+            </button>
+            <span className="text-sm text-slate-400">
+              Trang {page} / {pagination.totalPages}
+            </span>
+            <button
+              onClick={() => setPage((p) => Math.min(pagination.totalPages, p + 1))}
+              disabled={page === pagination.totalPages}
+              className="btn btn-secondary px-3 py-1.5 text-xs disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              Sau
+            </button>
           </div>
-        )}
-      </div>
+        </div>
+      )}
 
       {/* Product Detail Slide-over */}
       <ProductDetail

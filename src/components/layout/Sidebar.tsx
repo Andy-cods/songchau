@@ -25,14 +25,17 @@ const navItems = [
 
 export default function Sidebar() {
   return (
-    <aside className="fixed left-0 top-0 h-screen w-[260px] bg-slate-950 border-r border-slate-800/50 flex flex-col">
+    <aside className="fixed left-0 top-0 h-screen w-[260px] bg-slate-950/95 backdrop-blur-xl border-r border-slate-800/50 flex flex-col">
       {/* Logo Section */}
       <div className="h-16 flex items-center px-6 border-b border-slate-800/50">
-        <div className="flex items-center gap-2">
-          <h1 className="font-display font-bold text-lg text-white">Song Châu</h1>
-          <span className="text-[10px] bg-brand-500/20 text-brand-400 px-1.5 py-0.5 rounded-full font-medium tracking-wider uppercase">
-            CRM
-          </span>
+        <div className="flex items-center gap-2.5">
+          <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-brand-400 to-brand-600 flex items-center justify-center shadow-lg shadow-brand-500/20">
+            <span className="text-sm font-bold text-white">SC</span>
+          </div>
+          <div>
+            <h1 className="font-display font-bold text-base text-white leading-tight">Song Châu</h1>
+            <span className="text-[9px] text-brand-400 font-medium tracking-widest uppercase">CRM System</span>
+          </div>
         </div>
       </div>
 
@@ -47,7 +50,7 @@ export default function Sidebar() {
               cn(
                 'group flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-200',
                 isActive
-                  ? 'text-white bg-brand-500/10 border-l-[3px] border-brand-400 shadow-sm shadow-brand-500/5'
+                  ? 'text-white bg-gradient-to-r from-brand-500/15 to-transparent border-l-[3px] border-brand-400 shadow-sm shadow-brand-500/5'
                   : 'text-slate-400 hover:text-white hover:bg-white/5 border-l-[3px] border-transparent'
               )
             }

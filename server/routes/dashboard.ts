@@ -53,6 +53,21 @@ app.get('/stats', async (c) => {
 
     const pipelineValue = pipelineStats[0]?.weightedValue || 0
 
+    // Total customers
+    const [totalCustomersResult] = await db
+      .select({ count: sql<number>`count(*)` })
+      .from(customers)
+
+    // Total products
+    const [totalProductsResult] = await db
+      .select({ count: sql<number>`count(*)` })
+      .from(products)
+
+    // Average order value
+    const [avgOrderResult] = await db
+      .select({ avg: sql<number>`COALESCE(AVG(${orders.totalAmount}), 0)` })
+      .from(orders)
+
     return c.json({
       revenue: {
         current: currentMonthRevenue.total,
@@ -61,6 +76,9 @@ app.get('/stats', async (c) => {
       pendingOrders: pendingOrders.count,
       pendingQuotations: pendingQuotations.count,
       pipelineValue,
+      totalCustomers: totalCustomersResult.count,
+      totalProducts: totalProductsResult.count,
+      avgOrderValue: Math.round(avgOrderResult.avg),
     })
   } catch (error) {
     console.error('Error fetching dashboard stats:', error)
@@ -161,6 +179,26 @@ app.get('/follow-up-reminders', async (c) => {
   } catch (error) {
     console.error('Error fetching follow-up reminders:', error)
     return c.json({ error: 'Failed to fetch reminders' }, 500)
+  }
+})
+
+// Get customer acquisition by month
+app.get('/customer-acquisition', async (c) => {
+  try {
+    const data = await db
+      .select({
+        month: sql<string>`strftime('%Y-%m', ${customers.createdAt})`,
+        count: sql<number>`count(*)`,
+      })
+      .from(customers)
+      .groupBy(sql`strftime('%Y-%m', ${customers.createdAt})`)
+      .orderBy(sql`strftime('%Y-%m', ${customers.createdAt})`)
+      .limit(12)
+
+    return c.json({ data })
+  } catch (error) {
+    console.error('Error fetching customer acquisition:', error)
+    return c.json({ error: 'Failed to fetch customer acquisition data' }, 500)
   }
 })
 

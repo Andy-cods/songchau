@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { X, Edit, Building2, MapPin, DollarSign, FileText, ShoppingCart } from 'lucide-react'
+import { X, Edit, Building2, MapPin, DollarSign, FileText, ShoppingCart, Phone, Target } from 'lucide-react'
 import type { Customer, Activity, Quotation, Order } from '@/lib/api'
 import { fetchActivities, createActivity, markFollowUpDone, fetchQuotations, fetchOrders } from '@/lib/api'
 import { cn } from '@/lib/utils'
@@ -31,8 +31,13 @@ export default function CustomerDetail({
   const [quotations, setQuotations] = useState<Quotation[]>([])
   const [orders, setOrders] = useState<Order[]>([])
   const [loadingPurchase, setLoadingPurchase] = useState(false)
+  const [healthStats, setHealthStats] = useState({ orders: 0, quotations: 0, activities: 0 })
 
   useEffect(() => {
+    if (isOpen && customer) {
+      // Always load health stats when panel opens
+      loadHealthStats()
+    }
     if (isOpen && customer && activeTab === 'activities') {
       loadActivities()
     }
@@ -40,6 +45,24 @@ export default function CustomerDetail({
       loadPurchaseHistory()
     }
   }, [isOpen, customer, activeTab])
+
+  const loadHealthStats = async () => {
+    if (!customer) return
+    try {
+      const [quotationsRes, ordersRes, activitiesRes] = await Promise.all([
+        fetchQuotations({ customerId: customer.id, limit: 100 }),
+        fetchOrders({ customerId: customer.id, limit: 100 }),
+        fetchActivities({ entityType: 'customer', entityId: customer.id }),
+      ])
+      setHealthStats({
+        orders: ordersRes.data.length,
+        quotations: quotationsRes.data.length,
+        activities: activitiesRes.data.length,
+      })
+    } catch (error) {
+      console.error('Failed to load health stats:', error)
+    }
+  }
 
   const loadActivities = async () => {
     if (!customer) return
@@ -196,6 +219,52 @@ export default function CustomerDetail({
           {/* Overview Tab */}
           {activeTab === 'overview' && (
             <>
+              {/* Health Summary */}
+              <div className="grid grid-cols-3 gap-4 stagger-children">
+                <div className="rounded-xl bg-gradient-to-br from-purple-500/10 to-purple-600/5 border border-purple-500/20 p-4 text-center">
+                  <ShoppingCart className="h-5 w-5 text-purple-400 mx-auto mb-1" />
+                  <p className="text-2xl font-bold text-slate-50">{healthStats.orders}</p>
+                  <p className="text-xs text-slate-400">Đơn hàng</p>
+                </div>
+                <div className="rounded-xl bg-gradient-to-br from-blue-500/10 to-blue-600/5 border border-blue-500/20 p-4 text-center">
+                  <FileText className="h-5 w-5 text-blue-400 mx-auto mb-1" />
+                  <p className="text-2xl font-bold text-slate-50">{healthStats.quotations}</p>
+                  <p className="text-xs text-slate-400">Báo giá</p>
+                </div>
+                <div className="rounded-xl bg-gradient-to-br from-green-500/10 to-green-600/5 border border-green-500/20 p-4 text-center">
+                  <Target className="h-5 w-5 text-green-400 mx-auto mb-1" />
+                  <p className="text-2xl font-bold text-slate-50">{healthStats.activities}</p>
+                  <p className="text-xs text-slate-400">Hoạt động</p>
+                </div>
+              </div>
+
+              {/* Quick Actions */}
+              <div className="flex flex-wrap gap-2">
+                <button
+                  onClick={() => { navigate(`/quotations/new?customerId=${customer.id}`); onClose() }}
+                  className="flex items-center gap-2 rounded-lg bg-blue-600/10 border border-blue-500/20 px-3 py-2 text-xs font-medium text-blue-400 hover:bg-blue-600/20 hover:border-blue-500/40 transition-all"
+                >
+                  <FileText className="h-3.5 w-3.5" />
+                  Tạo báo giá
+                </button>
+                <button
+                  onClick={() => { navigate(`/orders/new?customerId=${customer.id}`); onClose() }}
+                  className="flex items-center gap-2 rounded-lg bg-purple-600/10 border border-purple-500/20 px-3 py-2 text-xs font-medium text-purple-400 hover:bg-purple-600/20 hover:border-purple-500/40 transition-all"
+                >
+                  <ShoppingCart className="h-3.5 w-3.5" />
+                  Tạo đơn hàng
+                </button>
+                {customer.contactPhone && (
+                  <a
+                    href={`tel:${customer.contactPhone}`}
+                    className="flex items-center gap-2 rounded-lg bg-green-600/10 border border-green-500/20 px-3 py-2 text-xs font-medium text-green-400 hover:bg-green-600/20 hover:border-green-500/40 transition-all"
+                  >
+                    <Phone className="h-3.5 w-3.5" />
+                    Gọi điện
+                  </a>
+                )}
+              </div>
+
               {/* Company Info */}
               <div className="rounded-xl bg-slate-800/50 border border-slate-700/50 p-6">
                 <div className="flex items-center gap-2 mb-4">

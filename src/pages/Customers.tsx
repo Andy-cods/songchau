@@ -109,20 +109,48 @@ export default function Customers() {
       <div className="flex items-center justify-between">
         <div>
           <h2 className="font-display text-2xl font-bold text-slate-50">
-            Customer Management
+            Quản lý khách hàng
           </h2>
           <p className="text-sm text-slate-400 mt-1">
-            {loading ? 'Loading...' : `${total} customers total`}
+            {loading ? 'Đang tải...' : `${total} khách hàng`}
           </p>
         </div>
         <button
           onClick={handleAddCustomer}
-          className="flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-blue-700 transition-colors shadow-lg shadow-blue-600/20"
+          className="btn btn-primary px-4 py-2.5 text-sm"
         >
           <Plus className="h-4 w-4" />
           Thêm khách hàng
         </button>
       </div>
+
+      {/* Summary Stats Bar */}
+      {!loading && customers.length > 0 && (
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 stagger-children">
+          <div className="rounded-xl bg-slate-800/60 border border-slate-700/40 p-4 text-center">
+            <p className="text-2xl font-bold text-slate-50">{total}</p>
+            <p className="text-xs text-slate-400 mt-1">Tổng KH</p>
+          </div>
+          <div className="rounded-xl bg-gradient-to-br from-yellow-500/10 to-yellow-600/5 border border-yellow-500/20 p-4 text-center">
+            <p className="text-2xl font-bold text-yellow-400">
+              {customers.filter((c) => c.tier === 'A').length}
+            </p>
+            <p className="text-xs text-slate-400 mt-1">Tier A</p>
+          </div>
+          <div className="rounded-xl bg-gradient-to-br from-blue-500/10 to-blue-600/5 border border-blue-500/20 p-4 text-center">
+            <p className="text-2xl font-bold text-blue-400">
+              {customers.filter((c) => c.tier === 'B').length}
+            </p>
+            <p className="text-xs text-slate-400 mt-1">Tier B</p>
+          </div>
+          <div className="rounded-xl bg-gradient-to-br from-green-500/10 to-green-600/5 border border-green-500/20 p-4 text-center">
+            <p className="text-2xl font-bold text-green-400">
+              {customers.filter((c) => c.status === 'active').length}
+            </p>
+            <p className="text-xs text-slate-400 mt-1">Active</p>
+          </div>
+        </div>
+      )}
 
       {/* Filters */}
       <div className="rounded-xl bg-slate-800/50 border border-slate-700/50 p-4">

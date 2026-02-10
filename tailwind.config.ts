@@ -57,6 +57,15 @@ export default {
           DEFAULT: 'hsl(var(--destructive))',
           foreground: 'hsl(var(--destructive-foreground))',
         },
+        // Vibrant accent colors
+        vibrant: {
+          blue: '#4f8cff',
+          purple: '#a78bfa',
+          green: '#34d399',
+          amber: '#fbbf24',
+          rose: '#fb7185',
+          cyan: '#22d3ee',
+        },
         // Pipeline stage colors
         pipeline: {
           lead: '#8b5cf6',

@@ -6,11 +6,11 @@
 
 @layer base {
   :root {
-    --background: 222.2 84% 4.9%;
+    --background: 222.2 47% 11.2%;
     --foreground: 210 40% 98%;
-    --card: 222.2 84% 7%;
+    --card: 217.2 33% 17.5%;
     --card-foreground: 210 40% 98%;
-    --popover: 222.2 84% 7%;
+    --popover: 217.2 33% 17.5%;
     --popover-foreground: 210 40% 98%;
     --primary: 217.2 91.2% 59.8%;
     --primary-foreground: 222.2 47.4% 11.2%;
@@ -35,7 +35,7 @@
   }
 
   body {
-    @apply bg-slate-950 text-slate-200 antialiased;
+    @apply bg-slate-900 text-slate-100 antialiased;
     font-feature-settings: "rlig" 1, "calt" 1;
   }
 
@@ -162,6 +162,39 @@
     animation: shimmer 1.5s ease-in-out infinite;
     border-radius: 0.5rem;
   }
+
+  /* Stagger fade-in for children */
+  @keyframes fadeInUp {
+    from { opacity: 0; transform: translateY(12px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  @keyframes slideInFromLeft {
+    from { opacity: 0; transform: translateX(-16px); }
+    to { opacity: 1; transform: translateX(0); }
+  }
+
+  @keyframes pulseGlow {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.4); }
+    50% { box-shadow: 0 0 12px 4px rgba(59, 130, 246, 0.08); }
+  }
+
+  .stagger-children > * {
+    opacity: 0;
+    animation: fadeInUp 500ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  }
+  .stagger-children > *:nth-child(1) { animation-delay: 0ms; }
+  .stagger-children > *:nth-child(2) { animation-delay: 60ms; }
+  .stagger-children > *:nth-child(3) { animation-delay: 120ms; }
+  .stagger-children > *:nth-child(4) { animation-delay: 180ms; }
+  .stagger-children > *:nth-child(5) { animation-delay: 240ms; }
+  .stagger-children > *:nth-child(6) { animation-delay: 300ms; }
+  .stagger-children > *:nth-child(7) { animation-delay: 360ms; }
+  .stagger-children > *:nth-child(8) { animation-delay: 420ms; }
+
+  .animate-fade-in-up {
+    animation: fadeInUp 500ms cubic-bezier(0.16, 1, 0.3, 1);
+  }
 }
 
 @layer components {
@@ -173,7 +206,8 @@
   }
 
   .btn-primary {
-    @apply bg-brand-600 text-white hover:bg-brand-500 active:scale-95 shadow-lg shadow-brand-500/20;
+    @apply bg-brand-600 text-white hover:bg-brand-500 active:scale-95 shadow-lg shadow-brand-500/25;
+    @apply hover:shadow-xl hover:shadow-brand-500/30;
   }
 
   .btn-secondary {
@@ -190,8 +224,9 @@
 
   /* Card styles */
   .card {
-    @apply bg-slate-800/50 border border-slate-700/50 rounded-xl p-6 transition-all duration-200;
-    @apply hover:border-slate-600/50 hover:shadow-lg hover:shadow-black/10;
+    @apply bg-slate-800/60 border border-slate-700/40 rounded-xl p-6 transition-all duration-300;
+    @apply hover:border-slate-600/60 hover:shadow-xl hover:shadow-black/20;
+    @apply hover:bg-slate-800/70;
   }
 
   /* Input styles */

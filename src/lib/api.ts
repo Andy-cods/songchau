@@ -847,6 +847,9 @@ export interface DashboardStats {
   pendingOrders: number
   pendingQuotations: number
   pipelineValue: number
+  totalCustomers: number
+  totalProducts: number
+  avgOrderValue: number
 }
 
 export interface RevenueByMonth {
@@ -905,6 +908,12 @@ export async function fetchRecentActivities(): Promise<ActivitiesResponse> {
 export async function fetchFollowUpReminders(): Promise<ActivitiesResponse> {
   const res = await fetch(`${API_BASE}/dashboard/follow-up-reminders`)
   if (!res.ok) throw new Error('Failed to fetch follow-up reminders')
+  return res.json()
+}
+
+export async function fetchCustomerAcquisition(): Promise<{ data: { month: string; count: number }[] }> {
+  const res = await fetch(`${API_BASE}/dashboard/customer-acquisition`)
+  if (!res.ok) throw new Error('Failed to fetch customer acquisition data')
   return res.json()
 }
 
