@@ -3,8 +3,9 @@ import { Plus, Search, X, ChevronLeft, ChevronRight, Star } from 'lucide-react'
 import { type Supplier } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { SUPPLIER_COUNTRIES, SUPPLIER_PLATFORMS } from '@/lib/constants'
-import { useSuppliers } from '@/hooks/useSuppliers'
+import { useSuppliers, useDeleteSupplier } from '@/hooks/useSuppliers'
 import { useDebounce } from '@/hooks/useDebounce'
+import { useToast } from '@/hooks/use-toast'
 import SupplierForm from '@/components/suppliers/SupplierForm'
 import SupplierDetail from '@/components/suppliers/SupplierDetail'
 
@@ -23,8 +24,10 @@ export default function Suppliers() {
   const [formMode, setFormMode] = useState<'create' | 'edit'>('create')
 
   const search = useDebounce(searchInput, 300)
+  const { toast } = useToast()
 
   // React Query
+  const deleteSupplierMutation = useDeleteSupplier()
   const { data: suppliersData, isLoading: loading } = useSuppliers({
     search,
     country: selectedCountry || undefined,
@@ -62,6 +65,18 @@ export default function Suppliers() {
     setSelectedSupplier(supplier)
     setIsDetailOpen(false)
     setIsFormOpen(true)
+  }
+
+  const handleDeleteSupplier = async (supplier: Supplier) => {
+    try {
+      await deleteSupplierMutation.mutateAsync(supplier.id)
+      setIsDetailOpen(false)
+      setSelectedSupplier(null)
+      toast({ title: `Đã xóa ${supplier.companyName}` })
+    } catch (error) {
+      console.error('Failed to delete supplier:', error)
+      toast({ title: 'Xóa nhà cung cấp thất bại', variant: 'destructive' })
+    }
   }
 
   const renderStars = (rating: number | null) => {
@@ -336,6 +351,7 @@ export default function Suppliers() {
         isOpen={isDetailOpen}
         onClose={() => setIsDetailOpen(false)}
         onEdit={handleEditSupplier}
+        onDelete={handleDeleteSupplier}
       />
 
       {/* Supplier Form Modal */}

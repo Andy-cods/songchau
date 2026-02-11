@@ -10,21 +10,16 @@ import { format } from 'date-fns'
 import { useToast } from '@/hooks/use-toast'
 import {
   DndContext,
-  closestCenter,
+  pointerWithin,
   PointerSensor,
   useSensor,
   useSensors,
   DragEndEvent,
   DragOverlay,
   DragStartEvent,
+  useDraggable,
+  useDroppable,
 } from '@dnd-kit/core'
-import {
-  arrayMove,
-  SortableContext,
-  useSortable,
-  verticalListSortingStrategy,
-} from '@dnd-kit/sortable'
-import { CSS } from '@dnd-kit/utilities'
 
 const STAGE_CONFIG = [
   { value: 'lead', label: 'Lead', color: 'bg-amber-500/10 text-amber-400 border-amber-500/20' },
@@ -85,24 +80,38 @@ function DealCard({ deal, isDragging, onClick }: DealCardProps) {
   )
 }
 
-function SortableDealCard({ deal, onClick }: { deal: PipelineDeal; onClick?: () => void }) {
+function DraggableDealCard({ deal, onClick }: { deal: PipelineDeal; onClick?: () => void }) {
   const {
     attributes,
     listeners,
     setNodeRef,
     transform,
-    transition,
     isDragging,
-  } = useSortable({ id: deal.id })
+  } = useDraggable({ id: deal.id })
 
-  const style = {
-    transform: CSS.Transform.toString(transform),
-    transition,
-  }
+  const style = transform
+    ? { transform: `translate3d(${transform.x}px, ${transform.y}px, 0)` }
+    : undefined
 
   return (
     <div ref={setNodeRef} style={style} {...attributes} {...listeners}>
-      <DealCard deal={deal} isDragging={isDragging} onClick={onClick} />
+      <DealCard deal={deal} isDragging={isDragging} onClick={!isDragging ? onClick : undefined} />
+    </div>
+  )
+}
+
+function DroppableColumn({ stageValue, children }: { stageValue: string; children: React.ReactNode }) {
+  const { setNodeRef, isOver } = useDroppable({ id: stageValue })
+
+  return (
+    <div
+      ref={setNodeRef}
+      className={cn(
+        'space-y-2 min-h-[400px] rounded-lg border-2 border-dashed p-2 transition-colors',
+        isOver ? 'bg-amber-500/5 border-amber-500/30' : 'bg-stone-900/20 border-stone-800'
+      )}
+    >
+      {children}
     </div>
   )
 }
@@ -164,27 +173,32 @@ export default function Pipeline() {
       return
     }
 
-    // Check if dropped on a different stage
-    const overStage = over.id as string
-    if (activeDeal.stage !== overStage) {
-      // Show modal for lost/won stages
-      if (overStage === 'lost' || overStage === 'won') {
-        setStageChangeModal({ open: true, type: overStage as 'lost' | 'won', dealId: activeDeal.id, stage: overStage })
-        setActiveId(null)
-        return
-      }
+    // over.id is the stage column name (string) from useDroppable
+    const targetStage = over.id as string
 
-      // Direct stage change for other stages
-      try {
-        await updateStageMutation.mutateAsync({
-          id: activeDeal.id,
-          stage: overStage,
-        })
-        toast({ title: `Chuyển sang ${overStage} thành công` })
-      } catch (error) {
-        console.error('Failed to update stage:', error)
-        toast({ title: 'Cập nhật stage thất bại', variant: 'destructive' })
-      }
+    // Only proceed if dropped on a different stage
+    if (activeDeal.stage === targetStage) {
+      setActiveId(null)
+      return
+    }
+
+    // Show modal for lost/won stages
+    if (targetStage === 'lost' || targetStage === 'won') {
+      setStageChangeModal({ open: true, type: targetStage as 'lost' | 'won', dealId: activeDeal.id, stage: targetStage })
+      setActiveId(null)
+      return
+    }
+
+    // Direct stage change for other stages
+    try {
+      await updateStageMutation.mutateAsync({
+        id: activeDeal.id,
+        stage: targetStage,
+      })
+      toast({ title: `Chuyển sang ${targetStage} thành công` })
+    } catch (error) {
+      console.error('Failed to update stage:', error)
+      toast({ title: 'Cập nhật stage thất bại', variant: 'destructive' })
     }
 
     setActiveId(null)
@@ -293,7 +307,7 @@ export default function Pipeline() {
       {/* Kanban Board */}
       <DndContext
         sensors={sensors}
-        collisionDetection={closestCenter}
+        collisionDetection={pointerWithin}
         onDragStart={handleDragStart}
         onDragEnd={handleDragEnd}
         onDragCancel={handleDragCancel}
@@ -326,24 +340,19 @@ export default function Pipeline() {
                 </div>
 
                 {/* Droppable Area */}
-                <SortableContext items={stageDeals.map((d) => d.id)} strategy={verticalListSortingStrategy}>
-                  <div
-                    id={stage.value}
-                    className="space-y-2 min-h-[400px] rounded-lg bg-stone-900/20 border-2 border-dashed border-stone-800 p-2"
-                  >
-                    {stageDeals.length === 0 ? (
-                      <p className="text-center text-stone-600 text-sm py-8">Không có deal</p>
-                    ) : (
-                      stageDeals.map((deal) => (
-                        <SortableDealCard
-                          key={deal.id}
-                          deal={deal}
-                          onClick={() => { setSelectedDeal(deal); setIsDealDetailOpen(true) }}
-                        />
-                      ))
-                    )}
-                  </div>
-                </SortableContext>
+                <DroppableColumn stageValue={stage.value}>
+                  {stageDeals.length === 0 ? (
+                    <p className="text-center text-stone-600 text-sm py-8">Không có deal</p>
+                  ) : (
+                    stageDeals.map((deal) => (
+                      <DraggableDealCard
+                        key={deal.id}
+                        deal={deal}
+                        onClick={() => { setSelectedDeal(deal); setIsDealDetailOpen(true) }}
+                      />
+                    ))
+                  )}
+                </DroppableColumn>
 
                 {/* Column Footer */}
                 <div className="mt-2 text-xs text-stone-500 px-2">

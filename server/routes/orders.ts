@@ -159,6 +159,27 @@ app.post('/', async (c) => {
     const body = await c.req.json()
     const { items, ...orderData } = body
 
+    // Auto-generate orderNumber if not provided
+    if (!orderData.orderNumber) {
+      const now = new Date()
+      const year = now.getFullYear()
+      const month = String(now.getMonth() + 1).padStart(2, '0')
+
+      const [latest] = await db
+        .select({ orderNumber: orders.orderNumber })
+        .from(orders)
+        .where(like(orders.orderNumber, `SC-ORD-${year}${month}-%`))
+        .orderBy(desc(orders.id))
+        .limit(1)
+
+      let seq = 1
+      if (latest?.orderNumber) {
+        const parts = latest.orderNumber.split('-')
+        seq = parseInt(parts[parts.length - 1]) + 1
+      }
+      orderData.orderNumber = `SC-ORD-${year}${month}-${String(seq).padStart(4, '0')}`
+    }
+
     const [newOrder] = await db.insert(orders).values(orderData).returning()
 
     if (items && items.length > 0) {

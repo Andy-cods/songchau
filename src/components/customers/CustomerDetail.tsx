@@ -126,7 +126,7 @@ export default function CustomerDetail({
       />
 
       {/* Slide-over Panel */}
-      <div className="fixed inset-y-0 right-0 w-full max-w-3xl bg-stone-900border-l border-stone-700 z-50 overflow-y-auto slide-over-panel">
+      <div className="fixed inset-y-0 right-0 w-full max-w-3xl bg-stone-900 border-l border-stone-700 z-50 overflow-y-auto slide-over-panel">
         {/* Header */}
         <div className="sticky top-0 z-10 flex items-center justify-between bg-stone-900/95 backdrop-blur border-b border-stone-700 px-6 py-4">
           <div>

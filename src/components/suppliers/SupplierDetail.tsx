@@ -1,4 +1,5 @@
-import { X, Edit, Star, Globe, Phone, Mail, MessageCircle } from 'lucide-react'
+import { useState } from 'react'
+import { X, Edit, Star, Globe, Phone, Mail, MessageCircle, Trash2 } from 'lucide-react'
 import type { Supplier } from '@/lib/api'
 import { cn, safeParseJsonArray } from '@/lib/utils'
 import { SUPPLIER_COUNTRIES } from '@/lib/constants'
@@ -8,6 +9,7 @@ interface SupplierDetailProps {
   isOpen: boolean
   onClose: () => void
   onEdit?: (supplier: Supplier) => void
+  onDelete?: (supplier: Supplier) => void
 }
 
 function ScoreBar({ label, score, color }: { label: string; score: number | null; color: string }) {
@@ -29,7 +31,9 @@ function ScoreBar({ label, score, color }: { label: string; score: number | null
   )
 }
 
-export default function SupplierDetail({ supplier, isOpen, onClose, onEdit }: SupplierDetailProps) {
+export default function SupplierDetail({ supplier, isOpen, onClose, onEdit, onDelete }: SupplierDetailProps) {
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
+
   if (!isOpen || !supplier) return null
 
   const countryData = SUPPLIER_COUNTRIES.find((c) => c.value === supplier.country)
@@ -52,6 +56,15 @@ export default function SupplierDetail({ supplier, isOpen, onClose, onEdit }: Su
             )}
           </div>
           <div className="flex items-center gap-2">
+            {onDelete && (
+              <button
+                onClick={() => setShowDeleteConfirm(true)}
+                className="flex items-center gap-2 rounded-lg bg-stone-800 px-3 py-2 text-sm font-medium text-red-400 hover:bg-red-600 hover:text-white transition-colors"
+              >
+                <Trash2 className="h-4 w-4" />
+                Xóa
+              </button>
+            )}
             {onEdit && (
               <button
                 onClick={() => onEdit(supplier)}
@@ -69,6 +82,29 @@ export default function SupplierDetail({ supplier, isOpen, onClose, onEdit }: Su
             </button>
           </div>
         </div>
+
+        {/* Delete Confirmation */}
+        {showDeleteConfirm && (
+          <div className="mx-6 mt-4 rounded-lg bg-red-500/10 border border-red-500/30 p-4">
+            <p className="text-sm text-red-300 mb-3">
+              Bạn có chắc muốn xóa <strong>{supplier.companyName}</strong>? Hành động này không thể hoàn tác.
+            </p>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => { onDelete!(supplier); setShowDeleteConfirm(false) }}
+                className="rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700 transition-colors"
+              >
+                Xác nhận xóa
+              </button>
+              <button
+                onClick={() => setShowDeleteConfirm(false)}
+                className="rounded-lg bg-stone-800 px-4 py-2 text-sm font-medium text-stone-300 hover:bg-stone-700 transition-colors"
+              >
+                Hủy
+              </button>
+            </div>
+          </div>
+        )}
 
         {/* Content */}
         <div className="p-6 space-y-6">
