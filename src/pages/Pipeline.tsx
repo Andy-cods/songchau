@@ -27,8 +27,8 @@ import {
 import { CSS } from '@dnd-kit/utilities'
 
 const STAGE_CONFIG = [
-  { value: 'lead', label: 'Lead', color: 'bg-purple-500/10 text-purple-400 border-purple-500/20' },
-  { value: 'qualified', label: 'Qualified', color: 'bg-blue-500/10 text-blue-400 border-blue-500/20' },
+  { value: 'lead', label: 'Lead', color: 'bg-amber-500/10 text-amber-400 border-amber-500/20' },
+  { value: 'qualified', label: 'Qualified', color: 'bg-amber-500/10 text-amber-400 border-amber-500/20' },
   { value: 'proposal', label: 'Proposal', color: 'bg-amber-500/10 text-amber-400 border-amber-500/20' },
   { value: 'negotiation', label: 'Negotiation', color: 'bg-orange-500/10 text-orange-400 border-orange-500/20' },
   { value: 'won', label: 'Won', color: 'bg-green-500/10 text-green-400 border-green-500/20' },
@@ -51,8 +51,8 @@ function DealCard({ deal, isDragging, onClick }: DealCardProps) {
   return (
     <div
       className={cn(
-        'rounded-lg bg-slate-800 border border-slate-700/50 p-4 group',
-        'hover:border-slate-600 hover:shadow-md transition-all',
+        'rounded-lg bg-stone-800 border border-stone-700/50 p-4 group',
+        'hover:border-stone-600 hover:shadow-md transition-all',
         'cursor-grab active:cursor-grabbing',
         isDragging && 'opacity-50'
       )}
@@ -61,9 +61,9 @@ function DealCard({ deal, isDragging, onClick }: DealCardProps) {
       <div className="flex items-start justify-between mb-2">
         <div className="flex-1">
           <h3 className="text-sm font-medium text-white mb-0.5">{deal.customerName || 'No customer'}</h3>
-          <p className="text-xs text-slate-400">{deal.title}</p>
+          <p className="text-xs text-stone-400">{deal.title}</p>
         </div>
-        <GripVertical className="h-4 w-4 text-slate-600 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0 ml-2" />
+        <GripVertical className="h-4 w-4 text-stone-600 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0 ml-2" />
       </div>
 
       <div className="flex items-center gap-3 mt-3">
@@ -73,10 +73,10 @@ function DealCard({ deal, isDragging, onClick }: DealCardProps) {
           </span>
         )}
         {deal.probability !== null && deal.probability !== undefined && (
-          <span className="text-xs text-slate-500">{deal.probability}%</span>
+          <span className="text-xs text-stone-500">{deal.probability}%</span>
         )}
         {deal.expectedCloseDate && (
-          <span className="text-xs text-slate-500 ml-auto">
+          <span className="text-xs text-stone-500 ml-auto">
             {format(new Date(deal.expectedCloseDate), 'dd/MM')}
           </span>
         )}
@@ -215,7 +215,7 @@ export default function Pipeline() {
   if (isLoading) {
     return (
       <div className="flex items-center justify-center h-96">
-        <p className="text-slate-400">Đang tải pipeline...</p>
+        <p className="text-stone-400">Đang tải pipeline...</p>
       </div>
     )
   }
@@ -225,8 +225,8 @@ export default function Pipeline() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="font-display text-2xl font-bold text-slate-50">Sales Pipeline</h2>
-          <p className="text-sm text-slate-400 mt-1">{deals.length} deals</p>
+          <h2 className="font-display text-2xl font-bold text-stone-50">Sales Pipeline</h2>
+          <p className="text-sm text-stone-400 mt-1">{deals.length} deals</p>
         </div>
         <button
           onClick={() => { setDealFormStage('lead'); setIsDealFormOpen(true) }}
@@ -241,12 +241,12 @@ export default function Pipeline() {
       <div className="grid grid-cols-4 gap-4">
         <div className="card p-4">
           <div className="flex items-center gap-3">
-            <div className="rounded-lg bg-blue-500/10 p-2">
-              <Target className="h-5 w-5 text-blue-400" />
+            <div className="rounded-lg bg-amber-500/10 p-2">
+              <Target className="h-5 w-5 text-amber-400" />
             </div>
             <div>
-              <p className="text-xs text-slate-400">Tổng deals</p>
-              <p className="text-xl font-bold text-slate-50">{deals.length}</p>
+              <p className="text-xs text-stone-400">Tổng deals</p>
+              <p className="text-xl font-bold text-stone-50">{deals.length}</p>
             </div>
           </div>
         </div>
@@ -257,20 +257,20 @@ export default function Pipeline() {
               <TrendingUp className="h-5 w-5 text-green-400" />
             </div>
             <div>
-              <p className="text-xs text-slate-400">Won</p>
-              <p className="text-xl font-bold text-slate-50">{getStageStats('won').count}</p>
+              <p className="text-xs text-stone-400">Won</p>
+              <p className="text-xl font-bold text-stone-50">{getStageStats('won').count}</p>
             </div>
           </div>
         </div>
 
         <div className="card p-4">
           <div className="flex items-center gap-3">
-            <div className="rounded-lg bg-purple-500/10 p-2">
-              <DollarSign className="h-5 w-5 text-purple-400" />
+            <div className="rounded-lg bg-amber-500/10 p-2">
+              <DollarSign className="h-5 w-5 text-amber-400" />
             </div>
             <div>
-              <p className="text-xs text-slate-400">Có trọng số</p>
-              <p className="text-xl font-bold text-slate-50">{formatCurrency(totalWeighted)} ₫</p>
+              <p className="text-xs text-stone-400">Có trọng số</p>
+              <p className="text-xl font-bold text-stone-50">{formatCurrency(totalWeighted)} ₫</p>
             </div>
           </div>
         </div>
@@ -281,8 +281,8 @@ export default function Pipeline() {
               <BarChart3 className="h-5 w-5 text-amber-400" />
             </div>
             <div>
-              <p className="text-xs text-slate-400">Win Rate</p>
-              <p className="text-xl font-bold text-slate-50">
+              <p className="text-xs text-stone-400">Win Rate</p>
+              <p className="text-xl font-bold text-stone-50">
                 {deals.length > 0 ? Math.round((getStageStats('won').count / deals.length) * 100) : 0}%
               </p>
             </div>
@@ -310,17 +310,17 @@ export default function Pipeline() {
                   <div className="flex items-center justify-between mb-2">
                     <div className="flex items-center gap-2">
                       <span className={cn('badge border text-xs', stage.color)}>{stage.label}</span>
-                      <span className="text-xs text-slate-500">{stageDeals.length}</span>
+                      <span className="text-xs text-stone-500">{stageDeals.length}</span>
                     </div>
                     <button
                       onClick={() => { setDealFormStage(stage.value); setIsDealFormOpen(true) }}
-                      className="p-1 rounded hover:bg-slate-700/50 text-slate-400 hover:text-white transition-colors"
+                      className="p-1 rounded hover:bg-stone-700/50 text-stone-400 hover:text-white transition-colors"
                       title="Add deal"
                     >
                       <Plus className="h-3.5 w-3.5" />
                     </button>
                   </div>
-                  <div className="text-xs text-slate-500">
+                  <div className="text-xs text-stone-500">
                     Tổng: {formatCurrency(stageStat.totalValue)} ₫
                   </div>
                 </div>
@@ -329,10 +329,10 @@ export default function Pipeline() {
                 <SortableContext items={stageDeals.map((d) => d.id)} strategy={verticalListSortingStrategy}>
                   <div
                     id={stage.value}
-                    className="space-y-2 min-h-[400px] rounded-lg bg-slate-900/20 border-2 border-dashed border-slate-800 p-2"
+                    className="space-y-2 min-h-[400px] rounded-lg bg-stone-900/20 border-2 border-dashed border-stone-800 p-2"
                   >
                     {stageDeals.length === 0 ? (
-                      <p className="text-center text-slate-600 text-sm py-8">Không có deal</p>
+                      <p className="text-center text-stone-600 text-sm py-8">Không có deal</p>
                     ) : (
                       stageDeals.map((deal) => (
                         <SortableDealCard
@@ -346,7 +346,7 @@ export default function Pipeline() {
                 </SortableContext>
 
                 {/* Column Footer */}
-                <div className="mt-2 text-xs text-slate-500 px-2">
+                <div className="mt-2 text-xs text-stone-500 px-2">
                   Có trọng số: {formatCurrency(stageStat.weightedValue)} ₫
                 </div>
               </div>

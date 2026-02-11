@@ -25,12 +25,12 @@ export const CUSTOMER_TYPES = [
 
 // Customer type badge colors
 export const CUSTOMER_TYPE_COLORS: Record<string, string> = {
-  fdi_japan: 'bg-red-500/10 text-red-400 border-red-500/20',
-  fdi_korea: 'bg-blue-500/10 text-blue-400 border-blue-500/20',
-  fdi_china: 'bg-orange-500/10 text-orange-400 border-orange-500/20',
-  fdi_taiwan: 'bg-purple-500/10 text-purple-400 border-purple-500/20',
-  fdi_other: 'bg-slate-500/10 text-slate-400 border-slate-500/20',
-  domestic: 'bg-green-500/10 text-green-400 border-green-500/20',
+  fdi_japan: 'bg-stone-500/10 text-stone-300 border-stone-500/20',
+  fdi_korea: 'bg-stone-500/10 text-stone-300 border-stone-500/20',
+  fdi_china: 'bg-stone-500/10 text-stone-300 border-stone-500/20',
+  fdi_taiwan: 'bg-stone-500/10 text-stone-300 border-stone-500/20',
+  fdi_other: 'bg-stone-500/10 text-stone-400 border-stone-500/20',
+  domestic: 'bg-amber-500/10 text-amber-400 border-amber-500/20',
 }
 
 // Customer tiers
@@ -43,10 +43,10 @@ export const CUSTOMER_TIERS = [
 
 // Tier badge colors
 export const TIER_COLORS: Record<string, string> = {
-  A: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20',
-  B: 'bg-blue-500/10 text-blue-400 border-blue-500/20',
-  C: 'bg-amber-500/10 text-amber-400 border-amber-500/20',
-  D: 'bg-slate-500/10 text-slate-400 border-slate-500/20',
+  A: 'bg-amber-500/10 text-amber-400 border-amber-500/20',
+  B: 'bg-stone-400/10 text-stone-300 border-stone-400/20',
+  C: 'bg-stone-500/10 text-stone-400 border-stone-500/20',
+  D: 'bg-stone-600/10 text-stone-500 border-stone-600/20',
 }
 
 // Industries
@@ -147,12 +147,12 @@ export const ORDER_STATUSES = [
 
 // Order status colors
 export const ORDER_STATUS_COLORS: Record<string, string> = {
-  confirmed: 'bg-blue-500/10 text-blue-400 border-blue-500/20',
-  purchasing: 'bg-purple-500/10 text-purple-400 border-purple-500/20',
-  in_transit: 'bg-amber-500/10 text-amber-400 border-amber-500/20',
-  quality_check: 'bg-orange-500/10 text-orange-400 border-orange-500/20',
-  delivered: 'bg-cyan-500/10 text-cyan-400 border-cyan-500/20',
-  completed: 'bg-green-500/10 text-green-400 border-green-500/20',
+  confirmed: 'bg-amber-500/10 text-amber-400 border-amber-500/20',
+  purchasing: 'bg-amber-500/10 text-amber-400 border-amber-500/20',
+  in_transit: 'bg-yellow-500/10 text-yellow-400 border-yellow-500/20',
+  quality_check: 'bg-yellow-500/10 text-yellow-400 border-yellow-500/20',
+  delivered: 'bg-lime-500/10 text-lime-400 border-lime-500/20',
+  completed: 'bg-lime-500/10 text-lime-400 border-lime-500/20',
   cancelled: 'bg-red-500/10 text-red-400 border-red-500/20',
 }
 
@@ -167,7 +167,7 @@ export const PAYMENT_STATUSES = [
 export const PAYMENT_STATUS_COLORS: Record<string, string> = {
   unpaid: 'bg-red-500/10 text-red-400 border-red-500/20',
   partial: 'bg-amber-500/10 text-amber-400 border-amber-500/20',
-  paid: 'bg-green-500/10 text-green-400 border-green-500/20',
+  paid: 'bg-lime-500/10 text-lime-400 border-lime-500/20',
 }
 
 // Pipeline stages
@@ -182,11 +182,11 @@ export const PIPELINE_STAGES = [
 
 // Pipeline stage colors
 export const PIPELINE_STAGE_COLORS: Record<string, string> = {
-  lead: 'bg-purple-500/10 text-purple-400 border-purple-500/20',
-  qualified: 'bg-blue-500/10 text-blue-400 border-blue-500/20',
+  lead: 'bg-stone-500/10 text-stone-400 border-stone-500/20',
+  qualified: 'bg-stone-400/10 text-stone-300 border-stone-400/20',
   proposal: 'bg-amber-500/10 text-amber-400 border-amber-500/20',
-  negotiation: 'bg-orange-500/10 text-orange-400 border-orange-500/20',
-  won: 'bg-green-500/10 text-green-400 border-green-500/20',
+  negotiation: 'bg-yellow-500/10 text-yellow-400 border-yellow-500/20',
+  won: 'bg-lime-500/10 text-lime-400 border-lime-500/20',
   lost: 'bg-red-500/10 text-red-400 border-red-500/20',
 }
 
@@ -202,12 +202,12 @@ export const QUOTATION_STATUSES = [
 
 // Quotation status colors
 export const QUOTATION_STATUS_COLORS: Record<string, string> = {
-  draft: 'bg-slate-500/10 text-slate-400 border-slate-500/20',
-  sent: 'bg-blue-500/10 text-blue-400 border-blue-500/20',
-  viewed: 'bg-purple-500/10 text-purple-400 border-purple-500/20',
-  accepted: 'bg-green-500/10 text-green-400 border-green-500/20',
+  draft: 'bg-stone-500/10 text-stone-400 border-stone-500/20',
+  sent: 'bg-amber-500/10 text-amber-400 border-amber-500/20',
+  viewed: 'bg-yellow-500/10 text-yellow-400 border-yellow-500/20',
+  accepted: 'bg-lime-500/10 text-lime-400 border-lime-500/20',
   rejected: 'bg-red-500/10 text-red-400 border-red-500/20',
-  expired: 'bg-gray-500/10 text-gray-400 border-gray-500/20',
+  expired: 'bg-stone-500/10 text-stone-500 border-stone-500/20',
 }
 
 // Quotation status labels
@@ -222,20 +222,20 @@ export const QUOTATION_STATUS_LABELS: Record<string, string> = {
 
 // Product material colors
 export const MATERIAL_COLORS: Record<string, string> = {
-  CERAMIC: 'bg-blue-500/10 text-blue-400 border-blue-500/20',
-  METAL: 'bg-slate-500/10 text-slate-400 border-slate-500/20',
-  RUBBER: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20',
-  'O-RING': 'bg-purple-500/10 text-purple-400 border-purple-500/20',
+  CERAMIC: 'bg-stone-400/10 text-stone-300 border-stone-400/20',
+  METAL: 'bg-stone-500/10 text-stone-400 border-stone-500/20',
+  RUBBER: 'bg-stone-500/10 text-stone-400 border-stone-500/20',
+  'O-RING': 'bg-stone-500/10 text-stone-400 border-stone-500/20',
 }
 
 // Product brand colors
 export const BRAND_COLORS: Record<string, string> = {
-  Panasonic: 'bg-blue-500/10 text-blue-400 border-blue-500/20',
-  Fuji: 'bg-purple-500/10 text-purple-400 border-purple-500/20',
-  Samsung: 'bg-green-500/10 text-green-400 border-green-500/20',
-  JUKI: 'bg-orange-500/10 text-orange-400 border-orange-500/20',
-  Yamaha: 'bg-pink-500/10 text-pink-400 border-pink-500/20',
-  Hitachi: 'bg-indigo-500/10 text-indigo-400 border-indigo-500/20',
-  Casio: 'bg-yellow-500/10 text-yellow-400 border-yellow-500/20',
-  'ASM/Siemens': 'bg-red-500/10 text-red-400 border-red-500/20',
+  Panasonic: 'bg-amber-500/10 text-amber-400 border-amber-500/20',
+  Fuji: 'bg-amber-500/10 text-amber-400 border-amber-500/20',
+  Samsung: 'bg-amber-500/10 text-amber-400 border-amber-500/20',
+  JUKI: 'bg-amber-500/10 text-amber-400 border-amber-500/20',
+  Yamaha: 'bg-amber-500/10 text-amber-400 border-amber-500/20',
+  Hitachi: 'bg-amber-500/10 text-amber-400 border-amber-500/20',
+  Casio: 'bg-amber-500/10 text-amber-400 border-amber-500/20',
+  'ASM/Siemens': 'bg-amber-500/10 text-amber-400 border-amber-500/20',
 }

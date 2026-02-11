@@ -6,25 +6,25 @@
 
 @layer base {
   :root {
-    --background: 222.2 47% 11.2%;
-    --foreground: 210 40% 98%;
-    --card: 217.2 33% 17.5%;
-    --card-foreground: 210 40% 98%;
-    --popover: 217.2 33% 17.5%;
-    --popover-foreground: 210 40% 98%;
-    --primary: 217.2 91.2% 59.8%;
-    --primary-foreground: 222.2 47.4% 11.2%;
-    --secondary: 217.2 32.6% 17.5%;
-    --secondary-foreground: 210 40% 98%;
-    --muted: 217.2 32.6% 17.5%;
-    --muted-foreground: 215 20.2% 65.1%;
-    --accent: 24.6 95% 53.1%;
-    --accent-foreground: 210 40% 98%;
-    --destructive: 0 62.8% 30.6%;
-    --destructive-foreground: 210 40% 98%;
-    --border: 217.2 32.6% 17.5%;
-    --input: 217.2 32.6% 17.5%;
-    --ring: 217.2 91.2% 59.8%;
+    --background: 20 14% 8%;
+    --foreground: 60 9% 98%;
+    --card: 20 6% 13%;
+    --card-foreground: 60 9% 98%;
+    --popover: 20 6% 13%;
+    --popover-foreground: 60 9% 98%;
+    --primary: 38 92% 50%;
+    --primary-foreground: 20 14% 8%;
+    --secondary: 20 6% 13%;
+    --secondary-foreground: 60 9% 98%;
+    --muted: 20 6% 13%;
+    --muted-foreground: 24 6% 64%;
+    --accent: 38 92% 50%;
+    --accent-foreground: 60 9% 98%;
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 60 9% 98%;
+    --border: 20 6% 15%;
+    --input: 20 6% 15%;
+    --ring: 38 92% 50%;
     --radius: 0.75rem;
   }
 }
@@ -35,13 +35,13 @@
   }
 
   body {
-    @apply bg-slate-900 text-slate-100 antialiased;
+    @apply bg-stone-950 text-stone-100 antialiased;
     font-feature-settings: "rlig" 1, "calt" 1;
   }
 
   /* Selection color */
   ::selection {
-    @apply bg-brand-500/30 text-white;
+    @apply bg-amber-500/30 text-white;
   }
 
   /* Scrollbar styling */
@@ -54,17 +54,17 @@
   }
 
   ::-webkit-scrollbar-thumb {
-    @apply bg-slate-700 rounded-full;
+    @apply bg-stone-700 rounded-full;
   }
 
   ::-webkit-scrollbar-thumb:hover {
-    @apply bg-slate-600;
+    @apply bg-stone-600;
   }
 
   /* Focus rings */
   *:focus-visible {
     outline: none;
-    box-shadow: 0 0 0 2px rgb(15 23 42), 0 0 0 4px rgb(59 130 246);
+    box-shadow: 0 0 0 2px rgb(28 25 23), 0 0 0 4px rgb(217 119 6);
   }
 
   /* Smooth transitions for page changes */
@@ -157,7 +157,7 @@
   }
 
   .skeleton {
-    background: linear-gradient(90deg, rgb(30 41 59 / 0.5) 25%, rgb(51 65 85 / 0.5) 50%, rgb(30 41 59 / 0.5) 75%);
+    background: linear-gradient(90deg, rgb(28 25 23 / 0.5) 25%, rgb(68 64 60 / 0.5) 50%, rgb(28 25 23 / 0.5) 75%);
     background-size: 200% 100%;
     animation: shimmer 1.5s ease-in-out infinite;
     border-radius: 0.5rem;
@@ -175,8 +175,8 @@
   }
 
   @keyframes pulseGlow {
-    0%, 100% { box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.4); }
-    50% { box-shadow: 0 0 12px 4px rgba(59, 130, 246, 0.08); }
+    0%, 100% { box-shadow: 0 0 0 0 rgba(217, 119, 6, 0.3); }
+    50% { box-shadow: 0 0 12px 4px rgba(217, 119, 6, 0.06); }
   }
 
   .stagger-children > * {
@@ -201,41 +201,41 @@
   /* Button base styles with micro-interactions */
   .btn {
     @apply inline-flex items-center justify-center gap-2 rounded-lg font-medium transition-all duration-200;
-    @apply focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-900;
+    @apply focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:ring-offset-2 focus-visible:ring-offset-stone-950;
     @apply disabled:pointer-events-none disabled:opacity-50;
   }
 
   .btn-primary {
-    @apply bg-brand-600 text-white hover:bg-brand-500 active:scale-95 shadow-lg shadow-brand-500/25;
-    @apply hover:shadow-xl hover:shadow-brand-500/30;
+    @apply bg-brand-600 text-white hover:bg-brand-500 active:scale-95 shadow-lg shadow-brand-600/20;
+    @apply hover:shadow-xl hover:shadow-brand-500/25;
   }
 
   .btn-secondary {
-    @apply bg-white/5 text-slate-200 hover:bg-white/10 active:scale-95 border border-slate-700/50;
+    @apply bg-white/5 text-stone-200 hover:bg-white/10 active:scale-95 border border-stone-700/50;
   }
 
   .btn-ghost {
-    @apply text-slate-400 hover:text-white hover:bg-white/5 active:scale-95;
+    @apply text-stone-400 hover:text-white hover:bg-white/5 active:scale-95;
   }
 
   .btn-danger {
-    @apply bg-red-600 text-white hover:bg-red-500 active:scale-95 shadow-lg shadow-red-500/20;
+    @apply bg-red-700 text-white hover:bg-red-600 active:scale-95 shadow-lg shadow-red-700/20;
   }
 
   /* Card styles */
   .card {
-    @apply bg-slate-800/60 border border-slate-700/40 rounded-xl p-6 transition-all duration-300;
-    @apply hover:border-slate-600/60 hover:shadow-xl hover:shadow-black/20;
-    @apply hover:bg-slate-800/70;
+    @apply bg-stone-900/60 border border-stone-800/60 rounded-xl p-6 transition-all duration-300;
+    @apply hover:border-stone-700/60 hover:shadow-xl hover:shadow-black/20;
+    @apply hover:bg-stone-900/80;
   }
 
   /* Input styles */
   .input {
-    @apply w-full rounded-lg bg-slate-900/50 border border-slate-700/50 px-4 py-2.5 text-sm;
-    @apply text-slate-200 placeholder:text-slate-500;
+    @apply w-full rounded-lg bg-stone-950/50 border border-stone-800/50 px-4 py-2.5 text-sm;
+    @apply text-stone-200 placeholder:text-stone-500;
     @apply transition-all duration-200;
     @apply focus:outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20;
-    @apply hover:border-slate-600/50;
+    @apply hover:border-stone-700/50;
   }
 
   /* Badge styles */
@@ -244,15 +244,15 @@
   }
 
   .badge-primary {
-    @apply bg-brand-500/10 text-brand-400 border border-brand-500/20;
+    @apply bg-amber-500/10 text-amber-400 border border-amber-500/20;
   }
 
   .badge-success {
-    @apply bg-green-500/10 text-green-400 border border-green-500/20;
+    @apply bg-lime-500/10 text-lime-400 border border-lime-500/20;
   }
 
   .badge-warning {
-    @apply bg-amber-500/10 text-amber-400 border border-amber-500/20;
+    @apply bg-yellow-500/10 text-yellow-400 border border-yellow-500/20;
   }
 
   .badge-danger {
@@ -260,12 +260,12 @@
   }
 
   .badge-neutral {
-    @apply bg-slate-500/10 text-slate-400 border border-slate-500/20;
+    @apply bg-stone-500/10 text-stone-400 border border-stone-500/20;
   }
 
   /* Table styles */
   .table-wrapper {
-    @apply w-full overflow-auto rounded-xl border border-slate-700/50;
+    @apply w-full overflow-auto rounded-xl border border-stone-800/50;
   }
 
   .table {
@@ -273,22 +273,22 @@
   }
 
   .table thead {
-    @apply bg-slate-800/30 sticky top-0 z-10;
+    @apply bg-stone-900/30 sticky top-0 z-10;
   }
 
   .table th {
-    @apply px-4 py-3.5 text-left text-xs font-semibold uppercase tracking-wider text-slate-300;
-    @apply border-b-2 border-slate-700/50;
+    @apply px-4 py-3.5 text-left text-xs font-semibold uppercase tracking-wider text-stone-400;
+    @apply border-b-2 border-stone-800/50;
   }
 
   .table td {
-    @apply px-4 py-3 text-slate-300;
-    @apply border-b border-slate-800/50;
+    @apply px-4 py-3 text-stone-300;
+    @apply border-b border-stone-900/50;
   }
 
   .table tbody tr {
     @apply transition-colors duration-150;
-    @apply hover:bg-slate-700/20;
+    @apply hover:bg-stone-800/20;
   }
 
   /* Empty state */
@@ -297,20 +297,20 @@
   }
 
   .empty-state-icon {
-    @apply rounded-2xl bg-slate-800/50 p-5 border border-slate-700/30;
+    @apply rounded-2xl bg-stone-900/50 p-5 border border-stone-800/30;
   }
 
   .empty-state-title {
-    @apply text-base font-medium text-slate-300;
+    @apply text-base font-medium text-stone-300;
   }
 
   .empty-state-description {
-    @apply text-sm text-slate-500 max-w-sm;
+    @apply text-sm text-stone-500 max-w-sm;
   }
 
   /* Part number styling */
   .part-number {
-    @apply font-mono tracking-wide text-brand-400 text-sm;
+    @apply font-mono tracking-wide text-amber-400 text-sm;
   }
 
   /* Status indicators */
@@ -319,7 +319,7 @@
   }
 
   .status-dot-active {
-    @apply bg-green-500 shadow-lg shadow-green-500/50;
+    @apply bg-lime-500 shadow-lg shadow-lime-500/50;
   }
 
   .status-dot-pending {
@@ -327,6 +327,6 @@
   }
 
   .status-dot-inactive {
-    @apply bg-slate-500 shadow-lg shadow-slate-500/50;
+    @apply bg-stone-500 shadow-lg shadow-stone-500/50;
   }
 }

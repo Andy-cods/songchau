@@ -123,15 +123,15 @@ export default function DealForm({ isOpen, onClose, deal, defaultStage }: DealFo
 
       {/* Modal */}
       <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-        <div className="w-full max-w-lg max-h-[90vh] bg-slate-900 rounded-xl border border-slate-700 overflow-hidden flex flex-col">
+        <div className="w-full max-w-lg max-h-[90vh] bg-stone-900 rounded-xl border border-stone-700 overflow-hidden flex flex-col">
           {/* Header */}
-          <div className="flex items-center justify-between bg-slate-800/50 px-6 py-4 border-b border-slate-700">
-            <h2 className="font-display text-xl font-semibold text-slate-50">
+          <div className="flex items-center justify-between bg-stone-800/50 px-6 py-4 border-b border-stone-700">
+            <h2 className="font-display text-xl font-semibold text-stone-50">
               {isEdit ? 'Sửa deal' : 'Tạo deal mới'}
             </h2>
             <button
               onClick={handleClose}
-              className="flex h-9 w-9 items-center justify-center rounded-lg text-slate-400 hover:bg-slate-700 hover:text-slate-200 transition-colors"
+              className="flex h-9 w-9 items-center justify-center rounded-lg text-stone-400 hover:bg-stone-700 hover:text-stone-200 transition-colors"
             >
               <X className="h-5 w-5" />
             </button>
@@ -142,13 +142,13 @@ export default function DealForm({ isOpen, onClose, deal, defaultStage }: DealFo
             <div className="space-y-4">
               {/* Title */}
               <div>
-                <label className="block text-xs font-medium text-slate-400 mb-1.5">
+                <label className="block text-xs font-medium text-stone-400 mb-1.5">
                   Tiêu đề <span className="text-red-400">*</span>
                 </label>
                 <input
                   {...register('title')}
                   placeholder="VD: Nozzle cho Samsung VN"
-                  className="w-full rounded-lg bg-slate-800 border border-slate-700 px-3 py-2 text-sm text-slate-200 placeholder-slate-500 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                  className="w-full rounded-lg bg-stone-800 border border-stone-700 px-3 py-2 text-sm text-stone-200 placeholder-stone-500 focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500"
                 />
                 {errors.title && (
                   <p className="mt-1 text-xs text-red-400">{errors.title.message}</p>
@@ -157,10 +157,10 @@ export default function DealForm({ isOpen, onClose, deal, defaultStage }: DealFo
 
               {/* Customer */}
               <div>
-                <label className="block text-xs font-medium text-slate-400 mb-1.5">Khách hàng</label>
+                <label className="block text-xs font-medium text-stone-400 mb-1.5">Khách hàng</label>
                 <select
                   {...register('customerId', { valueAsNumber: true })}
-                  className="w-full rounded-lg bg-slate-800 border border-slate-700 px-3 py-2 text-sm text-slate-200 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                  className="w-full rounded-lg bg-stone-800 border border-stone-700 px-3 py-2 text-sm text-stone-200 focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500"
                 >
                   <option value="">-- Chọn khách hàng --</option>
                   {customerList?.map((c) => (
@@ -174,21 +174,21 @@ export default function DealForm({ isOpen, onClose, deal, defaultStage }: DealFo
               <div className="grid grid-cols-2 gap-4">
                 {/* Deal Value */}
                 <div>
-                  <label className="block text-xs font-medium text-slate-400 mb-1.5">Giá trị deal</label>
+                  <label className="block text-xs font-medium text-stone-400 mb-1.5">Giá trị deal</label>
                   <input
                     type="number"
                     {...register('dealValue', { valueAsNumber: true })}
                     placeholder="0"
-                    className="w-full rounded-lg bg-slate-800 border border-slate-700 px-3 py-2 text-sm text-slate-200 placeholder-slate-500 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                    className="w-full rounded-lg bg-stone-800 border border-stone-700 px-3 py-2 text-sm text-stone-200 placeholder-stone-500 focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500"
                   />
                 </div>
 
                 {/* Currency */}
                 <div>
-                  <label className="block text-xs font-medium text-slate-400 mb-1.5">Tiền tệ</label>
+                  <label className="block text-xs font-medium text-stone-400 mb-1.5">Tiền tệ</label>
                   <select
                     {...register('currency')}
-                    className="w-full rounded-lg bg-slate-800 border border-slate-700 px-3 py-2 text-sm text-slate-200 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                    className="w-full rounded-lg bg-stone-800 border border-stone-700 px-3 py-2 text-sm text-stone-200 focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500"
                   >
                     <option value="VND">VND</option>
                     <option value="USD">USD</option>
@@ -200,7 +200,7 @@ export default function DealForm({ isOpen, onClose, deal, defaultStage }: DealFo
               <div className="grid grid-cols-2 gap-4">
                 {/* Probability */}
                 <div>
-                  <label className="block text-xs font-medium text-slate-400 mb-1.5">
+                  <label className="block text-xs font-medium text-stone-400 mb-1.5">
                     Xác suất: {watchProbability}%
                   </label>
                   <input
@@ -215,10 +215,10 @@ export default function DealForm({ isOpen, onClose, deal, defaultStage }: DealFo
 
                 {/* Stage */}
                 <div>
-                  <label className="block text-xs font-medium text-slate-400 mb-1.5">Stage</label>
+                  <label className="block text-xs font-medium text-stone-400 mb-1.5">Stage</label>
                   <select
                     {...register('stage')}
-                    className="w-full rounded-lg bg-slate-800 border border-slate-700 px-3 py-2 text-sm text-slate-200 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                    className="w-full rounded-lg bg-stone-800 border border-stone-700 px-3 py-2 text-sm text-stone-200 focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500"
                   >
                     {STAGES.map((s) => (
                       <option key={s.value} value={s.value}>
@@ -231,33 +231,33 @@ export default function DealForm({ isOpen, onClose, deal, defaultStage }: DealFo
 
               {/* Expected Close Date */}
               <div>
-                <label className="block text-xs font-medium text-slate-400 mb-1.5">Ngày dự kiến chốt</label>
+                <label className="block text-xs font-medium text-stone-400 mb-1.5">Ngày dự kiến chốt</label>
                 <input
                   type="date"
                   {...register('expectedCloseDate')}
-                  className="w-full rounded-lg bg-slate-800 border border-slate-700 px-3 py-2 text-sm text-slate-200 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                  className="w-full rounded-lg bg-stone-800 border border-stone-700 px-3 py-2 text-sm text-stone-200 focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500"
                 />
               </div>
 
               {/* Notes */}
               <div>
-                <label className="block text-xs font-medium text-slate-400 mb-1.5">Ghi chú</label>
+                <label className="block text-xs font-medium text-stone-400 mb-1.5">Ghi chú</label>
                 <textarea
                   {...register('notes')}
                   rows={3}
                   placeholder="Ghi chú thêm..."
-                  className="w-full rounded-lg bg-slate-800 border border-slate-700 px-3 py-2 text-sm text-slate-200 placeholder-slate-500 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 resize-none"
+                  className="w-full rounded-lg bg-stone-800 border border-stone-700 px-3 py-2 text-sm text-stone-200 placeholder-stone-500 focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500 resize-none"
                 />
               </div>
             </div>
           </form>
 
           {/* Footer */}
-          <div className="flex items-center justify-end gap-3 border-t border-slate-700 bg-slate-800/50 px-6 py-4">
+          <div className="flex items-center justify-end gap-3 border-t border-stone-700 bg-stone-800/50 px-6 py-4">
             <button
               type="button"
               onClick={handleClose}
-              className="rounded-lg px-4 py-2 text-sm font-medium text-slate-300 hover:bg-slate-700 transition-colors"
+              className="rounded-lg px-4 py-2 text-sm font-medium text-stone-300 hover:bg-stone-700 transition-colors"
             >
               Hủy
             </button>
@@ -265,7 +265,7 @@ export default function DealForm({ isOpen, onClose, deal, defaultStage }: DealFo
               type="submit"
               disabled={isSubmitting}
               onClick={handleSubmit(onSubmit)}
-              className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 transition-colors disabled:opacity-50 flex items-center gap-2"
+              className="rounded-lg bg-amber-600 px-4 py-2 text-sm font-medium text-white hover:bg-amber-700 transition-colors disabled:opacity-50 flex items-center gap-2"
             >
               {isSubmitting && <Loader2 className="h-4 w-4 animate-spin" />}
               {isEdit ? 'Cập nhật' : 'Tạo deal'}

@@ -58,12 +58,12 @@ function StatusStepper({ currentStatus }: { currentStatus: string }) {
             <div
               className={cn(
                 'h-1.5 w-1.5 rounded-full transition-colors',
-                isActive ? 'bg-brand-500' : 'bg-slate-600',
-                isCurrent && 'ring-2 ring-brand-500/30 ring-offset-1 ring-offset-slate-800'
+                isActive ? 'bg-brand-500' : 'bg-stone-600',
+                isCurrent && 'ring-2 ring-brand-500/30 ring-offset-1 ring-offset-stone-800'
               )}
             />
             {idx < steps.length - 1 && (
-              <div className={cn('h-0.5 w-3', isActive ? 'bg-brand-500' : 'bg-slate-600')} />
+              <div className={cn('h-0.5 w-3', isActive ? 'bg-brand-500' : 'bg-stone-600')} />
             )}
           </div>
         )
@@ -142,8 +142,8 @@ export default function Orders() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="font-display text-2xl font-bold text-slate-50">Đơn hàng</h2>
-          <p className="text-sm text-slate-400 mt-1">
+          <h2 className="font-display text-2xl font-bold text-stone-50">Đơn hàng</h2>
+          <p className="text-sm text-stone-400 mt-1">
             {isLoading ? 'Đang tải...' : `${pagination.total} đơn hàng`}
           </p>
         </div>
@@ -161,12 +161,12 @@ export default function Orders() {
         <div className="flex gap-3 flex-wrap items-center">
           {/* Search */}
           <div className="relative w-80">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-500" />
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-stone-500" />
             <input
               value={searchInput}
               onChange={(e) => setSearchInput(e.target.value)}
               placeholder="Tìm mã ĐH, PO..."
-              className="w-full rounded-lg bg-slate-900/50 border border-slate-700/50 pl-9 pr-3 py-2 text-sm text-slate-200 placeholder:text-slate-500 focus:outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20"
+              className="w-full rounded-lg bg-stone-900/50 border border-stone-700/50 pl-9 pr-3 py-2 text-sm text-stone-200 placeholder:text-stone-500 focus:outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20"
             />
           </div>
 
@@ -174,7 +174,7 @@ export default function Orders() {
           <select
             value={selectedStatus}
             onChange={(e) => setSelectedStatus(e.target.value)}
-            className="rounded-lg bg-slate-900/50 border border-slate-700/50 px-3 py-2 text-sm text-slate-200 focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20"
+            className="rounded-lg bg-stone-900/50 border border-stone-700/50 px-3 py-2 text-sm text-stone-200 focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20"
           >
             <option value="">Tất cả trạng thái</option>
             {ORDER_STATUSES.map((s) => (
@@ -188,7 +188,7 @@ export default function Orders() {
           <select
             value={selectedPaymentStatus}
             onChange={(e) => setSelectedPaymentStatus(e.target.value)}
-            className="rounded-lg bg-slate-900/50 border border-slate-700/50 px-3 py-2 text-sm text-slate-200 focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20"
+            className="rounded-lg bg-stone-900/50 border border-stone-700/50 px-3 py-2 text-sm text-stone-200 focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20"
           >
             <option value="">Tất cả thanh toán</option>
             <option value="unpaid">Chưa thanh toán</option>
@@ -200,7 +200,7 @@ export default function Orders() {
           {activeFiltersCount > 0 && (
             <button
               onClick={handleClearFilters}
-              className="flex items-center gap-1 px-3 py-2 text-sm text-slate-400 hover:text-white transition-colors"
+              className="flex items-center gap-1 px-3 py-2 text-sm text-stone-400 hover:text-white transition-colors"
             >
               <X className="h-4 w-4" />
               Xóa ({activeFiltersCount})
@@ -228,7 +228,7 @@ export default function Orders() {
               Array.from({ length: 8 }).map((_, idx) => (
                 <tr key={idx}>
                   <td colSpan={7}>
-                    <div className="h-10 bg-slate-800/50 animate-pulse rounded" />
+                    <div className="h-10 bg-stone-800/50 animate-pulse rounded" />
                   </td>
                 </tr>
               ))
@@ -236,12 +236,12 @@ export default function Orders() {
               <tr>
                 <td colSpan={7} className="py-16 text-center">
                   <div className="flex flex-col items-center gap-3">
-                    <div className="rounded-full bg-slate-800/50 p-4">
-                      <Package className="h-8 w-8 text-slate-500" />
+                    <div className="rounded-full bg-stone-800/50 p-4">
+                      <Package className="h-8 w-8 text-stone-500" />
                     </div>
                     <div>
-                      <p className="font-medium text-slate-300">Không tìm thấy đơn hàng</p>
-                      <p className="text-sm text-slate-500 mt-1">Thử thay đổi bộ lọc</p>
+                      <p className="font-medium text-stone-300">Không tìm thấy đơn hàng</p>
+                      <p className="text-sm text-stone-500 mt-1">Thử thay đổi bộ lọc</p>
                     </div>
                     {activeFiltersCount > 0 && (
                       <button
@@ -260,7 +260,7 @@ export default function Orders() {
                   key={order.id}
                   className={cn(
                     'cursor-pointer transition-colors duration-150',
-                    idx % 2 === 0 && 'even:bg-slate-800/10',
+                    idx % 2 === 0 && 'even:bg-stone-800/10',
                     isOverdue(order) && 'bg-red-500/5'
                   )}
                   onClick={() => navigate(`/orders/${order.id}`)}
@@ -268,17 +268,17 @@ export default function Orders() {
                   <td>
                     <span className="part-number">{order.orderNumber}</span>
                   </td>
-                  <td className="text-sm text-slate-200">{order.customerName || '—'}</td>
+                  <td className="text-sm text-stone-200">{order.customerName || '—'}</td>
                   <td>
-                    <span className="font-mono text-sm text-slate-400">{order.poNumber || '—'}</span>
+                    <span className="font-mono text-sm text-stone-400">{order.poNumber || '—'}</span>
                   </td>
                   <td>
                     <div>
-                      <p className="text-sm font-medium text-slate-200">
+                      <p className="text-sm font-medium text-stone-200">
                         {formatCurrency(order.totalAmount)}
                       </p>
                       {order.paidAmount > 0 && (
-                        <p className="text-xs text-slate-500">
+                        <p className="text-xs text-stone-500">
                           Đã TT: {formatCurrency(order.paidAmount)}
                         </p>
                       )}
@@ -289,8 +289,8 @@ export default function Orders() {
                       <span
                         className={cn(
                           'badge border text-xs',
-                          order.status === 'confirmed' && 'bg-blue-500/10 text-blue-400 border-blue-500/20',
-                          order.status === 'purchasing' && 'bg-purple-500/10 text-purple-400 border-purple-500/20',
+                          order.status === 'confirmed' && 'bg-amber-500/10 text-amber-400 border-amber-500/20',
+                          order.status === 'purchasing' && 'bg-amber-500/10 text-amber-400 border-amber-500/20',
                           order.status === 'in_transit' && 'bg-amber-500/10 text-amber-400 border-amber-500/20',
                           order.status === 'quality_check' && 'bg-orange-500/10 text-orange-400 border-orange-500/20',
                           order.status === 'delivered' && 'bg-green-500/10 text-green-400 border-green-500/20',
@@ -307,7 +307,7 @@ export default function Orders() {
                     <span
                       className={cn(
                         'badge border text-xs',
-                        PAYMENT_STATUS_COLORS[order.paymentStatus] || 'bg-slate-700/50 text-slate-300 border-slate-600'
+                        PAYMENT_STATUS_COLORS[order.paymentStatus] || 'bg-stone-700/50 text-stone-300 border-stone-600'
                       )}
                     >
                       {PAYMENT_LABELS[order.paymentStatus] || order.paymentStatus}
@@ -320,7 +320,7 @@ export default function Orders() {
                         {isOverdue(order) && <div className="text-xs">Quá hạn</div>}
                       </div>
                     ) : (
-                      <span className="text-slate-500">—</span>
+                      <span className="text-stone-500">—</span>
                     )}
                   </td>
                 </tr>
@@ -331,8 +331,8 @@ export default function Orders() {
 
         {/* Pagination */}
         {!isLoading && pagination.totalPages > 1 && (
-          <div className="flex items-center justify-between border-t border-slate-700 bg-slate-900/50 px-4 py-3">
-            <p className="text-sm text-slate-400">
+          <div className="flex items-center justify-between border-t border-stone-700 bg-stone-900/50 px-4 py-3">
+            <p className="text-sm text-stone-400">
               Hiển thị {(page - 1) * 20 + 1}-{Math.min(page * 20, pagination.total)} / {pagination.total} đơn hàng
             </p>
             <div className="flex items-center gap-2">
@@ -343,7 +343,7 @@ export default function Orders() {
               >
                 Trước
               </button>
-              <span className="text-sm text-slate-400">
+              <span className="text-sm text-stone-400">
                 Trang {page} / {pagination.totalPages}
               </span>
               <button

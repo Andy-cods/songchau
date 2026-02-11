@@ -154,7 +154,7 @@ export default function Settings() {
   if (loading) {
     return (
       <div className="flex items-center justify-center h-96">
-        <Loader2 className="h-8 w-8 text-blue-400 animate-spin" />
+        <Loader2 className="h-8 w-8 text-amber-400 animate-spin" />
       </div>
     )
   }
@@ -163,8 +163,8 @@ export default function Settings() {
     <div className="space-y-6">
       {/* Header */}
       <div>
-        <h2 className="font-display text-2xl font-bold text-slate-50">Cài đặt</h2>
-        <p className="text-sm text-slate-400 mt-1">Quản lý thông tin công ty và cài đặt hệ thống</p>
+        <h2 className="font-display text-2xl font-bold text-stone-50">Cài đặt</h2>
+        <p className="text-sm text-stone-400 mt-1">Quản lý thông tin công ty và cài đặt hệ thống</p>
       </div>
 
       {/* Error Alert */}
@@ -190,99 +190,99 @@ export default function Settings() {
       )}
 
       {/* Company Info Section */}
-      <div className="rounded-xl bg-slate-800/50 border border-slate-700/50 p-6 transition-all duration-200 hover:border-slate-700">
+      <div className="rounded-xl bg-stone-800/50 border border-stone-700/50 p-6 transition-all duration-200 hover:border-stone-700">
         <div className="flex items-center gap-3 mb-6">
-          <div className="rounded-lg bg-blue-500/10 p-2">
-            <Building2 className="h-5 w-5 text-blue-400" />
+          <div className="rounded-lg bg-amber-500/10 p-2">
+            <Building2 className="h-5 w-5 text-amber-400" />
           </div>
           <div>
-            <h3 className="font-display text-lg font-semibold text-slate-50">Thông tin công ty</h3>
-            <p className="text-sm text-slate-400">Hiển thị trên báo giá và đơn hàng</p>
+            <h3 className="font-display text-lg font-semibold text-stone-50">Thông tin công ty</h3>
+            <p className="text-sm text-stone-400">Hiển thị trên báo giá và đơn hàng</p>
           </div>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
-            <label className="block text-sm font-medium text-slate-300 mb-2">
+            <label className="block text-sm font-medium text-stone-300 mb-2">
               Tên công ty (Tiếng Anh)
             </label>
             <input
               type="text"
               value={companyInfo.name}
               onChange={(e) => setCompanyInfo({ ...companyInfo, name: e.target.value })}
-              className="w-full rounded-lg bg-slate-900 border border-slate-700 px-3 py-2 text-sm text-slate-200 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 transition-colors"
+              className="w-full rounded-lg bg-stone-900 border border-stone-700 px-3 py-2 text-sm text-stone-200 focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500 transition-colors"
             />
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-slate-300 mb-2">
+            <label className="block text-sm font-medium text-stone-300 mb-2">
               Tên công ty (Tiếng Việt)
             </label>
             <input
               type="text"
               value={companyInfo.nameLocal}
               onChange={(e) => setCompanyInfo({ ...companyInfo, nameLocal: e.target.value })}
-              className="w-full rounded-lg bg-slate-900 border border-slate-700 px-3 py-2 text-sm text-slate-200 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 transition-colors"
+              className="w-full rounded-lg bg-stone-900 border border-stone-700 px-3 py-2 text-sm text-stone-200 focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500 transition-colors"
             />
           </div>
 
           <div className="md:col-span-2">
-            <label className="block text-sm font-medium text-slate-300 mb-2">Địa chỉ</label>
+            <label className="block text-sm font-medium text-stone-300 mb-2">Địa chỉ</label>
             <input
               type="text"
               value={companyInfo.address}
               onChange={(e) => setCompanyInfo({ ...companyInfo, address: e.target.value })}
-              className="w-full rounded-lg bg-slate-900 border border-slate-700 px-3 py-2 text-sm text-slate-200 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 transition-colors"
+              className="w-full rounded-lg bg-stone-900 border border-stone-700 px-3 py-2 text-sm text-stone-200 focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500 transition-colors"
             />
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-slate-300 mb-2">Mã số thuế</label>
+            <label className="block text-sm font-medium text-stone-300 mb-2">Mã số thuế</label>
             <input
               type="text"
               value={companyInfo.taxCode}
               onChange={(e) => setCompanyInfo({ ...companyInfo, taxCode: e.target.value })}
-              className="w-full rounded-lg bg-slate-900 border border-slate-700 px-3 py-2 text-sm text-slate-200 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 transition-colors"
+              className="w-full rounded-lg bg-stone-900 border border-stone-700 px-3 py-2 text-sm text-stone-200 focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500 transition-colors"
             />
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-slate-300 mb-2">Email</label>
+            <label className="block text-sm font-medium text-stone-300 mb-2">Email</label>
             <input
               type="email"
               value={companyInfo.email}
               onChange={(e) => setCompanyInfo({ ...companyInfo, email: e.target.value })}
-              className="w-full rounded-lg bg-slate-900 border border-slate-700 px-3 py-2 text-sm text-slate-200 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 transition-colors"
+              className="w-full rounded-lg bg-stone-900 border border-stone-700 px-3 py-2 text-sm text-stone-200 focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500 transition-colors"
             />
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-slate-300 mb-2">Số điện thoại</label>
+            <label className="block text-sm font-medium text-stone-300 mb-2">Số điện thoại</label>
             <input
               type="tel"
               value={companyInfo.phone}
               onChange={(e) => setCompanyInfo({ ...companyInfo, phone: e.target.value })}
-              className="w-full rounded-lg bg-slate-900 border border-slate-700 px-3 py-2 text-sm text-slate-200 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 transition-colors"
+              className="w-full rounded-lg bg-stone-900 border border-stone-700 px-3 py-2 text-sm text-stone-200 focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500 transition-colors"
             />
           </div>
         </div>
       </div>
 
       {/* Currency Settings */}
-      <div className="rounded-xl bg-slate-800/50 border border-slate-700/50 p-6 transition-all duration-200 hover:border-slate-700">
+      <div className="rounded-xl bg-stone-800/50 border border-stone-700/50 p-6 transition-all duration-200 hover:border-stone-700">
         <div className="flex items-center gap-3 mb-6">
           <div className="rounded-lg bg-green-500/10 p-2">
             <DollarSign className="h-5 w-5 text-green-400" />
           </div>
           <div>
-            <h3 className="font-display text-lg font-semibold text-slate-50">Cài đặt tiền tệ</h3>
-            <p className="text-sm text-slate-400">Tỷ giá hối đoái và tiền tệ mặc định</p>
+            <h3 className="font-display text-lg font-semibold text-stone-50">Cài đặt tiền tệ</h3>
+            <p className="text-sm text-stone-400">Tỷ giá hối đoái và tiền tệ mặc định</p>
           </div>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
-            <label className="block text-sm font-medium text-slate-300 mb-2">
+            <label className="block text-sm font-medium text-stone-300 mb-2">
               Tiền tệ mặc định
             </label>
             <select
@@ -290,7 +290,7 @@ export default function Settings() {
               onChange={(e) =>
                 setCurrencySettings({ ...currencySettings, defaultCurrency: e.target.value })
               }
-              className="w-full rounded-lg bg-slate-900 border border-slate-700 px-3 py-2 text-sm text-slate-200 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 transition-colors"
+              className="w-full rounded-lg bg-stone-900 border border-stone-700 px-3 py-2 text-sm text-stone-200 focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500 transition-colors"
             >
               <option value="VND">VND (Vietnamese Dong)</option>
               <option value="USD">USD (US Dollar)</option>
@@ -300,60 +300,60 @@ export default function Settings() {
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-slate-300 mb-2">USD → VND</label>
+            <label className="block text-sm font-medium text-stone-300 mb-2">USD → VND</label>
             <input
               type="number"
               value={currencySettings.usdToVnd}
               onChange={(e) =>
                 setCurrencySettings({ ...currencySettings, usdToVnd: Number(e.target.value) })
               }
-              className="w-full rounded-lg bg-slate-900 border border-slate-700 px-3 py-2 text-sm text-slate-200 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 transition-colors"
+              className="w-full rounded-lg bg-stone-900 border border-stone-700 px-3 py-2 text-sm text-stone-200 focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500 transition-colors"
             />
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-slate-300 mb-2">CNY → VND</label>
+            <label className="block text-sm font-medium text-stone-300 mb-2">CNY → VND</label>
             <input
               type="number"
               value={currencySettings.cnyToVnd}
               onChange={(e) =>
                 setCurrencySettings({ ...currencySettings, cnyToVnd: Number(e.target.value) })
               }
-              className="w-full rounded-lg bg-slate-900 border border-slate-700 px-3 py-2 text-sm text-slate-200 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 transition-colors"
+              className="w-full rounded-lg bg-stone-900 border border-stone-700 px-3 py-2 text-sm text-stone-200 focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500 transition-colors"
             />
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-slate-300 mb-2">JPY → VND</label>
+            <label className="block text-sm font-medium text-stone-300 mb-2">JPY → VND</label>
             <input
               type="number"
               value={currencySettings.jpyToVnd}
               onChange={(e) =>
                 setCurrencySettings({ ...currencySettings, jpyToVnd: Number(e.target.value) })
               }
-              className="w-full rounded-lg bg-slate-900 border border-slate-700 px-3 py-2 text-sm text-slate-200 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 transition-colors"
+              className="w-full rounded-lg bg-stone-900 border border-stone-700 px-3 py-2 text-sm text-stone-200 focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500 transition-colors"
             />
           </div>
         </div>
       </div>
 
       {/* Format Settings */}
-      <div className="rounded-xl bg-slate-800/50 border border-slate-700/50 p-6 transition-all duration-200 hover:border-slate-700">
+      <div className="rounded-xl bg-stone-800/50 border border-stone-700/50 p-6 transition-all duration-200 hover:border-stone-700">
         <div className="flex items-center gap-3 mb-6">
-          <div className="rounded-lg bg-purple-500/10 p-2">
-            <Hash className="h-5 w-5 text-purple-400" />
+          <div className="rounded-lg bg-amber-500/10 p-2">
+            <Hash className="h-5 w-5 text-amber-400" />
           </div>
           <div>
-            <h3 className="font-display text-lg font-semibold text-slate-50">
+            <h3 className="font-display text-lg font-semibold text-stone-50">
               Định dạng số và thuế
             </h3>
-            <p className="text-sm text-slate-400">Cài đặt format cho báo giá, đơn hàng và thuế</p>
+            <p className="text-sm text-stone-400">Cài đặt format cho báo giá, đơn hàng và thuế</p>
           </div>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <div>
-            <label className="block text-sm font-medium text-slate-300 mb-2">
+            <label className="block text-sm font-medium text-stone-300 mb-2">
               Thuế VAT mặc định (%)
             </label>
             <input
@@ -362,12 +362,12 @@ export default function Settings() {
               onChange={(e) =>
                 setFormatSettings({ ...formatSettings, taxRate: Number(e.target.value) })
               }
-              className="w-full rounded-lg bg-slate-900 border border-slate-700 px-3 py-2 text-sm text-slate-200 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 transition-colors"
+              className="w-full rounded-lg bg-stone-900 border border-stone-700 px-3 py-2 text-sm text-stone-200 focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500 transition-colors"
             />
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-slate-300 mb-2">
+            <label className="block text-sm font-medium text-stone-300 mb-2">
               Prefix báo giá
             </label>
             <input
@@ -377,13 +377,13 @@ export default function Settings() {
                 setFormatSettings({ ...formatSettings, quoteNumberPrefix: e.target.value })
               }
               placeholder="SC-Q"
-              className="w-full rounded-lg bg-slate-900 border border-slate-700 px-3 py-2 text-sm text-slate-200 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 transition-colors"
+              className="w-full rounded-lg bg-stone-900 border border-stone-700 px-3 py-2 text-sm text-stone-200 focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500 transition-colors"
             />
-            <p className="text-xs text-slate-500 mt-1">Ví dụ: SC-Q-2026-0001</p>
+            <p className="text-xs text-stone-500 mt-1">Ví dụ: SC-Q-2026-0001</p>
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-slate-300 mb-2">
+            <label className="block text-sm font-medium text-stone-300 mb-2">
               Prefix đơn hàng
             </label>
             <input
@@ -393,22 +393,22 @@ export default function Settings() {
                 setFormatSettings({ ...formatSettings, orderNumberPrefix: e.target.value })
               }
               placeholder="SC-PO"
-              className="w-full rounded-lg bg-slate-900 border border-slate-700 px-3 py-2 text-sm text-slate-200 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 transition-colors"
+              className="w-full rounded-lg bg-stone-900 border border-stone-700 px-3 py-2 text-sm text-stone-200 focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500 transition-colors"
             />
-            <p className="text-xs text-slate-500 mt-1">Ví dụ: SC-PO-2026-0001</p>
+            <p className="text-xs text-stone-500 mt-1">Ví dụ: SC-PO-2026-0001</p>
           </div>
         </div>
       </div>
 
       {/* Database Management */}
-      <div className="rounded-xl bg-slate-800/50 border border-slate-700/50 p-6 transition-all duration-200 hover:border-slate-700">
+      <div className="rounded-xl bg-stone-800/50 border border-stone-700/50 p-6 transition-all duration-200 hover:border-stone-700">
         <div className="flex items-center gap-3 mb-6">
           <div className="rounded-lg bg-amber-500/10 p-2">
             <Database className="h-5 w-5 text-amber-400" />
           </div>
           <div>
-            <h3 className="font-display text-lg font-semibold text-slate-50">Quản lý dữ liệu</h3>
-            <p className="text-sm text-slate-400">Backup database</p>
+            <h3 className="font-display text-lg font-semibold text-stone-50">Quản lý dữ liệu</h3>
+            <p className="text-sm text-stone-400">Backup database</p>
           </div>
         </div>
 
@@ -418,8 +418,8 @@ export default function Settings() {
           className={cn(
             'flex items-center gap-2 rounded-lg px-4 py-2.5 text-sm font-medium text-white transition-all duration-200',
             backing
-              ? 'bg-blue-500 cursor-not-allowed'
-              : 'bg-blue-600 hover:bg-blue-700 hover:shadow-lg hover:shadow-blue-600/20 active:scale-95'
+              ? 'bg-amber-500 cursor-not-allowed'
+              : 'bg-amber-600 hover:bg-amber-700 hover:shadow-lg hover:shadow-amber-600/20 active:scale-95'
           )}
         >
           {backing ? (

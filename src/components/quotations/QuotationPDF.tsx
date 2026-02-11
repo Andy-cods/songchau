@@ -14,13 +14,13 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     marginBottom: 30,
-    borderBottom: '2px solid #2563eb',
+    borderBottom: '2px solid #d97706',
     paddingBottom: 15,
   },
   companyName: {
     fontSize: 16,
     fontFamily: 'Helvetica-Bold',
-    color: '#2563eb',
+    color: '#d97706',
   },
   companyNameVN: {
     fontSize: 9,
@@ -46,7 +46,7 @@ const styles = StyleSheet.create({
   },
   quoteNumber: {
     fontSize: 11,
-    color: '#2563eb',
+    color: '#d97706',
     textAlign: 'right',
     marginTop: 4,
     fontFamily: 'Helvetica-Bold',
@@ -81,7 +81,7 @@ const styles = StyleSheet.create({
   },
   tableHeader: {
     flexDirection: 'row',
-    backgroundColor: '#2563eb',
+    backgroundColor: '#d97706',
     padding: '8 10',
     borderRadius: 3,
   },
@@ -113,7 +113,7 @@ const styles = StyleSheet.create({
   cellMono: {
     fontSize: 9,
     fontFamily: 'Courier',
-    color: '#2563eb',
+    color: '#d97706',
   },
   // Totals
   totalsSection: {
@@ -130,7 +130,7 @@ const styles = StyleSheet.create({
     padding: '4 0',
   },
   totalsDivider: {
-    borderTop: '1.5px solid #2563eb',
+    borderTop: '1.5px solid #d97706',
     marginTop: 4,
     paddingTop: 6,
   },
@@ -150,7 +150,7 @@ const styles = StyleSheet.create({
   },
   grandTotalValue: {
     fontSize: 12,
-    color: '#2563eb',
+    color: '#d97706',
     fontFamily: 'Helvetica-Bold',
   },
   // Notes

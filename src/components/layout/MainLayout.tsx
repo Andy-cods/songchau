@@ -32,7 +32,7 @@ export default function MainLayout() {
       <Sidebar />
 
       {/* Main Content Area - With left margin for sidebar */}
-      <div className="ml-[260px] min-h-screen bg-slate-900">
+      <div className="ml-[260px] min-h-screen bg-stone-900">
         {/* Header */}
         <Header />
 

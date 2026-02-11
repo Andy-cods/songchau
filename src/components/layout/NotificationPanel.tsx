@@ -69,13 +69,13 @@ export default function NotificationPanel({ isOpen, onClose }: NotificationPanel
   return (
     <div
       ref={panelRef}
-      className="absolute right-0 top-full mt-2 w-96 rounded-xl bg-slate-900 border border-slate-700 shadow-2xl shadow-black/40 overflow-hidden z-50"
+      className="absolute right-0 top-full mt-2 w-96 rounded-xl bg-stone-900 border border-stone-700 shadow-2xl shadow-black/40 overflow-hidden z-50"
     >
       {/* Header */}
-      <div className="flex items-center justify-between px-4 py-3 border-b border-slate-700 bg-slate-800/50">
+      <div className="flex items-center justify-between px-4 py-3 border-b border-stone-700 bg-stone-800/50">
         <div className="flex items-center gap-2">
-          <Bell className="h-4 w-4 text-slate-400" />
-          <h3 className="text-sm font-semibold text-slate-200">Thông báo</h3>
+          <Bell className="h-4 w-4 text-stone-400" />
+          <h3 className="text-sm font-semibold text-stone-200">Thông báo</h3>
           {count > 0 && (
             <span className="flex h-5 min-w-[20px] items-center justify-center rounded-full bg-accent px-1.5 text-[10px] font-bold text-white">
               {count}
@@ -84,7 +84,7 @@ export default function NotificationPanel({ isOpen, onClose }: NotificationPanel
         </div>
         <button
           onClick={onClose}
-          className="flex h-7 w-7 items-center justify-center rounded-lg text-slate-400 hover:bg-slate-700 hover:text-slate-200 transition-colors"
+          className="flex h-7 w-7 items-center justify-center rounded-lg text-stone-400 hover:bg-stone-700 hover:text-stone-200 transition-colors"
         >
           <X className="h-4 w-4" />
         </button>
@@ -94,17 +94,17 @@ export default function NotificationPanel({ isOpen, onClose }: NotificationPanel
       <div className="max-h-[400px] overflow-y-auto">
         {notifications.length === 0 ? (
           <div className="flex flex-col items-center gap-2 py-10 px-4">
-            <div className="rounded-full bg-slate-800/50 p-3">
-              <Bell className="h-6 w-6 text-slate-500" />
+            <div className="rounded-full bg-stone-800/50 p-3">
+              <Bell className="h-6 w-6 text-stone-500" />
             </div>
-            <p className="text-sm text-slate-400">Không có thông báo</p>
-            <p className="text-xs text-slate-500">Mọi thứ đều ổn!</p>
+            <p className="text-sm text-stone-400">Không có thông báo</p>
+            <p className="text-xs text-stone-500">Mọi thứ đều ổn!</p>
           </div>
         ) : (
-          <div className="divide-y divide-slate-800">
+          <div className="divide-y divide-stone-800">
             {notifications.map((notification) => {
               const Icon = NOTIFICATION_ICONS[notification.type] || Bell
-              const iconColor = NOTIFICATION_COLORS[notification.type] || 'bg-slate-700 text-slate-400'
+              const iconColor = NOTIFICATION_COLORS[notification.type] || 'bg-stone-700 text-stone-400'
 
               return (
                 <div
@@ -112,7 +112,7 @@ export default function NotificationPanel({ isOpen, onClose }: NotificationPanel
                   onClick={() => handleNotificationClick(notification)}
                   className={cn(
                     'flex items-start gap-3 px-4 py-3 cursor-pointer transition-colors',
-                    'hover:bg-slate-800/50',
+                    'hover:bg-stone-800/50',
                     notification.isOverdue && 'bg-red-500/5'
                   )}
                 >
@@ -120,15 +120,15 @@ export default function NotificationPanel({ isOpen, onClose }: NotificationPanel
                     <Icon className="h-4 w-4" />
                   </div>
                   <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium text-slate-200 truncate">
+                    <p className="text-sm font-medium text-stone-200 truncate">
                       {notification.title}
                     </p>
                     {notification.description && (
-                      <p className="text-xs text-slate-400 mt-0.5 truncate">
+                      <p className="text-xs text-stone-400 mt-0.5 truncate">
                         {notification.description}
                       </p>
                     )}
-                    <p className="text-xs text-slate-500 mt-1">
+                    <p className="text-xs text-stone-500 mt-1">
                       {formatDistanceToNow(new Date(notification.timestamp), { addSuffix: true })}
                     </p>
                   </div>

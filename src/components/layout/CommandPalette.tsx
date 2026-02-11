@@ -222,19 +222,19 @@ export default function CommandPalette({ isOpen, onClose }: CommandPaletteProps)
 
       {/* Command Palette */}
       <div className="fixed top-[20%] left-1/2 -translate-x-1/2 w-full max-w-2xl z-50 animate-in fade-in slide-in-from-top-4 duration-200">
-        <div className="mx-4 rounded-xl bg-slate-900 border border-slate-700 shadow-2xl">
+        <div className="mx-4 rounded-xl bg-stone-900 border border-stone-700 shadow-2xl">
           {/* Search Input */}
-          <div className="flex items-center gap-3 px-4 py-3 border-b border-slate-700">
-            <Search className="h-5 w-5 text-slate-400" />
+          <div className="flex items-center gap-3 px-4 py-3 border-b border-stone-700">
+            <Search className="h-5 w-5 text-stone-400" />
             <input
               type="text"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               placeholder="Tìm kiếm sản phẩm, khách hàng, hoặc chuyển trang..."
-              className="flex-1 bg-transparent text-slate-200 placeholder-slate-500 outline-none text-sm"
+              className="flex-1 bg-transparent text-stone-200 placeholder-stone-500 outline-none text-sm"
               autoFocus
             />
-            <kbd className="hidden sm:inline-block px-2 py-1 text-xs font-medium text-slate-400 bg-slate-800 border border-slate-700 rounded">
+            <kbd className="hidden sm:inline-block px-2 py-1 text-xs font-medium text-stone-400 bg-stone-800 border border-stone-700 rounded">
               ESC
             </kbd>
           </div>
@@ -242,15 +242,15 @@ export default function CommandPalette({ isOpen, onClose }: CommandPaletteProps)
           {/* Results */}
           <div className="max-h-96 overflow-y-auto p-2">
             {loading ? (
-              <div className="py-8 text-center text-slate-400 text-sm">Đang tải...</div>
+              <div className="py-8 text-center text-stone-400 text-sm">Đang tải...</div>
             ) : items.length === 0 ? (
-              <div className="py-8 text-center text-slate-400 text-sm">
+              <div className="py-8 text-center text-stone-400 text-sm">
                 Không tìm thấy kết quả
               </div>
             ) : (
               Object.entries(groupedItems).map(([group, groupItems]) => (
                 <div key={group} className="mb-4 last:mb-0">
-                  <div className="px-2 py-1 text-xs font-medium text-slate-500 uppercase tracking-wider">
+                  <div className="px-2 py-1 text-xs font-medium text-stone-500 uppercase tracking-wider">
                     {GROUP_LABELS[group as keyof typeof GROUP_LABELS] || group}
                   </div>
                   <div className="space-y-1">
@@ -266,8 +266,8 @@ export default function CommandPalette({ isOpen, onClose }: CommandPaletteProps)
                           className={cn(
                             'w-full flex items-center gap-3 px-3 py-2 rounded-lg text-left transition-colors',
                             isSelected
-                              ? 'bg-blue-600 text-white'
-                              : 'text-slate-300 hover:bg-slate-800'
+                              ? 'bg-amber-600 text-white'
+                              : 'text-stone-300 hover:bg-stone-800'
                           )}
                         >
                           <Icon className="h-4 w-4 flex-shrink-0" />
@@ -277,7 +277,7 @@ export default function CommandPalette({ isOpen, onClose }: CommandPaletteProps)
                               <p
                                 className={cn(
                                   'text-xs truncate',
-                                  isSelected ? 'text-blue-200' : 'text-slate-500'
+                                  isSelected ? 'text-amber-200' : 'text-stone-500'
                                 )}
                               >
                                 {item.subtitle}
@@ -295,20 +295,20 @@ export default function CommandPalette({ isOpen, onClose }: CommandPaletteProps)
           </div>
 
           {/* Footer */}
-          <div className="flex items-center justify-between px-4 py-2 border-t border-slate-700 text-xs text-slate-500">
+          <div className="flex items-center justify-between px-4 py-2 border-t border-stone-700 text-xs text-stone-500">
             <div className="flex items-center gap-4">
               <div className="flex items-center gap-1">
-                <kbd className="px-1.5 py-0.5 bg-slate-800 border border-slate-700 rounded">↑</kbd>
-                <kbd className="px-1.5 py-0.5 bg-slate-800 border border-slate-700 rounded">↓</kbd>
+                <kbd className="px-1.5 py-0.5 bg-stone-800 border border-stone-700 rounded">↑</kbd>
+                <kbd className="px-1.5 py-0.5 bg-stone-800 border border-stone-700 rounded">↓</kbd>
                 <span className="ml-1">di chuyển</span>
               </div>
               <div className="flex items-center gap-1">
-                <kbd className="px-1.5 py-0.5 bg-slate-800 border border-slate-700 rounded">↵</kbd>
+                <kbd className="px-1.5 py-0.5 bg-stone-800 border border-stone-700 rounded">↵</kbd>
                 <span className="ml-1">chọn</span>
               </div>
             </div>
             <div className="flex items-center gap-1">
-              <kbd className="px-1.5 py-0.5 bg-slate-800 border border-slate-700 rounded">ESC</kbd>
+              <kbd className="px-1.5 py-0.5 bg-stone-800 border border-stone-700 rounded">ESC</kbd>
               <span className="ml-1">đóng</span>
             </div>
           </div>

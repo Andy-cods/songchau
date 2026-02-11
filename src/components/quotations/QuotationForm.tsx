@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useForm, useFieldArray } from 'react-hook-form'
 import { z } from 'zod'
 import { zodResolver } from '@hookform/resolvers/zod'
@@ -49,6 +49,8 @@ interface QuotationFormProps {
 
 export default function QuotationForm({ quotationId }: QuotationFormProps) {
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
+  const customerIdParam = searchParams.get('customerId')
   const isEdit = !!quotationId
   const { data: customerList } = useCustomerList()
   const { data: nextNumber } = useNextQuoteNumber()
@@ -113,6 +115,13 @@ export default function QuotationForm({ quotationId }: QuotationFormProps) {
       })
     }
   }, [isEdit, existingQuotation, reset])
+
+  // Pre-fill customerId from query param
+  useEffect(() => {
+    if (!isEdit && customerIdParam) {
+      setValue('customerId', parseInt(customerIdParam))
+    }
+  }, [isEdit, customerIdParam, setValue])
 
   // Product search
   useEffect(() => {
@@ -180,15 +189,15 @@ export default function QuotationForm({ quotationId }: QuotationFormProps) {
         <div className="flex items-center gap-4">
           <button
             onClick={() => navigate('/quotations')}
-            className="flex h-9 w-9 items-center justify-center rounded-lg text-slate-400 hover:bg-slate-800 hover:text-slate-200 transition-colors"
+            className="flex h-9 w-9 items-center justify-center rounded-lg text-stone-400 hover:bg-stone-800 hover:text-stone-200 transition-colors"
           >
             <ArrowLeft className="h-5 w-5" />
           </button>
           <div>
-            <h2 className="font-display text-2xl font-bold text-slate-50">
+            <h2 className="font-display text-2xl font-bold text-stone-50">
               {isEdit ? 'Edit Quotation' : 'New Quotation'}
             </h2>
-            <p className="text-sm text-slate-400 mt-0.5">
+            <p className="text-sm text-stone-400 mt-0.5">
               {isEdit
                 ? existingQuotation?.data?.quoteNumber
                 : nextNumber?.quoteNumber || 'Loading...'}
@@ -198,7 +207,7 @@ export default function QuotationForm({ quotationId }: QuotationFormProps) {
         <button
           onClick={handleSubmit(onSubmit)}
           disabled={isSubmitting}
-          className="flex items-center gap-2 rounded-lg bg-blue-600 px-5 py-2.5 text-sm font-medium text-white hover:bg-blue-700 transition-colors shadow-lg shadow-blue-600/20 disabled:opacity-50"
+          className="flex items-center gap-2 rounded-lg bg-amber-600 px-5 py-2.5 text-sm font-medium text-white hover:bg-amber-700 transition-colors shadow-lg shadow-amber-600/20 disabled:opacity-50"
         >
           {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
           {isEdit ? 'Update' : 'Create'} Quotation
@@ -207,17 +216,17 @@ export default function QuotationForm({ quotationId }: QuotationFormProps) {
 
       <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
         {/* Customer & Basic Info */}
-        <div className="rounded-xl bg-slate-800/50 border border-slate-700/50 p-6">
-          <h3 className="text-sm font-medium text-slate-300 mb-4">Customer & Quote Info</h3>
+        <div className="rounded-xl bg-stone-800/50 border border-stone-700/50 p-6">
+          <h3 className="text-sm font-medium text-stone-300 mb-4">Customer & Quote Info</h3>
           <div className="grid grid-cols-4 gap-4">
             {/* Customer Select */}
             <div className="col-span-2">
-              <label className="block text-xs font-medium text-slate-400 mb-1.5">
+              <label className="block text-xs font-medium text-stone-400 mb-1.5">
                 Customer <span className="text-red-400">*</span>
               </label>
               <select
                 {...register('customerId', { valueAsNumber: true })}
-                className="w-full rounded-lg bg-slate-900 border border-slate-700 px-3 py-2 text-sm text-slate-200 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                className="w-full rounded-lg bg-stone-900 border border-stone-700 px-3 py-2 text-sm text-stone-200 focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500"
               >
                 <option value={0}>-- Select Customer --</option>
                 {customerList?.map((c) => (
@@ -233,10 +242,10 @@ export default function QuotationForm({ quotationId }: QuotationFormProps) {
 
             {/* Currency */}
             <div>
-              <label className="block text-xs font-medium text-slate-400 mb-1.5">Currency</label>
+              <label className="block text-xs font-medium text-stone-400 mb-1.5">Currency</label>
               <select
                 {...register('currency')}
-                className="w-full rounded-lg bg-slate-900 border border-slate-700 px-3 py-2 text-sm text-slate-200 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                className="w-full rounded-lg bg-stone-900 border border-stone-700 px-3 py-2 text-sm text-stone-200 focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500"
               >
                 <option value="VND">VND</option>
                 <option value="USD">USD</option>
@@ -247,13 +256,13 @@ export default function QuotationForm({ quotationId }: QuotationFormProps) {
 
             {/* Valid Until */}
             <div>
-              <label className="block text-xs font-medium text-slate-400 mb-1.5">
+              <label className="block text-xs font-medium text-stone-400 mb-1.5">
                 Valid Until <span className="text-red-400">*</span>
               </label>
               <input
                 type="date"
                 {...register('validUntil')}
-                className="w-full rounded-lg bg-slate-900 border border-slate-700 px-3 py-2 text-sm text-slate-200 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                className="w-full rounded-lg bg-stone-900 border border-stone-700 px-3 py-2 text-sm text-stone-200 focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500"
               />
               {errors.validUntil && (
                 <p className="mt-1 text-xs text-red-400">{errors.validUntil.message}</p>
@@ -262,43 +271,43 @@ export default function QuotationForm({ quotationId }: QuotationFormProps) {
 
             {/* Tax Rate */}
             <div>
-              <label className="block text-xs font-medium text-slate-400 mb-1.5">Tax Rate (%)</label>
+              <label className="block text-xs font-medium text-stone-400 mb-1.5">Tax Rate (%)</label>
               <input
                 type="number"
                 step="0.1"
                 {...register('taxRate', { valueAsNumber: true })}
-                className="w-full rounded-lg bg-slate-900 border border-slate-700 px-3 py-2 text-sm text-slate-200 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                className="w-full rounded-lg bg-stone-900 border border-stone-700 px-3 py-2 text-sm text-stone-200 focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500"
               />
             </div>
 
             {/* Notes */}
             <div className="col-span-2">
-              <label className="block text-xs font-medium text-slate-400 mb-1.5">Notes (shown on PDF)</label>
+              <label className="block text-xs font-medium text-stone-400 mb-1.5">Notes (shown on PDF)</label>
               <textarea
                 {...register('notes')}
                 rows={2}
                 placeholder="Payment terms, delivery notes..."
-                className="w-full rounded-lg bg-slate-900 border border-slate-700 px-3 py-2 text-sm text-slate-200 placeholder-slate-500 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 resize-none"
+                className="w-full rounded-lg bg-stone-900 border border-stone-700 px-3 py-2 text-sm text-stone-200 placeholder-stone-500 focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500 resize-none"
               />
             </div>
 
             {/* Internal Notes */}
             <div>
-              <label className="block text-xs font-medium text-slate-400 mb-1.5">Internal Notes</label>
+              <label className="block text-xs font-medium text-stone-400 mb-1.5">Internal Notes</label>
               <textarea
                 {...register('internalNotes')}
                 rows={2}
                 placeholder="Internal use only..."
-                className="w-full rounded-lg bg-slate-900 border border-slate-700 px-3 py-2 text-sm text-slate-200 placeholder-slate-500 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 resize-none"
+                className="w-full rounded-lg bg-stone-900 border border-stone-700 px-3 py-2 text-sm text-stone-200 placeholder-stone-500 focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500 resize-none"
               />
             </div>
           </div>
         </div>
 
         {/* Line Items */}
-        <div className="rounded-xl bg-slate-800/50 border border-slate-700/50 p-6">
+        <div className="rounded-xl bg-stone-800/50 border border-stone-700/50 p-6">
           <div className="flex items-center justify-between mb-4">
-            <h3 className="text-sm font-medium text-slate-300 flex items-center gap-2">
+            <h3 className="text-sm font-medium text-stone-300 flex items-center gap-2">
               <Package className="h-4 w-4" />
               Line Items
             </h3>
@@ -316,7 +325,7 @@ export default function QuotationForm({ quotationId }: QuotationFormProps) {
                   notes: '',
                 })
               }
-              className="flex items-center gap-1.5 rounded-lg bg-slate-700 px-3 py-1.5 text-xs font-medium text-slate-200 hover:bg-slate-600 transition-colors"
+              className="flex items-center gap-1.5 rounded-lg bg-stone-700 px-3 py-1.5 text-xs font-medium text-stone-200 hover:bg-stone-600 transition-colors"
             >
               <Plus className="h-3.5 w-3.5" />
               Add Item
@@ -329,8 +338,8 @@ export default function QuotationForm({ quotationId }: QuotationFormProps) {
 
           {fields.length === 0 ? (
             <div className="py-12 text-center">
-              <Package className="h-10 w-10 text-slate-600 mx-auto mb-3" />
-              <p className="text-sm text-slate-500">No items added yet</p>
+              <Package className="h-10 w-10 text-stone-600 mx-auto mb-3" />
+              <p className="text-sm text-stone-500">No items added yet</p>
               <button
                 type="button"
                 onClick={() =>
@@ -345,7 +354,7 @@ export default function QuotationForm({ quotationId }: QuotationFormProps) {
                     notes: '',
                   })
                 }
-                className="mt-3 text-sm text-blue-400 hover:text-blue-300"
+                className="mt-3 text-sm text-amber-400 hover:text-amber-300"
               >
                 + Add your first item
               </button>
@@ -354,31 +363,31 @@ export default function QuotationForm({ quotationId }: QuotationFormProps) {
             <div className="overflow-x-auto">
               <table className="w-full">
                 <thead>
-                  <tr className="border-b border-slate-700">
-                    <th className="pb-2 text-left text-xs font-medium text-slate-400 w-8">#</th>
-                    <th className="pb-2 text-left text-xs font-medium text-slate-400">Product</th>
-                    <th className="pb-2 text-right text-xs font-medium text-slate-400 w-24">Qty</th>
-                    <th className="pb-2 text-right text-xs font-medium text-slate-400 w-36">Unit Price</th>
-                    <th className="pb-2 text-right text-xs font-medium text-slate-400 w-36">Amount</th>
+                  <tr className="border-b border-stone-700">
+                    <th className="pb-2 text-left text-xs font-medium text-stone-400 w-8">#</th>
+                    <th className="pb-2 text-left text-xs font-medium text-stone-400">Product</th>
+                    <th className="pb-2 text-right text-xs font-medium text-stone-400 w-24">Qty</th>
+                    <th className="pb-2 text-right text-xs font-medium text-stone-400 w-36">Unit Price</th>
+                    <th className="pb-2 text-right text-xs font-medium text-stone-400 w-36">Amount</th>
                     <th className="pb-2 w-10"></th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-700/50">
+                <tbody className="divide-y divide-stone-700/50">
                   {fields.map((field, index) => (
                     <tr key={field.id} className="group">
-                      <td className="py-3 text-xs text-slate-500">{index + 1}</td>
+                      <td className="py-3 text-xs text-stone-500">{index + 1}</td>
                       <td className="py-3 pr-3">
                         {watchItems?.[index]?.productId ? (
                           <div>
-                            <p className="text-sm font-mono text-blue-400">
+                            <p className="text-sm font-mono text-amber-400">
                               {watchItems[index].productPartNumber}
                             </p>
-                            <p className="text-xs text-slate-400">{watchItems[index].productName}</p>
+                            <p className="text-xs text-stone-400">{watchItems[index].productName}</p>
                           </div>
                         ) : (
                           <div className="relative">
                             <div className="relative">
-                              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-500" />
+                              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-stone-500" />
                               <input
                                 type="text"
                                 value={activeItemIndex === index ? productSearch : ''}
@@ -388,20 +397,20 @@ export default function QuotationForm({ quotationId }: QuotationFormProps) {
                                 }}
                                 onFocus={() => setActiveItemIndex(index)}
                                 placeholder="Search part number or name..."
-                                className="w-full rounded-lg bg-slate-900 border border-slate-700 pl-8 pr-3 py-1.5 text-sm text-slate-200 placeholder-slate-500 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                                className="w-full rounded-lg bg-stone-900 border border-stone-700 pl-8 pr-3 py-1.5 text-sm text-stone-200 placeholder-stone-500 focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500"
                               />
                             </div>
                             {activeItemIndex === index && productResults.length > 0 && (
-                              <div className="absolute z-20 mt-1 w-full max-h-48 overflow-auto rounded-lg bg-slate-800 border border-slate-600 shadow-xl">
+                              <div className="absolute z-20 mt-1 w-full max-h-48 overflow-auto rounded-lg bg-stone-800 border border-stone-600 shadow-xl">
                                 {productResults.map((p) => (
                                   <button
                                     key={p.id}
                                     type="button"
                                     onClick={() => handleAddProduct(p, index)}
-                                    className="w-full text-left px-3 py-2 hover:bg-slate-700 transition-colors"
+                                    className="w-full text-left px-3 py-2 hover:bg-stone-700 transition-colors"
                                   >
-                                    <p className="text-sm font-mono text-blue-400">{p.partNumber}</p>
-                                    <p className="text-xs text-slate-400">
+                                    <p className="text-sm font-mono text-amber-400">{p.partNumber}</p>
+                                    <p className="text-xs text-stone-400">
                                       {p.name} {p.brand && `• ${p.brand}`}
                                       {p.sellingPrice && ` • ${new Intl.NumberFormat('vi-VN').format(p.sellingPrice)}`}
                                     </p>
@@ -410,8 +419,8 @@ export default function QuotationForm({ quotationId }: QuotationFormProps) {
                               </div>
                             )}
                             {activeItemIndex === index && searchingProducts && (
-                              <div className="absolute z-20 mt-1 w-full rounded-lg bg-slate-800 border border-slate-600 p-3 text-center">
-                                <Loader2 className="h-4 w-4 animate-spin text-slate-400 mx-auto" />
+                              <div className="absolute z-20 mt-1 w-full rounded-lg bg-stone-800 border border-stone-600 p-3 text-center">
+                                <Loader2 className="h-4 w-4 animate-spin text-stone-400 mx-auto" />
                               </div>
                             )}
                           </div>
@@ -427,7 +436,7 @@ export default function QuotationForm({ quotationId }: QuotationFormProps) {
                             setValue(`items.${index}.quantity`, val)
                             setValue(`items.${index}.amount`, val * (watchItems?.[index]?.unitPrice || 0))
                           }}
-                          className="w-full rounded-lg bg-slate-900 border border-slate-700 px-2 py-1.5 text-sm text-right text-slate-200 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                          className="w-full rounded-lg bg-stone-900 border border-stone-700 px-2 py-1.5 text-sm text-right text-stone-200 focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500"
                         />
                       </td>
                       <td className="py-3 pr-3">
@@ -440,11 +449,11 @@ export default function QuotationForm({ quotationId }: QuotationFormProps) {
                             setValue(`items.${index}.unitPrice`, val)
                             setValue(`items.${index}.amount`, (watchItems?.[index]?.quantity || 1) * val)
                           }}
-                          className="w-full rounded-lg bg-slate-900 border border-slate-700 px-2 py-1.5 text-sm text-right text-slate-200 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                          className="w-full rounded-lg bg-stone-900 border border-stone-700 px-2 py-1.5 text-sm text-right text-stone-200 focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500"
                         />
                       </td>
                       <td className="py-3 pr-3 text-right">
-                        <p className="text-sm font-medium text-slate-200">
+                        <p className="text-sm font-medium text-stone-200">
                           {new Intl.NumberFormat('vi-VN').format(watchItems?.[index]?.amount || 0)}
                         </p>
                       </td>
@@ -452,7 +461,7 @@ export default function QuotationForm({ quotationId }: QuotationFormProps) {
                         <button
                           type="button"
                           onClick={() => remove(index)}
-                          className="p-1 rounded text-slate-500 hover:text-red-400 hover:bg-red-500/10 opacity-0 group-hover:opacity-100 transition-all"
+                          className="p-1 rounded text-stone-500 hover:text-red-400 hover:bg-red-500/10 opacity-0 group-hover:opacity-100 transition-all"
                         >
                           <Trash2 className="h-4 w-4" />
                         </button>
@@ -467,24 +476,24 @@ export default function QuotationForm({ quotationId }: QuotationFormProps) {
 
         {/* Totals */}
         {fields.length > 0 && (
-          <div className="rounded-xl bg-slate-800/50 border border-slate-700/50 p-6">
+          <div className="rounded-xl bg-stone-800/50 border border-stone-700/50 p-6">
             <div className="flex justify-end">
               <div className="w-72 space-y-2">
                 <div className="flex items-center justify-between text-sm">
-                  <span className="text-slate-400">Subtotal</span>
-                  <span className="text-slate-200 font-medium">
+                  <span className="text-stone-400">Subtotal</span>
+                  <span className="text-stone-200 font-medium">
                     {new Intl.NumberFormat('vi-VN').format(subtotal)}
                   </span>
                 </div>
                 <div className="flex items-center justify-between text-sm">
-                  <span className="text-slate-400">VAT ({watchTaxRate}%)</span>
-                  <span className="text-slate-200">
+                  <span className="text-stone-400">VAT ({watchTaxRate}%)</span>
+                  <span className="text-stone-200">
                     {new Intl.NumberFormat('vi-VN').format(taxAmount)}
                   </span>
                 </div>
-                <div className="border-t border-slate-700 pt-2 flex items-center justify-between">
-                  <span className="text-sm font-medium text-slate-300">Total</span>
-                  <span className="text-lg font-bold text-blue-400">
+                <div className="border-t border-stone-700 pt-2 flex items-center justify-between">
+                  <span className="text-sm font-medium text-stone-300">Total</span>
+                  <span className="text-lg font-bold text-amber-400">
                     {new Intl.NumberFormat('vi-VN').format(totalAmount)} {watch('currency')}
                   </span>
                 </div>

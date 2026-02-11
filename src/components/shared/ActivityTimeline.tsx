@@ -76,7 +76,7 @@ export default function ActivityTimeline({
       {!isAdding && (
         <button
           onClick={() => setIsAdding(true)}
-          className="flex items-center gap-2 text-sm text-blue-400 hover:text-blue-300 transition-colors"
+          className="flex items-center gap-2 text-sm text-amber-400 hover:text-amber-300 transition-colors"
         >
           <Plus className="h-4 w-4" />
           Thêm hoạt động
@@ -87,17 +87,17 @@ export default function ActivityTimeline({
       {isAdding && (
         <form
           onSubmit={handleSubmit}
-          className="rounded-lg bg-slate-800/50 border border-slate-700 p-4 space-y-3"
+          className="rounded-lg bg-stone-800/50 border border-stone-700 p-4 space-y-3"
         >
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-xs font-medium text-slate-400 mb-1">
+              <label className="block text-xs font-medium text-stone-400 mb-1">
                 Loại hoạt động
               </label>
               <select
                 value={formData.type}
                 onChange={(e) => setFormData({ ...formData, type: e.target.value })}
-                className="w-full rounded-lg bg-slate-900 border border-slate-700 px-3 py-2 text-sm text-slate-200 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                className="w-full rounded-lg bg-stone-900 border border-stone-700 px-3 py-2 text-sm text-stone-200 focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500"
               >
                 {ACTIVITY_TYPES.map((type) => (
                   <option key={type.value} value={type.value}>
@@ -108,7 +108,7 @@ export default function ActivityTimeline({
             </div>
 
             <div>
-              <label className="block text-xs font-medium text-slate-400 mb-1">
+              <label className="block text-xs font-medium text-stone-400 mb-1">
                 Tiêu đề (tùy chọn)
               </label>
               <input
@@ -116,13 +116,13 @@ export default function ActivityTimeline({
                 value={formData.title}
                 onChange={(e) => setFormData({ ...formData, title: e.target.value })}
                 placeholder="Tiêu đề ngắn gọn"
-                className="w-full rounded-lg bg-slate-900 border border-slate-700 px-3 py-2 text-sm text-slate-200 placeholder-slate-500 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                className="w-full rounded-lg bg-stone-900 border border-stone-700 px-3 py-2 text-sm text-stone-200 placeholder-stone-500 focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500"
               />
             </div>
           </div>
 
           <div>
-            <label className="block text-xs font-medium text-slate-400 mb-1">
+            <label className="block text-xs font-medium text-stone-400 mb-1">
               Nội dung
             </label>
             <textarea
@@ -130,20 +130,20 @@ export default function ActivityTimeline({
               onChange={(e) => setFormData({ ...formData, content: e.target.value })}
               placeholder="Ghi chú về cuộc gọi, email, hoặc hoạt động..."
               rows={3}
-              className="w-full rounded-lg bg-slate-900 border border-slate-700 px-3 py-2 text-sm text-slate-200 placeholder-slate-500 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 resize-none"
+              className="w-full rounded-lg bg-stone-900 border border-stone-700 px-3 py-2 text-sm text-stone-200 placeholder-stone-500 focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500 resize-none"
               required
             />
           </div>
 
           <div>
-            <label className="block text-xs font-medium text-slate-400 mb-1">
+            <label className="block text-xs font-medium text-stone-400 mb-1">
               Follow-up (tùy chọn)
             </label>
             <input
               type="datetime-local"
               value={formData.followUpAt}
               onChange={(e) => setFormData({ ...formData, followUpAt: e.target.value })}
-              className="w-full rounded-lg bg-slate-900 border border-slate-700 px-3 py-2 text-sm text-slate-200 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+              className="w-full rounded-lg bg-stone-900 border border-stone-700 px-3 py-2 text-sm text-stone-200 focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500"
             />
           </div>
 
@@ -151,7 +151,7 @@ export default function ActivityTimeline({
             <button
               type="submit"
               disabled={isSubmitting}
-              className="flex-1 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 transition-colors disabled:opacity-50"
+              className="flex-1 rounded-lg bg-amber-600 px-4 py-2 text-sm font-medium text-white hover:bg-amber-700 transition-colors disabled:opacity-50"
             >
               {isSubmitting ? 'Đang lưu...' : 'Lưu hoạt động'}
             </button>
@@ -161,7 +161,7 @@ export default function ActivityTimeline({
                 setIsAdding(false)
                 setFormData({ type: 'note', title: '', content: '', followUpAt: '' })
               }}
-              className="px-4 py-2 text-sm font-medium text-slate-300 hover:bg-slate-700 rounded-lg transition-colors"
+              className="px-4 py-2 text-sm font-medium text-stone-300 hover:bg-stone-700 rounded-lg transition-colors"
             >
               Hủy
             </button>
@@ -172,7 +172,7 @@ export default function ActivityTimeline({
       {/* Timeline */}
       <div className="space-y-4">
         {activities.length === 0 ? (
-          <div className="text-center py-8 text-slate-500">
+          <div className="text-center py-8 text-stone-500">
             Chưa có hoạt động nào
           </div>
         ) : (
@@ -184,11 +184,11 @@ export default function ActivityTimeline({
               <div key={activity.id} className="flex gap-3">
                 {/* Icon */}
                 <div className="flex flex-col items-center">
-                  <div className="flex h-8 w-8 items-center justify-center rounded-full bg-slate-800 border border-slate-700">
-                    <Icon className="h-4 w-4 text-slate-400" />
+                  <div className="flex h-8 w-8 items-center justify-center rounded-full bg-stone-800 border border-stone-700">
+                    <Icon className="h-4 w-4 text-stone-400" />
                   </div>
                   {idx < activities.length - 1 && (
-                    <div className="w-px flex-1 bg-slate-700 mt-2" />
+                    <div className="w-px flex-1 bg-stone-700 mt-2" />
                   )}
                 </div>
 
@@ -197,11 +197,11 @@ export default function ActivityTimeline({
                   <div className="flex items-start justify-between gap-2 mb-1">
                     <div>
                       {activity.title && (
-                        <p className="text-sm font-medium text-slate-200">
+                        <p className="text-sm font-medium text-stone-200">
                           {activity.title}
                         </p>
                       )}
-                      <p className="text-xs text-slate-400">
+                      <p className="text-xs text-stone-400">
                         {ACTIVITY_TYPES.find((t) => t.value === activity.type)?.label ||
                           activity.type}{' '}
                         · {formatDistanceToNow(new Date(activity.createdAt), { addSuffix: true, locale: vi })}
@@ -210,7 +210,7 @@ export default function ActivityTimeline({
                   </div>
 
                   {activity.content && (
-                    <p className="text-sm text-slate-300 mb-2">{activity.content}</p>
+                    <p className="text-sm text-stone-300 mb-2">{activity.content}</p>
                   )}
 
                   {/* Follow-up badge */}
@@ -235,7 +235,7 @@ export default function ActivityTimeline({
                       {!activity.followUpDone && (
                         <button
                           onClick={() => onMarkDone(activity.id)}
-                          className="text-xs text-blue-400 hover:text-blue-300 flex items-center gap-1"
+                          className="text-xs text-amber-400 hover:text-amber-300 flex items-center gap-1"
                         >
                           <Check className="h-3 w-3" />
                           Hoàn thành

@@ -54,6 +54,7 @@ export default function OrderForm({ orderId }: OrderFormProps) {
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
   const fromQuotationId = searchParams.get('fromQuotation')
+  const customerIdParam = searchParams.get('customerId')
   const isEdit = !!orderId
 
   const { data: customerList } = useCustomerList()
@@ -122,6 +123,13 @@ export default function OrderForm({ orderId }: OrderFormProps) {
       })
     }
   }, [isEdit, existingOrder, reset])
+
+  // Pre-fill customerId from query param
+  useEffect(() => {
+    if (!isEdit && !fromQuotationId && customerIdParam) {
+      setValue('customerId', parseInt(customerIdParam))
+    }
+  }, [isEdit, fromQuotationId, customerIdParam, setValue])
 
   // Pre-populate from quotation
   useEffect(() => {
@@ -211,16 +219,16 @@ export default function OrderForm({ orderId }: OrderFormProps) {
         <div className="flex items-center gap-4">
           <button
             onClick={() => navigate('/orders')}
-            className="flex h-9 w-9 items-center justify-center rounded-lg text-slate-400 hover:bg-slate-800 hover:text-slate-200 transition-colors"
+            className="flex h-9 w-9 items-center justify-center rounded-lg text-stone-400 hover:bg-stone-800 hover:text-stone-200 transition-colors"
           >
             <ArrowLeft className="h-5 w-5" />
           </button>
           <div>
-            <h2 className="font-display text-2xl font-bold text-slate-50">
+            <h2 className="font-display text-2xl font-bold text-stone-50">
               {isEdit ? 'Sửa đơn hàng' : 'Tạo đơn hàng mới'}
             </h2>
             {fromQuotationId && sourceQuotation?.data && (
-              <p className="text-sm text-slate-400 mt-0.5">
+              <p className="text-sm text-stone-400 mt-0.5">
                 Từ báo giá: {sourceQuotation.data.quoteNumber}
               </p>
             )}
@@ -229,7 +237,7 @@ export default function OrderForm({ orderId }: OrderFormProps) {
         <button
           onClick={handleSubmit(onSubmit)}
           disabled={isSubmitting}
-          className="flex items-center gap-2 rounded-lg bg-blue-600 px-5 py-2.5 text-sm font-medium text-white hover:bg-blue-700 transition-colors shadow-lg shadow-blue-600/20 disabled:opacity-50"
+          className="flex items-center gap-2 rounded-lg bg-amber-600 px-5 py-2.5 text-sm font-medium text-white hover:bg-amber-700 transition-colors shadow-lg shadow-amber-600/20 disabled:opacity-50"
         >
           {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
           {isEdit ? 'Cập nhật' : 'Tạo'} đơn hàng
@@ -238,17 +246,17 @@ export default function OrderForm({ orderId }: OrderFormProps) {
 
       <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
         {/* Customer & Basic Info */}
-        <div className="rounded-xl bg-slate-800/50 border border-slate-700/50 p-6">
-          <h3 className="text-sm font-medium text-slate-300 mb-4">Thông tin đơn hàng</h3>
+        <div className="rounded-xl bg-stone-800/50 border border-stone-700/50 p-6">
+          <h3 className="text-sm font-medium text-stone-300 mb-4">Thông tin đơn hàng</h3>
           <div className="grid grid-cols-4 gap-4">
             {/* Customer Select */}
             <div className="col-span-2">
-              <label className="block text-xs font-medium text-slate-400 mb-1.5">
+              <label className="block text-xs font-medium text-stone-400 mb-1.5">
                 Khách hàng <span className="text-red-400">*</span>
               </label>
               <select
                 {...register('customerId', { valueAsNumber: true })}
-                className="w-full rounded-lg bg-slate-900 border border-slate-700 px-3 py-2 text-sm text-slate-200 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                className="w-full rounded-lg bg-stone-900 border border-stone-700 px-3 py-2 text-sm text-stone-200 focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500"
               >
                 <option value={0}>-- Chọn khách hàng --</option>
                 {customerList?.map((c) => (
@@ -264,10 +272,10 @@ export default function OrderForm({ orderId }: OrderFormProps) {
 
             {/* Currency */}
             <div>
-              <label className="block text-xs font-medium text-slate-400 mb-1.5">Tiền tệ</label>
+              <label className="block text-xs font-medium text-stone-400 mb-1.5">Tiền tệ</label>
               <select
                 {...register('currency')}
-                className="w-full rounded-lg bg-slate-900 border border-slate-700 px-3 py-2 text-sm text-slate-200 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                className="w-full rounded-lg bg-stone-900 border border-stone-700 px-3 py-2 text-sm text-stone-200 focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500"
               >
                 <option value="VND">VND</option>
                 <option value="USD">USD</option>
@@ -278,72 +286,72 @@ export default function OrderForm({ orderId }: OrderFormProps) {
 
             {/* PO Number */}
             <div>
-              <label className="block text-xs font-medium text-slate-400 mb-1.5">Số PO</label>
+              <label className="block text-xs font-medium text-stone-400 mb-1.5">Số PO</label>
               <input
                 {...register('poNumber')}
                 placeholder="PO-2024-001"
-                className="w-full rounded-lg bg-slate-900 border border-slate-700 px-3 py-2 text-sm text-slate-200 placeholder-slate-500 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 font-mono"
+                className="w-full rounded-lg bg-stone-900 border border-stone-700 px-3 py-2 text-sm text-stone-200 placeholder-stone-500 focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500 font-mono"
               />
             </div>
 
             {/* Expected Delivery */}
             <div>
-              <label className="block text-xs font-medium text-slate-400 mb-1.5">Giao hàng dự kiến</label>
+              <label className="block text-xs font-medium text-stone-400 mb-1.5">Giao hàng dự kiến</label>
               <input
                 type="date"
                 {...register('expectedDelivery')}
-                className="w-full rounded-lg bg-slate-900 border border-slate-700 px-3 py-2 text-sm text-slate-200 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                className="w-full rounded-lg bg-stone-900 border border-stone-700 px-3 py-2 text-sm text-stone-200 focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500"
               />
             </div>
 
             {/* Payment Due Date */}
             <div>
-              <label className="block text-xs font-medium text-slate-400 mb-1.5">Hạn thanh toán</label>
+              <label className="block text-xs font-medium text-stone-400 mb-1.5">Hạn thanh toán</label>
               <input
                 type="date"
                 {...register('paymentDueDate')}
-                className="w-full rounded-lg bg-slate-900 border border-slate-700 px-3 py-2 text-sm text-slate-200 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                className="w-full rounded-lg bg-stone-900 border border-stone-700 px-3 py-2 text-sm text-stone-200 focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500"
               />
             </div>
 
             {/* Delivery Address */}
             <div className="col-span-2">
-              <label className="block text-xs font-medium text-slate-400 mb-1.5">Địa chỉ giao hàng</label>
+              <label className="block text-xs font-medium text-stone-400 mb-1.5">Địa chỉ giao hàng</label>
               <input
                 {...register('deliveryAddress')}
                 placeholder="Địa chỉ..."
-                className="w-full rounded-lg bg-slate-900 border border-slate-700 px-3 py-2 text-sm text-slate-200 placeholder-slate-500 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                className="w-full rounded-lg bg-stone-900 border border-stone-700 px-3 py-2 text-sm text-stone-200 placeholder-stone-500 focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500"
               />
             </div>
 
             {/* Notes */}
             <div className="col-span-2">
-              <label className="block text-xs font-medium text-slate-400 mb-1.5">Ghi chú</label>
+              <label className="block text-xs font-medium text-stone-400 mb-1.5">Ghi chú</label>
               <textarea
                 {...register('notes')}
                 rows={2}
                 placeholder="Ghi chú đơn hàng..."
-                className="w-full rounded-lg bg-slate-900 border border-slate-700 px-3 py-2 text-sm text-slate-200 placeholder-slate-500 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 resize-none"
+                className="w-full rounded-lg bg-stone-900 border border-stone-700 px-3 py-2 text-sm text-stone-200 placeholder-stone-500 focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500 resize-none"
               />
             </div>
 
             {/* Internal Notes */}
             <div className="col-span-2">
-              <label className="block text-xs font-medium text-slate-400 mb-1.5">Ghi chú nội bộ</label>
+              <label className="block text-xs font-medium text-stone-400 mb-1.5">Ghi chú nội bộ</label>
               <textarea
                 {...register('internalNotes')}
                 rows={2}
                 placeholder="Nội bộ..."
-                className="w-full rounded-lg bg-slate-900 border border-slate-700 px-3 py-2 text-sm text-slate-200 placeholder-slate-500 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 resize-none"
+                className="w-full rounded-lg bg-stone-900 border border-stone-700 px-3 py-2 text-sm text-stone-200 placeholder-stone-500 focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500 resize-none"
               />
             </div>
           </div>
         </div>
 
         {/* Line Items */}
-        <div className="rounded-xl bg-slate-800/50 border border-slate-700/50 p-6">
+        <div className="rounded-xl bg-stone-800/50 border border-stone-700/50 p-6">
           <div className="flex items-center justify-between mb-4">
-            <h3 className="text-sm font-medium text-slate-300 flex items-center gap-2">
+            <h3 className="text-sm font-medium text-stone-300 flex items-center gap-2">
               <Package className="h-4 w-4" />
               Sản phẩm
             </h3>
@@ -361,7 +369,7 @@ export default function OrderForm({ orderId }: OrderFormProps) {
                   status: 'pending',
                 })
               }
-              className="flex items-center gap-1.5 rounded-lg bg-slate-700 px-3 py-1.5 text-xs font-medium text-slate-200 hover:bg-slate-600 transition-colors"
+              className="flex items-center gap-1.5 rounded-lg bg-stone-700 px-3 py-1.5 text-xs font-medium text-stone-200 hover:bg-stone-600 transition-colors"
             >
               <Plus className="h-3.5 w-3.5" />
               Thêm SP
@@ -374,8 +382,8 @@ export default function OrderForm({ orderId }: OrderFormProps) {
 
           {fields.length === 0 ? (
             <div className="py-12 text-center">
-              <Package className="h-10 w-10 text-slate-600 mx-auto mb-3" />
-              <p className="text-sm text-slate-500">Chưa có sản phẩm</p>
+              <Package className="h-10 w-10 text-stone-600 mx-auto mb-3" />
+              <p className="text-sm text-stone-500">Chưa có sản phẩm</p>
               <button
                 type="button"
                 onClick={() =>
@@ -390,7 +398,7 @@ export default function OrderForm({ orderId }: OrderFormProps) {
                     status: 'pending',
                   })
                 }
-                className="mt-3 text-sm text-blue-400 hover:text-blue-300"
+                className="mt-3 text-sm text-amber-400 hover:text-amber-300"
               >
                 + Thêm sản phẩm đầu tiên
               </button>
@@ -399,31 +407,31 @@ export default function OrderForm({ orderId }: OrderFormProps) {
             <div className="overflow-x-auto">
               <table className="w-full">
                 <thead>
-                  <tr className="border-b border-slate-700">
-                    <th className="pb-2 text-left text-xs font-medium text-slate-400 w-8">#</th>
-                    <th className="pb-2 text-left text-xs font-medium text-slate-400">Sản phẩm</th>
-                    <th className="pb-2 text-right text-xs font-medium text-slate-400 w-24">SL</th>
-                    <th className="pb-2 text-right text-xs font-medium text-slate-400 w-36">Đơn giá</th>
-                    <th className="pb-2 text-right text-xs font-medium text-slate-400 w-36">Thành tiền</th>
+                  <tr className="border-b border-stone-700">
+                    <th className="pb-2 text-left text-xs font-medium text-stone-400 w-8">#</th>
+                    <th className="pb-2 text-left text-xs font-medium text-stone-400">Sản phẩm</th>
+                    <th className="pb-2 text-right text-xs font-medium text-stone-400 w-24">SL</th>
+                    <th className="pb-2 text-right text-xs font-medium text-stone-400 w-36">Đơn giá</th>
+                    <th className="pb-2 text-right text-xs font-medium text-stone-400 w-36">Thành tiền</th>
                     <th className="pb-2 w-10"></th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-700/50">
+                <tbody className="divide-y divide-stone-700/50">
                   {fields.map((field, index) => (
                     <tr key={field.id} className="group">
-                      <td className="py-3 text-xs text-slate-500">{index + 1}</td>
+                      <td className="py-3 text-xs text-stone-500">{index + 1}</td>
                       <td className="py-3 pr-3">
                         {watchItems?.[index]?.productId ? (
                           <div>
-                            <p className="text-sm font-mono text-blue-400">
+                            <p className="text-sm font-mono text-amber-400">
                               {watchItems[index].productPartNumber}
                             </p>
-                            <p className="text-xs text-slate-400">{watchItems[index].productName}</p>
+                            <p className="text-xs text-stone-400">{watchItems[index].productName}</p>
                           </div>
                         ) : (
                           <div className="relative">
                             <div className="relative">
-                              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-500" />
+                              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-stone-500" />
                               <input
                                 type="text"
                                 value={activeItemIndex === index ? productSearch : ''}
@@ -433,20 +441,20 @@ export default function OrderForm({ orderId }: OrderFormProps) {
                                 }}
                                 onFocus={() => setActiveItemIndex(index)}
                                 placeholder="Tìm part number hoặc tên..."
-                                className="w-full rounded-lg bg-slate-900 border border-slate-700 pl-8 pr-3 py-1.5 text-sm text-slate-200 placeholder-slate-500 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                                className="w-full rounded-lg bg-stone-900 border border-stone-700 pl-8 pr-3 py-1.5 text-sm text-stone-200 placeholder-stone-500 focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500"
                               />
                             </div>
                             {activeItemIndex === index && productResults.length > 0 && (
-                              <div className="absolute z-20 mt-1 w-full max-h-48 overflow-auto rounded-lg bg-slate-800 border border-slate-600 shadow-xl">
+                              <div className="absolute z-20 mt-1 w-full max-h-48 overflow-auto rounded-lg bg-stone-800 border border-stone-600 shadow-xl">
                                 {productResults.map((p) => (
                                   <button
                                     key={p.id}
                                     type="button"
                                     onClick={() => handleAddProduct(p, index)}
-                                    className="w-full text-left px-3 py-2 hover:bg-slate-700 transition-colors"
+                                    className="w-full text-left px-3 py-2 hover:bg-stone-700 transition-colors"
                                   >
-                                    <p className="text-sm font-mono text-blue-400">{p.partNumber}</p>
-                                    <p className="text-xs text-slate-400">
+                                    <p className="text-sm font-mono text-amber-400">{p.partNumber}</p>
+                                    <p className="text-xs text-stone-400">
                                       {p.name} {p.brand && `• ${p.brand}`}
                                       {p.sellingPrice && ` • ${new Intl.NumberFormat('vi-VN').format(p.sellingPrice)}`}
                                     </p>
@@ -455,8 +463,8 @@ export default function OrderForm({ orderId }: OrderFormProps) {
                               </div>
                             )}
                             {activeItemIndex === index && searchingProducts && (
-                              <div className="absolute z-20 mt-1 w-full rounded-lg bg-slate-800 border border-slate-600 p-3 text-center">
-                                <Loader2 className="h-4 w-4 animate-spin text-slate-400 mx-auto" />
+                              <div className="absolute z-20 mt-1 w-full rounded-lg bg-stone-800 border border-stone-600 p-3 text-center">
+                                <Loader2 className="h-4 w-4 animate-spin text-stone-400 mx-auto" />
                               </div>
                             )}
                           </div>
@@ -472,7 +480,7 @@ export default function OrderForm({ orderId }: OrderFormProps) {
                             setValue(`items.${index}.quantity`, val)
                             setValue(`items.${index}.amount`, val * (watchItems?.[index]?.unitPrice || 0))
                           }}
-                          className="w-full rounded-lg bg-slate-900 border border-slate-700 px-2 py-1.5 text-sm text-right text-slate-200 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                          className="w-full rounded-lg bg-stone-900 border border-stone-700 px-2 py-1.5 text-sm text-right text-stone-200 focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500"
                         />
                       </td>
                       <td className="py-3 pr-3">
@@ -485,11 +493,11 @@ export default function OrderForm({ orderId }: OrderFormProps) {
                             setValue(`items.${index}.unitPrice`, val)
                             setValue(`items.${index}.amount`, (watchItems?.[index]?.quantity || 1) * val)
                           }}
-                          className="w-full rounded-lg bg-slate-900 border border-slate-700 px-2 py-1.5 text-sm text-right text-slate-200 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                          className="w-full rounded-lg bg-stone-900 border border-stone-700 px-2 py-1.5 text-sm text-right text-stone-200 focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500"
                         />
                       </td>
                       <td className="py-3 pr-3 text-right">
-                        <p className="text-sm font-medium text-slate-200">
+                        <p className="text-sm font-medium text-stone-200">
                           {new Intl.NumberFormat('vi-VN').format(watchItems?.[index]?.amount || 0)}
                         </p>
                       </td>
@@ -497,7 +505,7 @@ export default function OrderForm({ orderId }: OrderFormProps) {
                         <button
                           type="button"
                           onClick={() => remove(index)}
-                          className="p-1 rounded text-slate-500 hover:text-red-400 hover:bg-red-500/10 opacity-0 group-hover:opacity-100 transition-all"
+                          className="p-1 rounded text-stone-500 hover:text-red-400 hover:bg-red-500/10 opacity-0 group-hover:opacity-100 transition-all"
                         >
                           <Trash2 className="h-4 w-4" />
                         </button>
@@ -512,12 +520,12 @@ export default function OrderForm({ orderId }: OrderFormProps) {
 
         {/* Totals */}
         {fields.length > 0 && (
-          <div className="rounded-xl bg-slate-800/50 border border-slate-700/50 p-6">
+          <div className="rounded-xl bg-stone-800/50 border border-stone-700/50 p-6">
             <div className="flex justify-end">
               <div className="w-72 space-y-2">
-                <div className="flex items-center justify-between border-t border-slate-700 pt-2">
-                  <span className="text-sm font-medium text-slate-300">Tổng cộng</span>
-                  <span className="text-lg font-bold text-blue-400">
+                <div className="flex items-center justify-between border-t border-stone-700 pt-2">
+                  <span className="text-sm font-medium text-stone-300">Tổng cộng</span>
+                  <span className="text-lg font-bold text-amber-400">
                     {new Intl.NumberFormat('vi-VN').format(totalAmount)} {watch('currency')}
                   </span>
                 </div>

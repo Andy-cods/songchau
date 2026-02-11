@@ -126,11 +126,11 @@ export default function CustomerDetail({
       />
 
       {/* Slide-over Panel */}
-      <div className="fixed inset-y-0 right-0 w-full max-w-3xl bg-slate-900 border-l border-slate-700 z-50 overflow-y-auto slide-over-panel">
+      <div className="fixed inset-y-0 right-0 w-full max-w-3xl bg-stone-900border-l border-stone-700 z-50 overflow-y-auto slide-over-panel">
         {/* Header */}
-        <div className="sticky top-0 z-10 flex items-center justify-between bg-slate-900/95 backdrop-blur border-b border-slate-700 px-6 py-4">
+        <div className="sticky top-0 z-10 flex items-center justify-between bg-stone-900/95 backdrop-blur border-b border-stone-700 px-6 py-4">
           <div>
-            <h2 className="font-display text-xl font-semibold text-slate-50">
+            <h2 className="font-display text-xl font-semibold text-stone-50">
               {customer.companyName}
             </h2>
             <div className="flex items-center gap-2 mt-2">
@@ -138,7 +138,7 @@ export default function CustomerDetail({
                 className={cn(
                   'inline-block px-2 py-1 rounded border text-xs font-medium',
                   CUSTOMER_TYPE_COLORS[customer.type] ||
-                    'bg-slate-700/50 text-slate-300 border-slate-600'
+                    'bg-stone-700/50 text-stone-300 border-stone-600'
                 )}
               >
                 {customer.type}
@@ -148,7 +148,7 @@ export default function CustomerDetail({
                   className={cn(
                     'inline-block px-2 py-1 rounded border text-xs font-medium',
                     TIER_COLORS[customer.tier] ||
-                      'bg-slate-700/50 text-slate-300 border-slate-600'
+                      'bg-stone-700/50 text-stone-300 border-stone-600'
                   )}
                 >
                   Tier {customer.tier}
@@ -160,7 +160,7 @@ export default function CustomerDetail({
             {onEdit && (
               <button
                 onClick={() => onEdit(customer)}
-                className="flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 transition-colors"
+                className="flex items-center gap-2 rounded-lg bg-amber-600 px-4 py-2 text-sm font-medium text-white hover:bg-amber-700 transition-colors"
               >
                 <Edit className="h-4 w-4" />
                 Sửa
@@ -168,7 +168,7 @@ export default function CustomerDetail({
             )}
             <button
               onClick={onClose}
-              className="flex h-9 w-9 items-center justify-center rounded-lg text-slate-400 hover:bg-slate-800 hover:text-slate-200 transition-colors"
+              className="flex h-9 w-9 items-center justify-center rounded-lg text-stone-400 hover:bg-stone-800 hover:text-stone-200 transition-colors"
             >
               <X className="h-5 w-5" />
             </button>
@@ -176,15 +176,15 @@ export default function CustomerDetail({
         </div>
 
         {/* Tabs */}
-        <div className="border-b border-slate-700 px-6">
+        <div className="border-b border-stone-700 px-6">
           <div className="flex gap-6">
             <button
               onClick={() => setActiveTab('overview')}
               className={cn(
                 'pb-3 pt-4 text-sm font-medium border-b-2 transition-colors',
                 activeTab === 'overview'
-                  ? 'border-blue-400 text-blue-400'
-                  : 'border-transparent text-slate-500 hover:text-slate-300'
+                  ? 'border-amber-400 text-amber-400'
+                  : 'border-transparent text-stone-500 hover:text-stone-300'
               )}
             >
               Tổng quan
@@ -194,8 +194,8 @@ export default function CustomerDetail({
               className={cn(
                 'pb-3 pt-4 text-sm font-medium border-b-2 transition-colors',
                 activeTab === 'purchase'
-                  ? 'border-blue-400 text-blue-400'
-                  : 'border-transparent text-slate-500 hover:text-slate-300'
+                  ? 'border-amber-400 text-amber-400'
+                  : 'border-transparent text-stone-500 hover:text-stone-300'
               )}
             >
               Lịch sử mua
@@ -205,8 +205,8 @@ export default function CustomerDetail({
               className={cn(
                 'pb-3 pt-4 text-sm font-medium border-b-2 transition-colors',
                 activeTab === 'activities'
-                  ? 'border-blue-400 text-blue-400'
-                  : 'border-transparent text-slate-500 hover:text-slate-300'
+                  ? 'border-amber-400 text-amber-400'
+                  : 'border-transparent text-stone-500 hover:text-stone-300'
               )}
             >
               Activities
@@ -221,20 +221,20 @@ export default function CustomerDetail({
             <>
               {/* Health Summary */}
               <div className="grid grid-cols-3 gap-4 stagger-children">
-                <div className="rounded-xl bg-gradient-to-br from-purple-500/10 to-purple-600/5 border border-purple-500/20 p-4 text-center">
-                  <ShoppingCart className="h-5 w-5 text-purple-400 mx-auto mb-1" />
-                  <p className="text-2xl font-bold text-slate-50">{healthStats.orders}</p>
-                  <p className="text-xs text-slate-400">Đơn hàng</p>
+                <div className="rounded-xl bg-stone-800/60 border border-stone-700/40 p-4 text-center">
+                  <ShoppingCart className="h-5 w-5 text-amber-400 mx-auto mb-1" />
+                  <p className="text-2xl font-bold text-stone-50">{healthStats.orders}</p>
+                  <p className="text-xs text-stone-400">Đơn hàng</p>
                 </div>
-                <div className="rounded-xl bg-gradient-to-br from-blue-500/10 to-blue-600/5 border border-blue-500/20 p-4 text-center">
-                  <FileText className="h-5 w-5 text-blue-400 mx-auto mb-1" />
-                  <p className="text-2xl font-bold text-slate-50">{healthStats.quotations}</p>
-                  <p className="text-xs text-slate-400">Báo giá</p>
+                <div className="rounded-xl bg-stone-800/60 border border-stone-700/40 p-4 text-center">
+                  <FileText className="h-5 w-5 text-stone-300 mx-auto mb-1" />
+                  <p className="text-2xl font-bold text-stone-50">{healthStats.quotations}</p>
+                  <p className="text-xs text-stone-400">Báo giá</p>
                 </div>
-                <div className="rounded-xl bg-gradient-to-br from-green-500/10 to-green-600/5 border border-green-500/20 p-4 text-center">
-                  <Target className="h-5 w-5 text-green-400 mx-auto mb-1" />
-                  <p className="text-2xl font-bold text-slate-50">{healthStats.activities}</p>
-                  <p className="text-xs text-slate-400">Hoạt động</p>
+                <div className="rounded-xl bg-stone-800/60 border border-stone-700/40 p-4 text-center">
+                  <Target className="h-5 w-5 text-stone-300 mx-auto mb-1" />
+                  <p className="text-2xl font-bold text-stone-50">{healthStats.activities}</p>
+                  <p className="text-xs text-stone-400">Hoạt động</p>
                 </div>
               </div>
 
@@ -242,14 +242,14 @@ export default function CustomerDetail({
               <div className="flex flex-wrap gap-2">
                 <button
                   onClick={() => { navigate(`/quotations/new?customerId=${customer.id}`); onClose() }}
-                  className="flex items-center gap-2 rounded-lg bg-blue-600/10 border border-blue-500/20 px-3 py-2 text-xs font-medium text-blue-400 hover:bg-blue-600/20 hover:border-blue-500/40 transition-all"
+                  className="flex items-center gap-2 rounded-lg bg-amber-600/10 border border-amber-500/20 px-3 py-2 text-xs font-medium text-amber-400 hover:bg-amber-600/20 hover:border-amber-500/40 transition-all"
                 >
                   <FileText className="h-3.5 w-3.5" />
                   Tạo báo giá
                 </button>
                 <button
                   onClick={() => { navigate(`/orders/new?customerId=${customer.id}`); onClose() }}
-                  className="flex items-center gap-2 rounded-lg bg-purple-600/10 border border-purple-500/20 px-3 py-2 text-xs font-medium text-purple-400 hover:bg-purple-600/20 hover:border-purple-500/40 transition-all"
+                  className="flex items-center gap-2 rounded-lg bg-amber-600/10 border border-amber-500/20 px-3 py-2 text-xs font-medium text-amber-400 hover:bg-amber-600/20 hover:border-amber-500/40 transition-all"
                 >
                   <ShoppingCart className="h-3.5 w-3.5" />
                   Tạo đơn hàng
@@ -257,7 +257,7 @@ export default function CustomerDetail({
                 {customer.contactPhone && (
                   <a
                     href={`tel:${customer.contactPhone}`}
-                    className="flex items-center gap-2 rounded-lg bg-green-600/10 border border-green-500/20 px-3 py-2 text-xs font-medium text-green-400 hover:bg-green-600/20 hover:border-green-500/40 transition-all"
+                    className="flex items-center gap-2 rounded-lg bg-stone-700/50 border border-stone-600/40 px-3 py-2 text-xs font-medium text-stone-300 hover:bg-stone-700 hover:border-stone-500 transition-all"
                   >
                     <Phone className="h-3.5 w-3.5" />
                     Gọi điện
@@ -266,55 +266,55 @@ export default function CustomerDetail({
               </div>
 
               {/* Company Info */}
-              <div className="rounded-xl bg-slate-800/50 border border-slate-700/50 p-6">
+              <div className="rounded-xl bg-stone-800/50 border border-stone-700/50 p-6">
                 <div className="flex items-center gap-2 mb-4">
-                  <Building2 className="h-5 w-5 text-slate-400" />
-                  <h3 className="font-display text-lg font-semibold text-slate-50">
+                  <Building2 className="h-5 w-5 text-stone-400" />
+                  <h3 className="font-display text-lg font-semibold text-stone-50">
                     Company Information
                   </h3>
                 </div>
 
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <label className="text-xs text-slate-500 uppercase tracking-wider">
+                    <label className="text-xs text-stone-500 uppercase tracking-wider">
                       Company Name
                     </label>
-                    <p className="text-slate-200 mt-1">{customer.companyName}</p>
+                    <p className="text-stone-200 mt-1">{customer.companyName}</p>
                     {customer.companyNameLocal && (
-                      <p className="text-sm text-slate-400">{customer.companyNameLocal}</p>
+                      <p className="text-sm text-stone-400">{customer.companyNameLocal}</p>
                     )}
                   </div>
 
                   <div>
-                    <label className="text-xs text-slate-500 uppercase tracking-wider">
+                    <label className="text-xs text-stone-500 uppercase tracking-wider">
                       Industry
                     </label>
-                    <p className="text-slate-200 mt-1 capitalize">
+                    <p className="text-stone-200 mt-1 capitalize">
                       {customer.industry || '—'}
                     </p>
                   </div>
 
                   <div>
-                    <label className="text-xs text-slate-500 uppercase tracking-wider">
+                    <label className="text-xs text-stone-500 uppercase tracking-wider">
                       Industrial Zone
                     </label>
-                    <p className="text-slate-200 mt-1">{customer.industrialZone || '—'}</p>
+                    <p className="text-stone-200 mt-1">{customer.industrialZone || '—'}</p>
                   </div>
 
                   <div>
-                    <label className="text-xs text-slate-500 uppercase tracking-wider">
+                    <label className="text-xs text-stone-500 uppercase tracking-wider">
                       Province
                     </label>
-                    <p className="text-slate-200 mt-1">{customer.province || '—'}</p>
+                    <p className="text-stone-200 mt-1">{customer.province || '—'}</p>
                   </div>
 
                   {customer.address && (
                     <div className="col-span-2">
-                      <label className="text-xs text-slate-500 uppercase tracking-wider flex items-center gap-1">
+                      <label className="text-xs text-stone-500 uppercase tracking-wider flex items-center gap-1">
                         <MapPin className="h-3 w-3" />
                         Address
                       </label>
-                      <p className="text-slate-200 mt-1">{customer.address}</p>
+                      <p className="text-stone-200 mt-1">{customer.address}</p>
                     </div>
                   )}
                 </div>
@@ -342,21 +342,21 @@ export default function CustomerDetail({
 
               {/* SMT Equipment */}
               {(smtBrands.length > 0 || smtModels.length > 0) && (
-                <div className="rounded-xl bg-slate-800/50 border border-slate-700/50 p-6">
-                  <h3 className="font-display text-lg font-semibold text-slate-50 mb-4">
+                <div className="rounded-xl bg-stone-800/50 border border-stone-700/50 p-6">
+                  <h3 className="font-display text-lg font-semibold text-stone-50 mb-4">
                     SMT Equipment
                   </h3>
                   <div className="grid grid-cols-2 gap-4">
                     {smtBrands.length > 0 && (
                       <div>
-                        <label className="text-xs text-slate-500 uppercase tracking-wider">
+                        <label className="text-xs text-stone-500 uppercase tracking-wider">
                           Brands
                         </label>
                         <div className="flex flex-wrap gap-2 mt-2">
                           {smtBrands.map((brand: string) => (
                             <span
                               key={brand}
-                              className="inline-block px-2 py-1 rounded bg-blue-500/10 border border-blue-500/20 text-xs font-medium text-blue-400"
+                              className="inline-block px-2 py-1 rounded bg-amber-500/10 border border-amber-500/20 text-xs font-medium text-amber-400"
                             >
                               {brand}
                             </span>
@@ -367,14 +367,14 @@ export default function CustomerDetail({
 
                     {smtModels.length > 0 && (
                       <div>
-                        <label className="text-xs text-slate-500 uppercase tracking-wider">
+                        <label className="text-xs text-stone-500 uppercase tracking-wider">
                           Models
                         </label>
                         <div className="flex flex-wrap gap-2 mt-2">
                           {smtModels.map((model: string) => (
                             <span
                               key={model}
-                              className="inline-block px-2 py-1 rounded bg-slate-700/50 border border-slate-600 text-xs text-slate-300"
+                              className="inline-block px-2 py-1 rounded bg-stone-700/50 border border-stone-600 text-xs text-stone-300"
                             >
                               {model}
                             </span>
@@ -387,39 +387,39 @@ export default function CustomerDetail({
               )}
 
               {/* Business Info */}
-              <div className="rounded-xl bg-slate-800/50 border border-slate-700/50 p-6">
+              <div className="rounded-xl bg-stone-800/50 border border-stone-700/50 p-6">
                 <div className="flex items-center gap-2 mb-4">
-                  <DollarSign className="h-5 w-5 text-slate-400" />
-                  <h3 className="font-display text-lg font-semibold text-slate-50">
+                  <DollarSign className="h-5 w-5 text-stone-400" />
+                  <h3 className="font-display text-lg font-semibold text-stone-50">
                     Business Information
                   </h3>
                 </div>
 
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <label className="text-xs text-slate-500 uppercase tracking-wider">
+                    <label className="text-xs text-stone-500 uppercase tracking-wider">
                       Purchase Frequency
                     </label>
-                    <p className="text-slate-200 mt-1 capitalize">
+                    <p className="text-stone-200 mt-1 capitalize">
                       {customer.purchaseFrequency?.replace('_', ' ') || '—'}
                     </p>
                   </div>
 
                   <div>
-                    <label className="text-xs text-slate-500 uppercase tracking-wider">
+                    <label className="text-xs text-stone-500 uppercase tracking-wider">
                       Payment Terms
                     </label>
-                    <p className="text-slate-200 mt-1 uppercase">
+                    <p className="text-stone-200 mt-1 uppercase">
                       {customer.paymentTerms || '—'}
                     </p>
                   </div>
 
                   {customer.estimatedAnnualValue && (
                     <div>
-                      <label className="text-xs text-slate-500 uppercase tracking-wider">
+                      <label className="text-xs text-stone-500 uppercase tracking-wider">
                         Est. Annual Value
                       </label>
-                      <p className="text-slate-200 mt-1 font-semibold">
+                      <p className="text-stone-200 mt-1 font-semibold">
                         {customer.estimatedAnnualValue.toLocaleString()} VND
                       </p>
                     </div>
@@ -427,10 +427,10 @@ export default function CustomerDetail({
 
                   {customer.source && (
                     <div>
-                      <label className="text-xs text-slate-500 uppercase tracking-wider">
+                      <label className="text-xs text-stone-500 uppercase tracking-wider">
                         Source
                       </label>
-                      <p className="text-slate-200 mt-1 capitalize">
+                      <p className="text-stone-200 mt-1 capitalize">
                         {customer.source.replace('_', ' ')}
                       </p>
                     </div>
@@ -438,11 +438,11 @@ export default function CustomerDetail({
                 </div>
 
                 {customer.notes && (
-                  <div className="mt-4 pt-4 border-t border-slate-700">
-                    <label className="text-xs text-slate-500 uppercase tracking-wider">
+                  <div className="mt-4 pt-4 border-t border-stone-700">
+                    <label className="text-xs text-stone-500 uppercase tracking-wider">
                       Notes
                     </label>
-                    <p className="text-slate-300 mt-2">{customer.notes}</p>
+                    <p className="text-stone-300 mt-2">{customer.notes}</p>
                   </div>
                 )}
               </div>
@@ -455,46 +455,46 @@ export default function CustomerDetail({
               {loadingPurchase ? (
                 <div className="space-y-3">
                   {[1, 2, 3].map((i) => (
-                    <div key={i} className="h-16 bg-slate-800/50 animate-pulse rounded-lg" />
+                    <div key={i} className="h-16 bg-stone-800/50 animate-pulse rounded-lg" />
                   ))}
                 </div>
               ) : (
                 <>
                   {/* Quotations */}
-                  <div className="rounded-xl bg-slate-800/50 border border-slate-700/50 p-6">
+                  <div className="rounded-xl bg-stone-800/50 border border-stone-700/50 p-6">
                     <div className="flex items-center gap-2 mb-4">
-                      <FileText className="h-5 w-5 text-blue-400" />
-                      <h3 className="font-display text-lg font-semibold text-slate-50">
+                      <FileText className="h-5 w-5 text-amber-400" />
+                      <h3 className="font-display text-lg font-semibold text-stone-50">
                         Báo giá ({quotations.length})
                       </h3>
                     </div>
                     {quotations.length === 0 ? (
-                      <p className="text-sm text-slate-500 text-center py-4">Chưa có báo giá</p>
+                      <p className="text-sm text-stone-500 text-center py-4">Chưa có báo giá</p>
                     ) : (
                       <div className="space-y-2">
                         {quotations.map((q) => (
                           <div
                             key={q.id}
                             onClick={() => { navigate(`/quotations`); onClose() }}
-                            className="flex items-center justify-between p-3 rounded-lg bg-slate-900/50 hover:bg-slate-900 cursor-pointer transition-colors"
+                            className="flex items-center justify-between p-3 rounded-lg bg-stone-900/50 hover:bg-stone-900 cursor-pointer transition-colors"
                           >
                             <div className="flex items-center gap-3">
-                              <span className="font-mono text-sm text-blue-400">{q.quoteNumber}</span>
+                              <span className="font-mono text-sm text-amber-400">{q.quoteNumber}</span>
                               <span className={cn(
                                 'badge border text-xs',
                                 q.status === 'accepted' ? 'bg-green-500/10 text-green-400 border-green-500/20' :
                                 q.status === 'sent' ? 'bg-amber-500/10 text-amber-400 border-amber-500/20' :
                                 q.status === 'rejected' ? 'bg-red-500/10 text-red-400 border-red-500/20' :
-                                'bg-slate-700/50 text-slate-300 border-slate-600'
+                                'bg-stone-700/50 text-stone-300 border-stone-600'
                               )}>
                                 {q.status}
                               </span>
                             </div>
                             <div className="flex items-center gap-4">
-                              <span className="text-sm font-mono text-slate-300">
+                              <span className="text-sm font-mono text-stone-300">
                                 {q.totalAmount ? new Intl.NumberFormat('vi-VN').format(q.totalAmount) + ' ' + q.currency : '—'}
                               </span>
-                              <span className="text-xs text-slate-500">
+                              <span className="text-xs text-stone-500">
                                 {format(new Date(q.createdAt), 'dd/MM/yyyy')}
                               </span>
                             </div>
@@ -505,31 +505,31 @@ export default function CustomerDetail({
                   </div>
 
                   {/* Orders */}
-                  <div className="rounded-xl bg-slate-800/50 border border-slate-700/50 p-6">
+                  <div className="rounded-xl bg-stone-800/50 border border-stone-700/50 p-6">
                     <div className="flex items-center gap-2 mb-4">
-                      <ShoppingCart className="h-5 w-5 text-purple-400" />
-                      <h3 className="font-display text-lg font-semibold text-slate-50">
+                      <ShoppingCart className="h-5 w-5 text-amber-400" />
+                      <h3 className="font-display text-lg font-semibold text-stone-50">
                         Đơn hàng ({orders.length})
                       </h3>
                     </div>
                     {orders.length === 0 ? (
-                      <p className="text-sm text-slate-500 text-center py-4">Chưa có đơn hàng</p>
+                      <p className="text-sm text-stone-500 text-center py-4">Chưa có đơn hàng</p>
                     ) : (
                       <div className="space-y-2">
                         {orders.map((o) => (
                           <div
                             key={o.id}
                             onClick={() => { navigate(`/orders/${o.id}`); onClose() }}
-                            className="flex items-center justify-between p-3 rounded-lg bg-slate-900/50 hover:bg-slate-900 cursor-pointer transition-colors"
+                            className="flex items-center justify-between p-3 rounded-lg bg-stone-900/50 hover:bg-stone-900 cursor-pointer transition-colors"
                           >
                             <div className="flex items-center gap-3">
-                              <span className="font-mono text-sm text-purple-400">{o.orderNumber}</span>
+                              <span className="font-mono text-sm text-amber-400">{o.orderNumber}</span>
                               <span className={cn(
                                 'badge border text-xs',
                                 o.status === 'delivered' ? 'bg-green-500/10 text-green-400 border-green-500/20' :
-                                o.status === 'processing' ? 'bg-blue-500/10 text-blue-400 border-blue-500/20' :
+                                o.status === 'processing' ? 'bg-amber-500/10 text-amber-400 border-amber-500/20' :
                                 o.status === 'cancelled' ? 'bg-red-500/10 text-red-400 border-red-500/20' :
-                                'bg-slate-700/50 text-slate-300 border-slate-600'
+                                'bg-stone-700/50 text-stone-300 border-stone-600'
                               )}>
                                 {o.status}
                               </span>
@@ -537,16 +537,16 @@ export default function CustomerDetail({
                                 'badge border text-xs',
                                 o.paymentStatus === 'paid' ? 'bg-green-500/10 text-green-400 border-green-500/20' :
                                 o.paymentStatus === 'partial' ? 'bg-amber-500/10 text-amber-400 border-amber-500/20' :
-                                'bg-slate-700/50 text-slate-300 border-slate-600'
+                                'bg-stone-700/50 text-stone-300 border-stone-600'
                               )}>
                                 {o.paymentStatus}
                               </span>
                             </div>
                             <div className="flex items-center gap-4">
-                              <span className="text-sm font-mono text-slate-300">
+                              <span className="text-sm font-mono text-stone-300">
                                 {o.totalAmount ? new Intl.NumberFormat('vi-VN').format(o.totalAmount) + ' ' + o.currency : '—'}
                               </span>
-                              <span className="text-xs text-slate-500">
+                              <span className="text-xs text-stone-500">
                                 {format(new Date(o.createdAt), 'dd/MM/yyyy')}
                               </span>
                             </div>
@@ -562,12 +562,12 @@ export default function CustomerDetail({
 
           {/* Activities Tab */}
           {activeTab === 'activities' && (
-            <div className="rounded-xl bg-slate-800/50 border border-slate-700/50 p-6">
-              <h3 className="font-display text-lg font-semibold text-slate-50 mb-4">
+            <div className="rounded-xl bg-stone-800/50 border border-stone-700/50 p-6">
+              <h3 className="font-display text-lg font-semibold text-stone-50 mb-4">
                 Activity Timeline
               </h3>
               {loadingActivities ? (
-                <p className="text-center text-slate-400 py-8">Loading activities...</p>
+                <p className="text-center text-stone-400 py-8">Loading activities...</p>
               ) : (
                 <ActivityTimeline
                   activities={activities}
