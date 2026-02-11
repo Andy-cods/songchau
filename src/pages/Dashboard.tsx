@@ -33,6 +33,7 @@ import {
   AreaChart,
   Area,
 } from 'recharts'
+import { useQuery } from '@tanstack/react-query'
 import {
   fetchDashboardStats,
   fetchRevenueByMonth,
@@ -45,8 +46,6 @@ import {
   fetchCustomersByProvince,
   type DashboardStats,
   type Activity,
-  type SuppliersByCountry,
-  type CustomersByProvince,
 } from '@/lib/api'
 import SupplierWorldMap from '@/components/dashboard/SupplierWorldMap'
 import CustomerVietnamMap from '@/components/dashboard/CustomerVietnamMap'
@@ -93,9 +92,19 @@ export default function Dashboard() {
   const [recentActivities, setRecentActivities] = useState<Activity[]>([])
   const [reminders, setReminders] = useState<Activity[]>([])
   const [acquisitionData, setAcquisitionData] = useState<{ month: string; count: number }[]>([])
-  const [suppliersByCountry, setSuppliersByCountry] = useState<SuppliersByCountry[]>([])
-  const [customersByProvince, setCustomersByProvince] = useState<CustomersByProvince[]>([])
   const [loading, setLoading] = useState(true)
+
+  // React Query for map data - auto refetch on window focus & when suppliers/customers change
+  const { data: suppliersByCountryData } = useQuery({
+    queryKey: ['dashboard', 'suppliers-by-country'],
+    queryFn: fetchSuppliersByCountry,
+  })
+  const { data: customersByProvinceData } = useQuery({
+    queryKey: ['dashboard', 'customers-by-province'],
+    queryFn: fetchCustomersByProvince,
+  })
+  const suppliersByCountry = suppliersByCountryData?.data || []
+  const customersByProvince = customersByProvinceData?.data || []
 
   useEffect(() => {
     loadDashboardData()
@@ -104,7 +113,7 @@ export default function Dashboard() {
   const loadDashboardData = async () => {
     setLoading(true)
     try {
-      const [statsRes, revenueRes, categoryRes, customersRes, activitiesRes, remindersRes, acquisitionRes, suppliersByCountryRes, customersByProvinceRes] =
+      const [statsRes, revenueRes, categoryRes, customersRes, activitiesRes, remindersRes, acquisitionRes] =
         await Promise.all([
           fetchDashboardStats(),
           fetchRevenueByMonth(),
@@ -113,8 +122,6 @@ export default function Dashboard() {
           fetchRecentActivities(),
           fetchFollowUpReminders(),
           fetchCustomerAcquisition(),
-          fetchSuppliersByCountry(),
-          fetchCustomersByProvince(),
         ])
 
       setStats(statsRes)
@@ -124,8 +131,6 @@ export default function Dashboard() {
       setRecentActivities(activitiesRes.data)
       setReminders(remindersRes.data)
       setAcquisitionData(acquisitionRes.data)
-      setSuppliersByCountry(suppliersByCountryRes.data)
-      setCustomersByProvince(customersByProvinceRes.data)
     } catch (error) {
       console.error('Failed to load dashboard:', error)
     } finally {

@@ -1,5 +1,5 @@
 import { MapContainer, TileLayer, CircleMarker, Tooltip } from 'react-leaflet'
-import { MapPin } from 'lucide-react'
+import { Globe } from 'lucide-react'
 import 'leaflet/dist/leaflet.css'
 
 interface CountryData {
@@ -37,7 +37,7 @@ export default function SupplierWorldMap({ data }: SupplierWorldMapProps) {
   return (
     <div className="rounded-xl bg-white border border-stone-200 p-6 animate-fade-in-up">
       <div className="flex items-center gap-2 mb-4">
-        <MapPin className="h-5 w-5 text-amber-400" />
+        <Globe className="h-5 w-5 text-blue-500" />
         <h3 className="font-display text-lg font-semibold text-stone-900">
           NCC theo quốc gia
         </h3>
@@ -64,8 +64,8 @@ export default function SupplierWorldMap({ data }: SupplierWorldMapProps) {
                 center={coords}
                 radius={getRadius(item.count)}
                 pathOptions={{
-                  color: '#d97706',
-                  fillColor: '#f59e0b',
+                  color: '#2563eb',
+                  fillColor: '#3b82f6',
                   fillOpacity: 0.7,
                   weight: 2,
                 }}

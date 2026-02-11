@@ -45,6 +45,7 @@ export function useCreateSupplier() {
     mutationFn: (data: Partial<Supplier>) => createSupplier(data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: supplierKeys.lists() })
+      queryClient.invalidateQueries({ queryKey: ['dashboard', 'suppliers-by-country'] })
     },
   })
 }
@@ -58,6 +59,7 @@ export function useUpdateSupplier() {
     onSuccess: (_, variables) => {
       queryClient.invalidateQueries({ queryKey: supplierKeys.lists() })
       queryClient.invalidateQueries({ queryKey: supplierKeys.detail(variables.id) })
+      queryClient.invalidateQueries({ queryKey: ['dashboard', 'suppliers-by-country'] })
     },
   })
 }
@@ -70,6 +72,7 @@ export function useDeleteSupplier() {
     mutationFn: (id: number) => deleteSupplier(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: supplierKeys.lists() })
+      queryClient.invalidateQueries({ queryKey: ['dashboard', 'suppliers-by-country'] })
     },
   })
 }
