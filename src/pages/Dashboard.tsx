@@ -41,9 +41,15 @@ import {
   fetchRecentActivities,
   fetchFollowUpReminders,
   fetchCustomerAcquisition,
+  fetchSuppliersByCountry,
+  fetchCustomersByProvince,
   type DashboardStats,
   type Activity,
+  type SuppliersByCountry,
+  type CustomersByProvince,
 } from '@/lib/api'
+import SupplierWorldMap from '@/components/dashboard/SupplierWorldMap'
+import CustomerVietnamMap from '@/components/dashboard/CustomerVietnamMap'
 import { cn } from '@/lib/utils'
 import { formatDistanceToNow } from 'date-fns'
 import AnimatedNumber from '@/components/shared/AnimatedNumber'
@@ -87,6 +93,8 @@ export default function Dashboard() {
   const [recentActivities, setRecentActivities] = useState<Activity[]>([])
   const [reminders, setReminders] = useState<Activity[]>([])
   const [acquisitionData, setAcquisitionData] = useState<{ month: string; count: number }[]>([])
+  const [suppliersByCountry, setSuppliersByCountry] = useState<SuppliersByCountry[]>([])
+  const [customersByProvince, setCustomersByProvince] = useState<CustomersByProvince[]>([])
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
@@ -96,7 +104,7 @@ export default function Dashboard() {
   const loadDashboardData = async () => {
     setLoading(true)
     try {
-      const [statsRes, revenueRes, categoryRes, customersRes, activitiesRes, remindersRes, acquisitionRes] =
+      const [statsRes, revenueRes, categoryRes, customersRes, activitiesRes, remindersRes, acquisitionRes, suppliersByCountryRes, customersByProvinceRes] =
         await Promise.all([
           fetchDashboardStats(),
           fetchRevenueByMonth(),
@@ -105,6 +113,8 @@ export default function Dashboard() {
           fetchRecentActivities(),
           fetchFollowUpReminders(),
           fetchCustomerAcquisition(),
+          fetchSuppliersByCountry(),
+          fetchCustomersByProvince(),
         ])
 
       setStats(statsRes)
@@ -114,6 +124,8 @@ export default function Dashboard() {
       setRecentActivities(activitiesRes.data)
       setReminders(remindersRes.data)
       setAcquisitionData(acquisitionRes.data)
+      setSuppliersByCountry(suppliersByCountryRes.data)
+      setCustomersByProvince(customersByProvinceRes.data)
     } catch (error) {
       console.error('Failed to load dashboard:', error)
     } finally {
@@ -492,6 +504,12 @@ export default function Dashboard() {
             )}
           </div>
         </div>
+      </div>
+
+      {/* Maps Row */}
+      <div className="grid gap-6 grid-cols-1 lg:grid-cols-2">
+        <SupplierWorldMap data={suppliersByCountry} />
+        <CustomerVietnamMap data={customersByProvince} />
       </div>
 
       {/* Activity Feed */}

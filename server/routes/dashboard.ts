@@ -1,6 +1,6 @@
 import { Hono } from 'hono'
 import { db } from '../db/index.js'
-import { orders, quotations, activities, products, customers } from '../db/schema.js'
+import { orders, quotations, activities, products, customers, suppliers } from '../db/schema.js'
 import { eq, desc, sql, gte } from 'drizzle-orm'
 
 const app = new Hono()
@@ -199,6 +199,43 @@ app.get('/customer-acquisition', async (c) => {
   } catch (error) {
     console.error('Error fetching customer acquisition:', error)
     return c.json({ error: 'Failed to fetch customer acquisition data' }, 500)
+  }
+})
+
+// Get supplier distribution by country (for world map)
+app.get('/suppliers-by-country', async (c) => {
+  try {
+    const data = await db
+      .select({
+        country: suppliers.country,
+        count: sql<number>`count(*)`,
+      })
+      .from(suppliers)
+      .groupBy(suppliers.country)
+
+    return c.json({ data })
+  } catch (error) {
+    console.error('Error fetching suppliers by country:', error)
+    return c.json({ error: 'Failed to fetch suppliers by country' }, 500)
+  }
+})
+
+// Get customer distribution by province (for Vietnam map)
+app.get('/customers-by-province', async (c) => {
+  try {
+    const data = await db
+      .select({
+        province: customers.province,
+        count: sql<number>`count(*)`,
+      })
+      .from(customers)
+      .where(sql`${customers.province} IS NOT NULL AND ${customers.province} != ''`)
+      .groupBy(customers.province)
+
+    return c.json({ data })
+  } catch (error) {
+    console.error('Error fetching customers by province:', error)
+    return c.json({ error: 'Failed to fetch customers by province' }, 500)
   }
 })
 

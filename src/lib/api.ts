@@ -917,6 +917,30 @@ export async function fetchCustomerAcquisition(): Promise<{ data: { month: strin
   return res.json()
 }
 
+// ==================== DASHBOARD MAP DATA ====================
+
+export interface SuppliersByCountry {
+  country: string
+  count: number
+}
+
+export interface CustomersByProvince {
+  province: string
+  count: number
+}
+
+export async function fetchSuppliersByCountry(): Promise<{ data: SuppliersByCountry[] }> {
+  const res = await fetch(`${API_BASE}/dashboard/suppliers-by-country`)
+  if (!res.ok) throw new Error('Failed to fetch suppliers by country')
+  return res.json()
+}
+
+export async function fetchCustomersByProvince(): Promise<{ data: CustomersByProvince[] }> {
+  const res = await fetch(`${API_BASE}/dashboard/customers-by-province`)
+  if (!res.ok) throw new Error('Failed to fetch customers by province')
+  return res.json()
+}
+
 // ==================== SETTINGS ====================
 
 export interface Settings {

@@ -329,3 +329,38 @@
     @apply bg-stone-400 shadow-lg shadow-stone-400/50;
   }
 }
+
+/* Leaflet map overrides */
+.leaflet-container {
+  font-family: 'Inter', system-ui, sans-serif;
+  background: #fafaf9;
+}
+
+.leaflet-tooltip {
+  background: #ffffff;
+  border: 1px solid #e7e5e4;
+  border-radius: 8px;
+  box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1);
+  padding: 4px 10px;
+  font-family: 'Inter', system-ui, sans-serif;
+  color: #1c1917;
+}
+
+.leaflet-tooltip-top::before {
+  border-top-color: #e7e5e4;
+}
+
+.leaflet-tooltip-bottom::before {
+  border-bottom-color: #e7e5e4;
+}
+
+.leaflet-control-zoom a {
+  background: #ffffff !important;
+  border-color: #e7e5e4 !important;
+  color: #57534e !important;
+}
+
+.leaflet-control-zoom a:hover {
+  background: #f5f5f4 !important;
+  color: #1c1917 !important;
+}
