@@ -103,15 +103,15 @@ export default function CustomerForm({
 
       {/* Modal */}
       <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-        <div className="w-full max-w-4xl max-h-[90vh] bg-stone-900 rounded-xl border border-stone-700 overflow-hidden flex flex-col">
+        <div className="w-full max-w-4xl max-h-[90vh] bg-white rounded-xl border border-stone-200 overflow-hidden flex flex-col">
           {/* Header */}
-          <div className="flex items-center justify-between bg-stone-800/50 px-6 py-4 border-b border-stone-700">
-            <h2 className="font-display text-xl font-semibold text-stone-50">
+          <div className="flex items-center justify-between bg-stone-50 px-6 py-4 border-b border-stone-200">
+            <h2 className="font-display text-xl font-semibold text-stone-900">
               {mode === 'create' ? 'Thêm khách hàng mới' : 'Sửa khách hàng'}
             </h2>
             <button
               onClick={handleClose}
-              className="flex h-9 w-9 items-center justify-center rounded-lg text-stone-400 hover:bg-stone-700 hover:text-stone-200 transition-colors"
+              className="flex h-9 w-9 items-center justify-center rounded-lg text-stone-400 hover:bg-stone-200 hover:text-stone-700 transition-colors"
             >
               <X className="h-5 w-5" />
             </button>
@@ -125,17 +125,17 @@ export default function CustomerForm({
             <div className="space-y-6">
               {/* Company Info */}
               <div>
-                <h3 className="text-sm font-medium text-stone-300 mb-3">
+                <h3 className="text-sm font-medium text-stone-600 mb-3">
                   Company Information
                 </h3>
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-sm font-medium text-stone-300 mb-1">
+                    <label className="block text-sm font-medium text-stone-600 mb-1">
                       Company Name *
                     </label>
                     <input
                       {...register('companyName')}
-                      className="w-full rounded-lg bg-stone-800 border border-stone-700 px-3 py-2 text-sm text-stone-200 placeholder-stone-500 focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500"
+                      className="w-full rounded-lg bg-stone-100 border border-stone-200 px-3 py-2 text-sm text-stone-700 placeholder-stone-500 focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500"
                       placeholder="Samsung Display Vietnam"
                     />
                     {errors.companyName && (
@@ -146,23 +146,23 @@ export default function CustomerForm({
                   </div>
 
                   <div>
-                    <label className="block text-sm font-medium text-stone-300 mb-1">
+                    <label className="block text-sm font-medium text-stone-600 mb-1">
                       Tên tiếng Việt
                     </label>
                     <input
                       {...register('companyNameLocal')}
-                      className="w-full rounded-lg bg-stone-800 border border-stone-700 px-3 py-2 text-sm text-stone-200 placeholder-stone-500 focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500"
+                      className="w-full rounded-lg bg-stone-100 border border-stone-200 px-3 py-2 text-sm text-stone-700 placeholder-stone-500 focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500"
                       placeholder="Samsung Display Việt Nam"
                     />
                   </div>
 
                   <div>
-                    <label className="block text-sm font-medium text-stone-300 mb-1">
+                    <label className="block text-sm font-medium text-stone-600 mb-1">
                       Type *
                     </label>
                     <select
                       {...register('type')}
-                      className="w-full rounded-lg bg-stone-800 border border-stone-700 px-3 py-2 text-sm text-stone-200 focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500"
+                      className="w-full rounded-lg bg-stone-100 border border-stone-200 px-3 py-2 text-sm text-stone-700 focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500"
                     >
                       <option value="">Select type</option>
                       {CUSTOMER_TYPES.map((type) => (
@@ -177,12 +177,12 @@ export default function CustomerForm({
                   </div>
 
                   <div>
-                    <label className="block text-sm font-medium text-stone-300 mb-1">
+                    <label className="block text-sm font-medium text-stone-600 mb-1">
                       Industry
                     </label>
                     <select
                       {...register('industry')}
-                      className="w-full rounded-lg bg-stone-800 border border-stone-700 px-3 py-2 text-sm text-stone-200 focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500"
+                      className="w-full rounded-lg bg-stone-100 border border-stone-200 px-3 py-2 text-sm text-stone-700 focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500"
                     >
                       <option value="">Select industry</option>
                       {INDUSTRIES.map((ind) => (
@@ -194,12 +194,12 @@ export default function CustomerForm({
                   </div>
 
                   <div>
-                    <label className="block text-sm font-medium text-stone-300 mb-1">
+                    <label className="block text-sm font-medium text-stone-600 mb-1">
                       Industrial Zone
                     </label>
                     <select
                       {...register('industrialZone')}
-                      className="w-full rounded-lg bg-stone-800 border border-stone-700 px-3 py-2 text-sm text-stone-200 focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500"
+                      className="w-full rounded-lg bg-stone-100 border border-stone-200 px-3 py-2 text-sm text-stone-700 focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500"
                     >
                       <option value="">Select zone</option>
                       {INDUSTRIAL_ZONES.map((zone) => (
@@ -211,12 +211,12 @@ export default function CustomerForm({
                   </div>
 
                   <div>
-                    <label className="block text-sm font-medium text-stone-300 mb-1">
+                    <label className="block text-sm font-medium text-stone-600 mb-1">
                       Province
                     </label>
                     <select
                       {...register('province')}
-                      className="w-full rounded-lg bg-stone-800 border border-stone-700 px-3 py-2 text-sm text-stone-200 focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500"
+                      className="w-full rounded-lg bg-stone-100 border border-stone-200 px-3 py-2 text-sm text-stone-700 focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500"
                     >
                       <option value="">Select province</option>
                       {PROVINCES.map((prov) => (
@@ -228,12 +228,12 @@ export default function CustomerForm({
                   </div>
 
                   <div className="col-span-2">
-                    <label className="block text-sm font-medium text-stone-300 mb-1">
+                    <label className="block text-sm font-medium text-stone-600 mb-1">
                       Address
                     </label>
                     <input
                       {...register('address')}
-                      className="w-full rounded-lg bg-stone-800 border border-stone-700 px-3 py-2 text-sm text-stone-200 placeholder-stone-500 focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500"
+                      className="w-full rounded-lg bg-stone-100 border border-stone-200 px-3 py-2 text-sm text-stone-700 placeholder-stone-500 focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500"
                       placeholder="Full address"
                     />
                   </div>
@@ -242,51 +242,51 @@ export default function CustomerForm({
 
               {/* Primary Contact */}
               <div>
-                <h3 className="text-sm font-medium text-stone-300 mb-3">
+                <h3 className="text-sm font-medium text-stone-600 mb-3">
                   Primary Contact
                 </h3>
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-sm font-medium text-stone-300 mb-1">
+                    <label className="block text-sm font-medium text-stone-600 mb-1">
                       Name
                     </label>
                     <input
                       {...register('contactName')}
-                      className="w-full rounded-lg bg-stone-800 border border-stone-700 px-3 py-2 text-sm text-stone-200 placeholder-stone-500 focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500"
+                      className="w-full rounded-lg bg-stone-100 border border-stone-200 px-3 py-2 text-sm text-stone-700 placeholder-stone-500 focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500"
                       placeholder="Nguyễn Văn A"
                     />
                   </div>
 
                   <div>
-                    <label className="block text-sm font-medium text-stone-300 mb-1">
+                    <label className="block text-sm font-medium text-stone-600 mb-1">
                       Title
                     </label>
                     <input
                       {...register('contactTitle')}
-                      className="w-full rounded-lg bg-stone-800 border border-stone-700 px-3 py-2 text-sm text-stone-200 placeholder-stone-500 focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500"
+                      className="w-full rounded-lg bg-stone-100 border border-stone-200 px-3 py-2 text-sm text-stone-700 placeholder-stone-500 focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500"
                       placeholder="Purchasing Manager"
                     />
                   </div>
 
                   <div>
-                    <label className="block text-sm font-medium text-stone-300 mb-1">
+                    <label className="block text-sm font-medium text-stone-600 mb-1">
                       Phone
                     </label>
                     <input
                       {...register('contactPhone')}
-                      className="w-full rounded-lg bg-stone-800 border border-stone-700 px-3 py-2 text-sm text-stone-200 placeholder-stone-500 focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500"
+                      className="w-full rounded-lg bg-stone-100 border border-stone-200 px-3 py-2 text-sm text-stone-700 placeholder-stone-500 focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500"
                       placeholder="0985145533"
                     />
                   </div>
 
                   <div>
-                    <label className="block text-sm font-medium text-stone-300 mb-1">
+                    <label className="block text-sm font-medium text-stone-600 mb-1">
                       Email
                     </label>
                     <input
                       {...register('contactEmail')}
                       type="email"
-                      className="w-full rounded-lg bg-stone-800 border border-stone-700 px-3 py-2 text-sm text-stone-200 placeholder-stone-500 focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500"
+                      className="w-full rounded-lg bg-stone-100 border border-stone-200 px-3 py-2 text-sm text-stone-700 placeholder-stone-500 focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500"
                       placeholder="contact@company.com"
                     />
                     {errors.contactEmail && (
@@ -297,23 +297,23 @@ export default function CustomerForm({
                   </div>
 
                   <div>
-                    <label className="block text-sm font-medium text-stone-300 mb-1">
+                    <label className="block text-sm font-medium text-stone-600 mb-1">
                       Zalo
                     </label>
                     <input
                       {...register('contactZalo')}
-                      className="w-full rounded-lg bg-stone-800 border border-stone-700 px-3 py-2 text-sm text-stone-200 placeholder-stone-500 focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500"
+                      className="w-full rounded-lg bg-stone-100 border border-stone-200 px-3 py-2 text-sm text-stone-700 placeholder-stone-500 focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500"
                       placeholder="0985145533"
                     />
                   </div>
 
                   <div>
-                    <label className="block text-sm font-medium text-stone-300 mb-1">
+                    <label className="block text-sm font-medium text-stone-600 mb-1">
                       WeChat
                     </label>
                     <input
                       {...register('contactWechat')}
-                      className="w-full rounded-lg bg-stone-800 border border-stone-700 px-3 py-2 text-sm text-stone-200 placeholder-stone-500 focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500"
+                      className="w-full rounded-lg bg-stone-100 border border-stone-200 px-3 py-2 text-sm text-stone-700 placeholder-stone-500 focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500"
                       placeholder="wechat_id"
                     />
                   </div>
@@ -322,48 +322,48 @@ export default function CustomerForm({
 
               {/* Secondary Contact */}
               <div>
-                <h3 className="text-sm font-medium text-stone-300 mb-3">
+                <h3 className="text-sm font-medium text-stone-600 mb-3">
                   Secondary Contact (Optional)
                 </h3>
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-sm font-medium text-stone-300 mb-1">
+                    <label className="block text-sm font-medium text-stone-600 mb-1">
                       Name
                     </label>
                     <input
                       {...register('contact2Name')}
-                      className="w-full rounded-lg bg-stone-800 border border-stone-700 px-3 py-2 text-sm text-stone-200 placeholder-stone-500 focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500"
+                      className="w-full rounded-lg bg-stone-100 border border-stone-200 px-3 py-2 text-sm text-stone-700 placeholder-stone-500 focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500"
                     />
                   </div>
 
                   <div>
-                    <label className="block text-sm font-medium text-stone-300 mb-1">
+                    <label className="block text-sm font-medium text-stone-600 mb-1">
                       Title
                     </label>
                     <input
                       {...register('contact2Title')}
-                      className="w-full rounded-lg bg-stone-800 border border-stone-700 px-3 py-2 text-sm text-stone-200 placeholder-stone-500 focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500"
+                      className="w-full rounded-lg bg-stone-100 border border-stone-200 px-3 py-2 text-sm text-stone-700 placeholder-stone-500 focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500"
                     />
                   </div>
 
                   <div>
-                    <label className="block text-sm font-medium text-stone-300 mb-1">
+                    <label className="block text-sm font-medium text-stone-600 mb-1">
                       Phone
                     </label>
                     <input
                       {...register('contact2Phone')}
-                      className="w-full rounded-lg bg-stone-800 border border-stone-700 px-3 py-2 text-sm text-stone-200 placeholder-stone-500 focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500"
+                      className="w-full rounded-lg bg-stone-100 border border-stone-200 px-3 py-2 text-sm text-stone-700 placeholder-stone-500 focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500"
                     />
                   </div>
 
                   <div>
-                    <label className="block text-sm font-medium text-stone-300 mb-1">
+                    <label className="block text-sm font-medium text-stone-600 mb-1">
                       Email
                     </label>
                     <input
                       {...register('contact2Email')}
                       type="email"
-                      className="w-full rounded-lg bg-stone-800 border border-stone-700 px-3 py-2 text-sm text-stone-200 placeholder-stone-500 focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500"
+                      className="w-full rounded-lg bg-stone-100 border border-stone-200 px-3 py-2 text-sm text-stone-700 placeholder-stone-500 focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500"
                     />
                   </div>
                 </div>
@@ -371,18 +371,18 @@ export default function CustomerForm({
 
               {/* Business Info */}
               <div>
-                <h3 className="text-sm font-medium text-stone-300 mb-3">
+                <h3 className="text-sm font-medium text-stone-600 mb-3">
                   Business Information
                 </h3>
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-sm font-medium text-stone-300 mb-1">
+                    <label className="block text-sm font-medium text-stone-600 mb-1">
                       SMT Brands (Multi-select)
                     </label>
                     <select
                       {...register('smtBrands')}
                       multiple
-                      className="w-full rounded-lg bg-stone-800 border border-stone-700 px-3 py-2 text-sm text-stone-200 focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500"
+                      className="w-full rounded-lg bg-stone-100 border border-stone-200 px-3 py-2 text-sm text-stone-700 focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500"
                       size={4}
                     >
                       {SMT_BRANDS.map((brand) => (
@@ -397,23 +397,23 @@ export default function CustomerForm({
                   </div>
 
                   <div>
-                    <label className="block text-sm font-medium text-stone-300 mb-1">
+                    <label className="block text-sm font-medium text-stone-600 mb-1">
                       Machine Models
                     </label>
                     <input
                       {...register('smtModels')}
-                      className="w-full rounded-lg bg-stone-800 border border-stone-700 px-3 py-2 text-sm text-stone-200 placeholder-stone-500 focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500"
+                      className="w-full rounded-lg bg-stone-100 border border-stone-200 px-3 py-2 text-sm text-stone-700 placeholder-stone-500 focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500"
                       placeholder="NXT-H08, NPM-W2"
                     />
                   </div>
 
                   <div>
-                    <label className="block text-sm font-medium text-stone-300 mb-1">
+                    <label className="block text-sm font-medium text-stone-600 mb-1">
                       Purchase Frequency
                     </label>
                     <select
                       {...register('purchaseFrequency')}
-                      className="w-full rounded-lg bg-stone-800 border border-stone-700 px-3 py-2 text-sm text-stone-200 focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500"
+                      className="w-full rounded-lg bg-stone-100 border border-stone-200 px-3 py-2 text-sm text-stone-700 focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500"
                     >
                       <option value="">Select frequency</option>
                       {PURCHASE_FREQUENCY.map((freq) => (
@@ -425,24 +425,24 @@ export default function CustomerForm({
                   </div>
 
                   <div>
-                    <label className="block text-sm font-medium text-stone-300 mb-1">
+                    <label className="block text-sm font-medium text-stone-600 mb-1">
                       Estimated Annual Value (VND)
                     </label>
                     <input
                       {...register('estimatedAnnualValue', { valueAsNumber: true })}
                       type="number"
-                      className="w-full rounded-lg bg-stone-800 border border-stone-700 px-3 py-2 text-sm text-stone-200 placeholder-stone-500 focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500"
+                      className="w-full rounded-lg bg-stone-100 border border-stone-200 px-3 py-2 text-sm text-stone-700 placeholder-stone-500 focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500"
                       placeholder="500000000"
                     />
                   </div>
 
                   <div>
-                    <label className="block text-sm font-medium text-stone-300 mb-1">
+                    <label className="block text-sm font-medium text-stone-600 mb-1">
                       Payment Terms
                     </label>
                     <select
                       {...register('paymentTerms')}
-                      className="w-full rounded-lg bg-stone-800 border border-stone-700 px-3 py-2 text-sm text-stone-200 focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500"
+                      className="w-full rounded-lg bg-stone-100 border border-stone-200 px-3 py-2 text-sm text-stone-700 focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500"
                     >
                       <option value="">Select terms</option>
                       {PAYMENT_TERMS.map((term) => (
@@ -454,12 +454,12 @@ export default function CustomerForm({
                   </div>
 
                   <div>
-                    <label className="block text-sm font-medium text-stone-300 mb-1">
+                    <label className="block text-sm font-medium text-stone-600 mb-1">
                       Customer Tier
                     </label>
                     <select
                       {...register('tier')}
-                      className="w-full rounded-lg bg-stone-800 border border-stone-700 px-3 py-2 text-sm text-stone-200 focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500"
+                      className="w-full rounded-lg bg-stone-100 border border-stone-200 px-3 py-2 text-sm text-stone-700 focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500"
                     >
                       <option value="">Select tier</option>
                       {CUSTOMER_TIERS.map((tier) => (
@@ -474,13 +474,13 @@ export default function CustomerForm({
 
               {/* Notes */}
               <div>
-                <label className="block text-sm font-medium text-stone-300 mb-1">
+                <label className="block text-sm font-medium text-stone-600 mb-1">
                   Notes
                 </label>
                 <textarea
                   {...register('notes')}
                   rows={3}
-                  className="w-full rounded-lg bg-stone-800 border border-stone-700 px-3 py-2 text-sm text-stone-200 placeholder-stone-500 focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500 resize-none"
+                  className="w-full rounded-lg bg-stone-100 border border-stone-200 px-3 py-2 text-sm text-stone-700 placeholder-stone-500 focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500 resize-none"
                   placeholder="Additional notes..."
                 />
               </div>
@@ -488,11 +488,11 @@ export default function CustomerForm({
           </form>
 
           {/* Footer */}
-          <div className="flex items-center justify-end gap-3 border-t border-stone-700 bg-stone-800/50 px-6 py-4">
+          <div className="flex items-center justify-end gap-3 border-t border-stone-200 bg-stone-50 px-6 py-4">
             <button
               type="button"
               onClick={handleClose}
-              className="rounded-lg px-4 py-2 text-sm font-medium text-stone-300 hover:bg-stone-700 transition-colors"
+              className="rounded-lg px-4 py-2 text-sm font-medium text-stone-600 hover:bg-stone-200 transition-colors"
             >
               Cancel
             </button>

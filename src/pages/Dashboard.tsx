@@ -137,7 +137,7 @@ export default function Dashboard() {
         {/* KPI Skeletons */}
         <div className="grid gap-4 grid-cols-1 md:grid-cols-2 lg:grid-cols-3">
           {[1, 2, 3, 4, 5, 6].map((i) => (
-            <div key={i} className="rounded-xl bg-stone-800/50 border border-stone-700/50 p-6">
+            <div key={i} className="rounded-xl bg-stone-50 border border-stone-200 p-6">
               <div className="skeleton h-4 w-32 mb-3" />
               <div className="skeleton h-8 w-24 mb-2" />
               <div className="skeleton h-3 w-20" />
@@ -146,11 +146,11 @@ export default function Dashboard() {
         </div>
         {/* Chart Skeletons */}
         <div className="grid gap-6 grid-cols-1 lg:grid-cols-3">
-          <div className="lg:col-span-2 rounded-xl bg-stone-800/50 border border-stone-700/50 p-6">
+          <div className="lg:col-span-2 rounded-xl bg-stone-50 border border-stone-200 p-6">
             <div className="skeleton h-5 w-48 mb-4" />
             <div className="skeleton h-[280px] w-full" />
           </div>
-          <div className="rounded-xl bg-stone-800/50 border border-stone-700/50 p-6">
+          <div className="rounded-xl bg-stone-50 border border-stone-200 p-6">
             <div className="skeleton h-5 w-48 mb-4" />
             <div className="skeleton h-[280px] w-full" />
           </div>
@@ -174,7 +174,7 @@ export default function Dashboard() {
               <DollarSign className="h-5 w-5 text-amber-400" />
             </div>
           </div>
-          <p className="font-display text-3xl font-bold text-stone-50">
+          <p className="font-display text-3xl font-bold text-stone-900">
             <AnimatedNumber
               value={stats?.revenue.current || 0}
               formatter={formatCompactCurrency}
@@ -205,10 +205,10 @@ export default function Dashboard() {
           <div className="flex items-center justify-between mb-2">
             <p className="text-sm text-stone-400">Đơn hàng đang xử lý</p>
             <div className="rounded-lg bg-stone-600/30 p-2">
-              <ShoppingCart className="h-5 w-5 text-stone-300" />
+              <ShoppingCart className="h-5 w-5 text-stone-600" />
             </div>
           </div>
-          <p className="font-display text-3xl font-bold text-stone-50">
+          <p className="font-display text-3xl font-bold text-stone-900">
             <AnimatedNumber value={stats?.pendingOrders || 0} />
           </p>
           <p className="mt-2 text-xs text-stone-500">Click để xem chi tiết</p>
@@ -225,7 +225,7 @@ export default function Dashboard() {
               <FileText className="h-5 w-5 text-yellow-400" />
             </div>
           </div>
-          <p className="font-display text-3xl font-bold text-stone-50">
+          <p className="font-display text-3xl font-bold text-stone-900">
             <AnimatedNumber value={stats?.pendingQuotations || 0} />
           </p>
           <p className="mt-2 text-xs text-stone-500">Click để xem chi tiết</p>
@@ -239,10 +239,10 @@ export default function Dashboard() {
           <div className="flex items-center justify-between mb-2">
             <p className="text-sm text-stone-400">Tổng khách hàng</p>
             <div className="rounded-lg bg-stone-600/30 p-2">
-              <Users className="h-5 w-5 text-stone-300" />
+              <Users className="h-5 w-5 text-stone-600" />
             </div>
           </div>
-          <p className="font-display text-3xl font-bold text-stone-50">
+          <p className="font-display text-3xl font-bold text-stone-900">
             <AnimatedNumber value={stats?.totalCustomers || 0} />
           </p>
           <p className="mt-2 text-xs text-stone-500">Trong hệ thống</p>
@@ -256,10 +256,10 @@ export default function Dashboard() {
           <div className="flex items-center justify-between mb-2">
             <p className="text-sm text-stone-400">Tổng sản phẩm</p>
             <div className="rounded-lg bg-stone-600/30 p-2">
-              <Package className="h-5 w-5 text-stone-300" />
+              <Package className="h-5 w-5 text-stone-600" />
             </div>
           </div>
-          <p className="font-display text-3xl font-bold text-stone-50">
+          <p className="font-display text-3xl font-bold text-stone-900">
             <AnimatedNumber value={stats?.totalProducts || 0} />
           </p>
           <p className="mt-2 text-xs text-stone-500">Trong catalog</p>
@@ -276,7 +276,7 @@ export default function Dashboard() {
               <Target className="h-5 w-5 text-yellow-400" />
             </div>
           </div>
-          <p className="font-display text-3xl font-bold text-stone-50">
+          <p className="font-display text-3xl font-bold text-stone-900">
             <AnimatedNumber
               value={stats?.pipelineValue || 0}
               formatter={formatCompactCurrency}
@@ -287,7 +287,7 @@ export default function Dashboard() {
       </div>
 
       {/* Quick Actions */}
-      <div className="rounded-xl bg-stone-800/60 border border-stone-700/40 p-4 animate-fade-in-up">
+      <div className="rounded-xl bg-white border border-stone-200 p-4 animate-fade-in-up">
         <h3 className="text-xs font-semibold text-stone-400 uppercase tracking-wider mb-3">Thao tác nhanh</h3>
         <div className="flex gap-3 flex-wrap">
           <button
@@ -306,21 +306,21 @@ export default function Dashboard() {
           </button>
           <button
             onClick={() => navigate('/customers')}
-            className="flex items-center gap-2 rounded-lg bg-stone-700/50 border border-stone-600/40 px-4 py-2.5 text-sm font-medium text-stone-300 hover:bg-stone-700 hover:border-stone-500 hover:shadow-lg transition-all"
+            className="flex items-center gap-2 rounded-lg bg-stone-100 border border-stone-600/40 px-4 py-2.5 text-sm font-medium text-stone-600 hover:bg-stone-200 hover:border-stone-500 hover:shadow-lg transition-all"
           >
             <UserPlus className="h-4 w-4" />
             Thêm khách hàng
           </button>
           <button
             onClick={() => navigate('/pipeline')}
-            className="flex items-center gap-2 rounded-lg bg-stone-700/50 border border-stone-600/40 px-4 py-2.5 text-sm font-medium text-stone-300 hover:bg-stone-700 hover:border-stone-500 hover:shadow-lg transition-all"
+            className="flex items-center gap-2 rounded-lg bg-stone-100 border border-stone-600/40 px-4 py-2.5 text-sm font-medium text-stone-600 hover:bg-stone-200 hover:border-stone-500 hover:shadow-lg transition-all"
           >
             <Target className="h-4 w-4" />
             Tạo deal
           </button>
           <button
             onClick={() => navigate('/products')}
-            className="flex items-center gap-2 rounded-lg bg-stone-700/50 border border-stone-600/40 px-4 py-2.5 text-sm font-medium text-stone-300 hover:bg-stone-700 hover:border-stone-500 hover:shadow-lg transition-all"
+            className="flex items-center gap-2 rounded-lg bg-stone-100 border border-stone-600/40 px-4 py-2.5 text-sm font-medium text-stone-600 hover:bg-stone-200 hover:border-stone-500 hover:shadow-lg transition-all"
           >
             <Plus className="h-4 w-4" />
             Thêm sản phẩm
@@ -331,10 +331,10 @@ export default function Dashboard() {
       {/* Charts Row - 3 columns */}
       <div className="grid gap-6 grid-cols-1 lg:grid-cols-3">
         {/* Revenue Chart - 2 cols */}
-        <div className="lg:col-span-2 rounded-xl bg-stone-800/60 border border-stone-700/40 p-6 animate-fade-in-up">
+        <div className="lg:col-span-2 rounded-xl bg-white border border-stone-200 p-6 animate-fade-in-up">
           <div className="flex items-center gap-2 mb-4">
             <BarChart3 className="h-5 w-5 text-amber-400" />
-            <h3 className="font-display text-lg font-semibold text-stone-50">
+            <h3 className="font-display text-lg font-semibold text-stone-900">
               Doanh thu 6 tháng gần nhất
             </h3>
           </div>
@@ -346,13 +346,13 @@ export default function Dashboard() {
                   <stop offset="100%" stopColor="#d97706" stopOpacity={0.3} />
                 </linearGradient>
               </defs>
-              <CartesianGrid strokeDasharray="3 3" stroke="#44403c" />
-              <XAxis dataKey="month" stroke="#a8a29e" style={{ fontSize: '12px' }} />
-              <YAxis stroke="#a8a29e" style={{ fontSize: '12px' }} />
+              <CartesianGrid strokeDasharray="3 3" stroke="#e7e5e4" />
+              <XAxis dataKey="month" stroke="#78716c" style={{ fontSize: '12px' }} />
+              <YAxis stroke="#78716c" style={{ fontSize: '12px' }} />
               <Tooltip
                 contentStyle={{
-                  backgroundColor: '#1c1917',
-                  border: '1px solid #57534e',
+                  backgroundColor: '#ffffff',
+                  border: '1px solid #e7e5e4',
                   borderRadius: '8px',
                 }}
                 formatter={(value: number) => formatCurrency(value)}
@@ -363,10 +363,10 @@ export default function Dashboard() {
         </div>
 
         {/* Customer Acquisition Chart - 1 col */}
-        <div className="rounded-xl bg-stone-800/60 border border-stone-700/40 p-6 animate-fade-in-up">
+        <div className="rounded-xl bg-white border border-stone-200 p-6 animate-fade-in-up">
           <div className="flex items-center gap-2 mb-4">
             <UserPlus className="h-5 w-5 text-amber-400" />
-            <h3 className="font-display text-lg font-semibold text-stone-50">
+            <h3 className="font-display text-lg font-semibold text-stone-900">
               KH mới / tháng
             </h3>
           </div>
@@ -378,13 +378,13 @@ export default function Dashboard() {
                   <stop offset="100%" stopColor="#f59e0b" stopOpacity={0.05} />
                 </linearGradient>
               </defs>
-              <CartesianGrid strokeDasharray="3 3" stroke="#44403c" />
-              <XAxis dataKey="month" stroke="#a8a29e" style={{ fontSize: '11px' }} />
-              <YAxis stroke="#a8a29e" style={{ fontSize: '11px' }} allowDecimals={false} />
+              <CartesianGrid strokeDasharray="3 3" stroke="#e7e5e4" />
+              <XAxis dataKey="month" stroke="#78716c" style={{ fontSize: '11px' }} />
+              <YAxis stroke="#78716c" style={{ fontSize: '11px' }} allowDecimals={false} />
               <Tooltip
                 contentStyle={{
-                  backgroundColor: '#1c1917',
-                  border: '1px solid #57534e',
+                  backgroundColor: '#ffffff',
+                  border: '1px solid #e7e5e4',
                   borderRadius: '8px',
                 }}
                 formatter={(value: number) => [`${value} KH`, 'Khách hàng mới']}
@@ -404,8 +404,8 @@ export default function Dashboard() {
       {/* Second charts row */}
       <div className="grid gap-6 grid-cols-1 lg:grid-cols-3">
         {/* Product Categories Chart */}
-        <div className="rounded-xl bg-stone-800/60 border border-stone-700/40 p-6 animate-fade-in-up">
-          <h3 className="font-display text-lg font-semibold text-stone-50 mb-4">
+        <div className="rounded-xl bg-white border border-stone-200 p-6 animate-fade-in-up">
+          <h3 className="font-display text-lg font-semibold text-stone-900 mb-4">
             Sản phẩm theo nhóm
           </h3>
           <ResponsiveContainer width="100%" height={260}>
@@ -433,8 +433,8 @@ export default function Dashboard() {
               </Pie>
               <Tooltip
                 contentStyle={{
-                  backgroundColor: '#1c1917',
-                  border: '1px solid #57534e',
+                  backgroundColor: '#ffffff',
+                  border: '1px solid #e7e5e4',
                   borderRadius: '8px',
                 }}
               />
@@ -443,8 +443,8 @@ export default function Dashboard() {
         </div>
 
         {/* Top 5 Customers - 2 cols */}
-        <div className="lg:col-span-2 rounded-xl bg-stone-800/60 border border-stone-700/40 p-6 animate-fade-in-up">
-          <h3 className="font-display text-lg font-semibold text-stone-50 mb-4">
+        <div className="lg:col-span-2 rounded-xl bg-white border border-stone-200 p-6 animate-fade-in-up">
+          <h3 className="font-display text-lg font-semibold text-stone-900 mb-4">
             Top 5 Khách hàng
           </h3>
           <div className="space-y-3">
@@ -454,7 +454,7 @@ export default function Dashboard() {
               topCustomers.map((customer, idx) => (
                 <div
                   key={customer.customerId}
-                  className="flex items-center gap-4 p-3 rounded-lg bg-stone-900/50 hover:bg-stone-900 transition-colors cursor-pointer group"
+                  className="flex items-center gap-4 p-3 rounded-lg bg-stone-50 hover:bg-white transition-colors cursor-pointer group"
                   onClick={() => navigate(`/customers`)}
                 >
                   <div
@@ -463,7 +463,7 @@ export default function Dashboard() {
                       idx === 0
                         ? 'bg-amber-500/20 text-amber-400'
                         : idx === 1
-                        ? 'bg-stone-400/20 text-stone-300'
+                        ? 'bg-stone-400/20 text-stone-600'
                         : idx === 2
                         ? 'bg-yellow-500/20 text-yellow-400'
                         : 'bg-stone-600/20 text-stone-400'
@@ -472,13 +472,13 @@ export default function Dashboard() {
                     {idx + 1}
                   </div>
                   <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium text-stone-200 group-hover:text-white transition-colors">
+                    <p className="text-sm font-medium text-stone-700 group-hover:text-stone-900 transition-colors">
                       {customer.customerName}
                     </p>
                     <p className="text-xs text-stone-400">{customer.totalOrders} đơn hàng</p>
                   </div>
                   {/* Revenue bar visual */}
-                  <div className="w-32 h-2 rounded-full bg-stone-700/50 overflow-hidden">
+                  <div className="w-32 h-2 rounded-full bg-stone-100 overflow-hidden">
                     <div
                       className="h-full rounded-full bg-gradient-to-r from-amber-500 to-amber-400 transition-all duration-500"
                       style={{ width: `${(customer.revenue / maxRevenue) * 100}%` }}
@@ -495,8 +495,8 @@ export default function Dashboard() {
       </div>
 
       {/* Activity Feed */}
-      <div className="rounded-xl bg-stone-800/60 border border-stone-700/40 p-6 animate-fade-in-up">
-        <h3 className="font-display text-lg font-semibold text-stone-50 mb-4">
+      <div className="rounded-xl bg-white border border-stone-200 p-6 animate-fade-in-up">
+        <h3 className="font-display text-lg font-semibold text-stone-900 mb-4">
           Hoạt động & Nhắc nhở
         </h3>
         <div className="grid gap-4 grid-cols-1 lg:grid-cols-2">
@@ -531,7 +531,7 @@ export default function Dashboard() {
                       />
                     </div>
                     <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium text-stone-200">
+                      <p className="text-sm font-medium text-stone-700">
                         {reminder.title || 'Follow-up reminder'}
                       </p>
                       <p className="text-xs text-stone-400 mt-1">
@@ -558,13 +558,13 @@ export default function Dashboard() {
                 return (
                   <div
                     key={`activity-${activity.id}`}
-                    className="flex items-start gap-3 p-3 rounded-lg bg-stone-900/50 hover:bg-stone-900 transition-colors"
+                    className="flex items-start gap-3 p-3 rounded-lg bg-stone-50 hover:bg-white transition-colors"
                   >
-                    <div className="rounded-lg bg-stone-700/50 p-2 shrink-0">
+                    <div className="rounded-lg bg-stone-100 p-2 shrink-0">
                       <Icon className="h-4 w-4 text-stone-400" />
                     </div>
                     <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium text-stone-200">
+                      <p className="text-sm font-medium text-stone-700">
                         {activity.title || activity.type}
                       </p>
                       {activity.content && (

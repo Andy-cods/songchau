@@ -108,7 +108,7 @@ export default function Customers() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="font-display text-2xl font-bold text-stone-50">
+          <h2 className="font-display text-2xl font-bold text-stone-900">
             Quản lý khách hàng
           </h2>
           <p className="text-sm text-stone-400 mt-1">
@@ -127,8 +127,8 @@ export default function Customers() {
       {/* Summary Stats Bar */}
       {!loading && customers.length > 0 && (
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 stagger-children">
-          <div className="rounded-xl bg-stone-800/60 border border-stone-700/40 p-4 text-center">
-            <p className="text-2xl font-bold text-stone-50">{total}</p>
+          <div className="rounded-xl bg-white border border-stone-200 p-4 text-center">
+            <p className="text-2xl font-bold text-stone-900">{total}</p>
             <p className="text-xs text-stone-400 mt-1">Tổng KH</p>
           </div>
           <div className="rounded-xl bg-gradient-to-br from-amber-500/10 to-amber-600/5 border border-amber-500/20 p-4 text-center">
@@ -137,8 +137,8 @@ export default function Customers() {
             </p>
             <p className="text-xs text-stone-400 mt-1">Tier A</p>
           </div>
-          <div className="rounded-xl bg-stone-800/60 border border-stone-700/40 p-4 text-center">
-            <p className="text-2xl font-bold text-stone-300">
+          <div className="rounded-xl bg-white border border-stone-200 p-4 text-center">
+            <p className="text-2xl font-bold text-stone-600">
               {customers.filter((c) => c.tier === 'B').length}
             </p>
             <p className="text-xs text-stone-400 mt-1">Tier B</p>
@@ -153,7 +153,7 @@ export default function Customers() {
       )}
 
       {/* Filters */}
-      <div className="rounded-xl bg-stone-800/50 border border-stone-700/50 p-4">
+      <div className="rounded-xl bg-stone-50 border border-stone-200 p-4">
         <div className="grid grid-cols-5 gap-3">
           {/* Search */}
           <div className="col-span-2">
@@ -164,7 +164,7 @@ export default function Customers() {
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 placeholder="Search company, contact, phone..."
-                className="w-full rounded-lg bg-stone-900/50 border border-stone-700/50 pl-9 pr-3 py-2 text-sm text-stone-200 placeholder-stone-500 focus:outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20"
+                className="w-full rounded-lg bg-stone-50 border border-stone-200 pl-9 pr-3 py-2 text-sm text-stone-700 placeholder-stone-500 focus:outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20"
               />
             </div>
           </div>
@@ -173,7 +173,7 @@ export default function Customers() {
           <select
             value={selectedType}
             onChange={(e) => setSelectedType(e.target.value)}
-            className="rounded-lg bg-stone-900/50 border border-stone-700/50 px-3 py-2 text-sm text-stone-200 focus:outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20"
+            className="rounded-lg bg-stone-50 border border-stone-200 px-3 py-2 text-sm text-stone-700 focus:outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20"
           >
             <option value="">All Types</option>
             {CUSTOMER_TYPES.map((type) => (
@@ -187,7 +187,7 @@ export default function Customers() {
           <select
             value={selectedProvince}
             onChange={(e) => setSelectedProvince(e.target.value)}
-            className="rounded-lg bg-stone-900/50 border border-stone-700/50 px-3 py-2 text-sm text-stone-200 focus:outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20"
+            className="rounded-lg bg-stone-50 border border-stone-200 px-3 py-2 text-sm text-stone-700 focus:outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20"
           >
             <option value="">All Provinces</option>
             {PROVINCES.map((prov) => (
@@ -201,7 +201,7 @@ export default function Customers() {
           <select
             value={selectedTier}
             onChange={(e) => setSelectedTier(e.target.value)}
-            className="rounded-lg bg-stone-900/50 border border-stone-700/50 px-3 py-2 text-sm text-stone-200 focus:outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20"
+            className="rounded-lg bg-stone-50 border border-stone-200 px-3 py-2 text-sm text-stone-700 focus:outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20"
           >
             <option value="">All Tiers</option>
             {CUSTOMER_TIERS.map((tier) => (
@@ -216,7 +216,7 @@ export default function Customers() {
         {(search || selectedType || selectedProvince || selectedTier) && (
           <button
             onClick={handleClearFilters}
-            className="mt-3 flex items-center gap-2 text-sm text-stone-400 hover:text-stone-200 transition-colors"
+            className="mt-3 flex items-center gap-2 text-sm text-stone-400 hover:text-stone-700 transition-colors"
           >
             <X className="h-4 w-4" />
             Clear all filters
@@ -225,30 +225,30 @@ export default function Customers() {
       </div>
 
       {/* Table */}
-      <div className="rounded-xl bg-stone-800/50 border border-stone-700/50 overflow-hidden">
+      <div className="rounded-xl bg-stone-50 border border-stone-200 overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full">
-            <thead className="bg-stone-800/30 border-b-2 border-stone-700/50">
+            <thead className="bg-stone-100/30 border-b-2 border-stone-200">
               <tr>
-                <th className="px-4 py-3.5 text-left text-xs font-semibold text-stone-300 uppercase tracking-wider">
+                <th className="px-4 py-3.5 text-left text-xs font-semibold text-stone-600 uppercase tracking-wider">
                   Company Name
                 </th>
-                <th className="px-4 py-3.5 text-left text-xs font-semibold text-stone-300 uppercase tracking-wider">
+                <th className="px-4 py-3.5 text-left text-xs font-semibold text-stone-600 uppercase tracking-wider">
                   Type
                 </th>
-                <th className="px-4 py-3.5 text-left text-xs font-semibold text-stone-300 uppercase tracking-wider">
+                <th className="px-4 py-3.5 text-left text-xs font-semibold text-stone-600 uppercase tracking-wider">
                   Industrial Zone
                 </th>
-                <th className="px-4 py-3.5 text-left text-xs font-semibold text-stone-300 uppercase tracking-wider">
+                <th className="px-4 py-3.5 text-left text-xs font-semibold text-stone-600 uppercase tracking-wider">
                   Contact
                 </th>
-                <th className="px-4 py-3.5 text-left text-xs font-semibold text-stone-300 uppercase tracking-wider">
+                <th className="px-4 py-3.5 text-left text-xs font-semibold text-stone-600 uppercase tracking-wider">
                   Phone
                 </th>
-                <th className="px-4 py-3.5 text-left text-xs font-semibold text-stone-300 uppercase tracking-wider">
+                <th className="px-4 py-3.5 text-left text-xs font-semibold text-stone-600 uppercase tracking-wider">
                   Tier
                 </th>
-                <th className="px-4 py-3.5 text-left text-xs font-semibold text-stone-300 uppercase tracking-wider">
+                <th className="px-4 py-3.5 text-left text-xs font-semibold text-stone-600 uppercase tracking-wider">
                   Notes
                 </th>
               </tr>
@@ -281,13 +281,13 @@ export default function Customers() {
                     onClick={() => handleRowClick(customer)}
                     className={cn(
                       'cursor-pointer transition-colors',
-                      idx % 2 === 0 ? 'bg-stone-900/20' : 'bg-transparent',
-                      'hover:bg-stone-700/30'
+                      idx % 2 === 0 ? 'bg-stone-100/50' : 'bg-transparent',
+                      'hover:bg-stone-200/30'
                     )}
                   >
                     <td className="px-4 py-3">
                       <div>
-                        <p className="text-sm font-medium text-stone-200">
+                        <p className="text-sm font-medium text-stone-700">
                           {customer.companyName}
                         </p>
                         {customer.companyNameLocal && (
@@ -302,25 +302,25 @@ export default function Customers() {
                         className={cn(
                           'inline-block px-2 py-1 rounded border text-xs font-medium',
                           CUSTOMER_TYPE_COLORS[customer.type] ||
-                            'bg-stone-700/50 text-stone-300 border-stone-600'
+                            'bg-stone-100 text-stone-600 border-stone-600'
                         )}
                       >
                         {CUSTOMER_TYPES.find((t) => t.value === customer.type)?.label ||
                           customer.type}
                       </span>
                     </td>
-                    <td className="px-4 py-3 text-sm text-stone-300">
+                    <td className="px-4 py-3 text-sm text-stone-600">
                       {customer.industrialZone || '—'}
                     </td>
                     <td className="px-4 py-3">
                       <div>
-                        <p className="text-sm text-stone-200">{customer.contactName || '—'}</p>
+                        <p className="text-sm text-stone-700">{customer.contactName || '—'}</p>
                         {customer.contactTitle && (
                           <p className="text-xs text-stone-400">{customer.contactTitle}</p>
                         )}
                       </div>
                     </td>
-                    <td className="px-4 py-3 text-sm text-stone-300">
+                    <td className="px-4 py-3 text-sm text-stone-600">
                       {customer.contactPhone || '—'}
                     </td>
                     <td className="px-4 py-3">
@@ -329,7 +329,7 @@ export default function Customers() {
                           className={cn(
                             'inline-block px-2 py-1 rounded border text-xs font-medium',
                             TIER_COLORS[customer.tier] ||
-                              'bg-stone-700/50 text-stone-300 border-stone-600'
+                              'bg-stone-100 text-stone-600 border-stone-600'
                           )}
                         >
                           {customer.tier}
@@ -352,7 +352,7 @@ export default function Customers() {
 
         {/* Pagination */}
         {!loading && totalPages > 1 && (
-          <div className="flex items-center justify-between border-t border-stone-700 bg-stone-900/50 px-4 py-3">
+          <div className="flex items-center justify-between border-t border-stone-200 bg-stone-50 px-4 py-3">
             <p className="text-sm text-stone-400">
               Page {page} of {totalPages} ({total} total)
             </p>
@@ -360,14 +360,14 @@ export default function Customers() {
               <button
                 onClick={() => setPage((p) => Math.max(1, p - 1))}
                 disabled={page === 1}
-                className="flex h-8 w-8 items-center justify-center rounded-lg text-stone-400 hover:bg-stone-800 hover:text-stone-200 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                className="flex h-8 w-8 items-center justify-center rounded-lg text-stone-400 hover:bg-stone-100 hover:text-stone-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
               >
                 <ChevronLeft className="h-4 w-4" />
               </button>
               <button
                 onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
                 disabled={page === totalPages}
-                className="flex h-8 w-8 items-center justify-center rounded-lg text-stone-400 hover:bg-stone-800 hover:text-stone-200 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                className="flex h-8 w-8 items-center justify-center rounded-lg text-stone-400 hover:bg-stone-100 hover:text-stone-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
               >
                 <ChevronRight className="h-4 w-4" />
               </button>

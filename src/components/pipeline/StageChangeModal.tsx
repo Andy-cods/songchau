@@ -42,15 +42,15 @@ export default function StageChangeModal({ isOpen, type, onConfirm, onCancel }: 
     <>
       <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[60]" onClick={onCancel} />
       <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
-        <div className="w-full max-w-sm bg-stone-900 rounded-xl border border-stone-700 shadow-2xl overflow-hidden">
+        <div className="w-full max-w-sm bg-white rounded-xl border border-stone-200 shadow-2xl overflow-hidden">
           {/* Header */}
-          <div className="flex items-center justify-between px-5 py-3 border-b border-stone-700 bg-stone-800/50">
-            <h3 className="text-sm font-semibold text-stone-100">
+          <div className="flex items-center justify-between px-5 py-3 border-b border-stone-200 bg-stone-50">
+            <h3 className="text-sm font-semibold text-stone-800">
               {type === 'lost' ? 'Chuyển sang Lost' : 'Chuyển sang Won'}
             </h3>
             <button
               onClick={onCancel}
-              className="flex h-7 w-7 items-center justify-center rounded-lg text-stone-400 hover:bg-stone-700 hover:text-stone-200 transition-colors"
+              className="flex h-7 w-7 items-center justify-center rounded-lg text-stone-400 hover:bg-stone-200 hover:text-stone-700 transition-colors"
             >
               <X className="h-4 w-4" />
             </button>
@@ -69,7 +69,7 @@ export default function StageChangeModal({ isOpen, type, onConfirm, onCancel }: 
                         'flex items-center gap-3 p-2.5 rounded-lg border cursor-pointer transition-colors',
                         lostReason === reason.value
                           ? 'bg-red-500/10 border-red-500/30 text-red-400'
-                          : 'bg-stone-800/50 border-stone-700/50 text-stone-300 hover:border-stone-600'
+                          : 'bg-stone-50 border-stone-200 text-stone-600 hover:border-stone-600'
                       )}
                     >
                       <input
@@ -105,7 +105,7 @@ export default function StageChangeModal({ isOpen, type, onConfirm, onCancel }: 
                   value={quotationId}
                   onChange={(e) => setQuotationId(e.target.value)}
                   placeholder="VD: 1"
-                  className="w-full rounded-lg bg-stone-800 border border-stone-700 px-3 py-2 text-sm text-stone-200 placeholder-stone-500 focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500"
+                  className="w-full rounded-lg bg-stone-100 border border-stone-200 px-3 py-2 text-sm text-stone-700 placeholder-stone-500 focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500"
                 />
                 <p className="mt-1.5 text-xs text-stone-500">
                   Để trống nếu không liên kết báo giá
@@ -115,11 +115,11 @@ export default function StageChangeModal({ isOpen, type, onConfirm, onCancel }: 
           </div>
 
           {/* Footer */}
-          <div className="flex items-center justify-end gap-3 px-5 py-3 border-t border-stone-700 bg-stone-800/50">
+          <div className="flex items-center justify-end gap-3 px-5 py-3 border-t border-stone-200 bg-stone-50">
             <button
               onClick={onCancel}
               disabled={loading}
-              className="rounded-lg px-4 py-2 text-sm font-medium text-stone-300 hover:bg-stone-700 transition-colors"
+              className="rounded-lg px-4 py-2 text-sm font-medium text-stone-600 hover:bg-stone-200 transition-colors"
             >
               Hủy
             </button>

@@ -39,7 +39,7 @@ export default function ConfirmDialog({
     <>
       <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[60]" onClick={onCancel} />
       <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
-        <div className="w-full max-w-sm bg-stone-900 rounded-xl border border-stone-700 shadow-2xl p-6">
+        <div className="w-full max-w-sm bg-white rounded-xl border border-stone-200 shadow-2xl p-6">
           <div className="flex items-start gap-4">
             {variant === 'danger' && (
               <div className="flex-shrink-0 rounded-full bg-red-500/10 p-2">
@@ -47,7 +47,7 @@ export default function ConfirmDialog({
               </div>
             )}
             <div className="flex-1">
-              <h3 className="text-base font-semibold text-stone-100">{title}</h3>
+              <h3 className="text-base font-semibold text-stone-800">{title}</h3>
               {description && (
                 <p className="mt-1.5 text-sm text-stone-400">{description}</p>
               )}
@@ -57,7 +57,7 @@ export default function ConfirmDialog({
             <button
               onClick={onCancel}
               disabled={loading}
-              className="rounded-lg px-4 py-2 text-sm font-medium text-stone-300 hover:bg-stone-800 transition-colors"
+              className="rounded-lg px-4 py-2 text-sm font-medium text-stone-600 hover:bg-stone-100 transition-colors"
             >
               {cancelLabel}
             </button>

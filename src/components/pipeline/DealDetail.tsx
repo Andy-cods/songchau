@@ -39,15 +39,15 @@ export default function DealDetail({ deal, isOpen, onClose, onEdit }: DealDetail
       />
 
       {/* Slide-over Panel */}
-      <div className="fixed inset-y-0 right-0 w-full max-w-lg bg-stone-900 border-l border-stone-700 z-50 overflow-y-auto slide-over-panel">
+      <div className="fixed inset-y-0 right-0 w-full max-w-lg bg-white border-l border-stone-200 z-50 overflow-y-auto slide-over-panel">
         {/* Header */}
-        <div className="sticky top-0 z-10 flex items-center justify-between bg-stone-900/95 backdrop-blur border-b border-stone-700 px-6 py-4">
+        <div className="sticky top-0 z-10 flex items-center justify-between bg-white/95 backdrop-blur border-b border-stone-200 px-6 py-4">
           <div>
-            <h2 className="font-display text-lg font-semibold text-stone-50">
+            <h2 className="font-display text-lg font-semibold text-stone-900">
               {deal.title}
             </h2>
             <div className="flex items-center gap-2 mt-1.5">
-              <span className={cn('badge border text-xs', STAGE_COLORS[deal.stage] || 'bg-stone-700/50 text-stone-300 border-stone-600')}>
+              <span className={cn('badge border text-xs', STAGE_COLORS[deal.stage] || 'bg-stone-100 text-stone-600 border-stone-600')}>
                 {deal.stage}
               </span>
               {deal.probability !== null && deal.probability !== undefined && (
@@ -66,7 +66,7 @@ export default function DealDetail({ deal, isOpen, onClose, onEdit }: DealDetail
             )}
             <button
               onClick={onClose}
-              className="flex h-8 w-8 items-center justify-center rounded-lg text-stone-400 hover:bg-stone-800 hover:text-stone-200 transition-colors"
+              className="flex h-8 w-8 items-center justify-center rounded-lg text-stone-400 hover:bg-stone-100 hover:text-stone-700 transition-colors"
             >
               <X className="h-5 w-5" />
             </button>
@@ -80,7 +80,7 @@ export default function DealDetail({ deal, isOpen, onClose, onEdit }: DealDetail
               <DollarSign className="h-4 w-4 text-brand-400" />
               <span className="text-xs font-medium text-stone-400 uppercase tracking-wider">Giá trị deal</span>
             </div>
-            <p className="font-display text-2xl font-bold text-stone-50">
+            <p className="font-display text-2xl font-bold text-stone-900">
               {formatCurrency(deal.dealValue)}
             </p>
             {deal.dealValue && deal.probability !== null && (
@@ -91,27 +91,27 @@ export default function DealDetail({ deal, isOpen, onClose, onEdit }: DealDetail
           </div>
 
           {/* Deal Info */}
-          <div className="rounded-xl bg-stone-800/50 border border-stone-700/50 p-5">
+          <div className="rounded-xl bg-stone-50 border border-stone-200 p-5">
             <h4 className="text-xs font-medium text-stone-400 uppercase tracking-wider mb-4 flex items-center gap-2">
               <Target className="h-3.5 w-3.5" /> Chi tiết
             </h4>
             <div className="grid grid-cols-2 gap-4 text-sm">
               <div>
                 <p className="text-xs text-stone-500">Stage</p>
-                <p className="text-stone-200 capitalize mt-0.5">{deal.stage}</p>
+                <p className="text-stone-700 capitalize mt-0.5">{deal.stage}</p>
               </div>
               <div>
                 <p className="text-xs text-stone-500">Xác suất</p>
-                <p className="text-stone-200 mt-0.5">{deal.probability ?? 0}%</p>
+                <p className="text-stone-700 mt-0.5">{deal.probability ?? 0}%</p>
               </div>
               <div>
                 <p className="text-xs text-stone-500">Tiền tệ</p>
-                <p className="text-stone-200 mt-0.5">{deal.currency}</p>
+                <p className="text-stone-700 mt-0.5">{deal.currency}</p>
               </div>
               {deal.expectedCloseDate && (
                 <div>
                   <p className="text-xs text-stone-500">Ngày dự kiến chốt</p>
-                  <p className="text-stone-200 mt-0.5">{format(new Date(deal.expectedCloseDate), 'dd/MM/yyyy')}</p>
+                  <p className="text-stone-700 mt-0.5">{format(new Date(deal.expectedCloseDate), 'dd/MM/yyyy')}</p>
                 </div>
               )}
               {deal.actualCloseDate && (
@@ -128,14 +128,14 @@ export default function DealDetail({ deal, isOpen, onClose, onEdit }: DealDetail
               )}
               <div>
                 <p className="text-xs text-stone-500">Tạo ngày</p>
-                <p className="text-stone-200 mt-0.5">{format(new Date(deal.createdAt), 'dd/MM/yyyy')}</p>
+                <p className="text-stone-700 mt-0.5">{format(new Date(deal.createdAt), 'dd/MM/yyyy')}</p>
               </div>
             </div>
           </div>
 
           {/* Customer */}
           {deal.customerName && (
-            <div className="rounded-xl bg-stone-800/50 border border-stone-700/50 p-5">
+            <div className="rounded-xl bg-stone-50 border border-stone-200 p-5">
               <h4 className="text-xs font-medium text-stone-400 uppercase tracking-wider mb-3 flex items-center gap-2">
                 <User className="h-3.5 w-3.5" /> Khách hàng
               </h4>
@@ -150,7 +150,7 @@ export default function DealDetail({ deal, isOpen, onClose, onEdit }: DealDetail
 
           {/* Linked Quotation */}
           {deal.quotationId && (
-            <div className="rounded-xl bg-stone-800/50 border border-stone-700/50 p-5">
+            <div className="rounded-xl bg-stone-50 border border-stone-200 p-5">
               <h4 className="text-xs font-medium text-stone-400 uppercase tracking-wider mb-3 flex items-center gap-2">
                 <FileText className="h-3.5 w-3.5" /> Báo giá liên kết
               </h4>
@@ -165,11 +165,11 @@ export default function DealDetail({ deal, isOpen, onClose, onEdit }: DealDetail
 
           {/* Notes */}
           {deal.notes && (
-            <div className="rounded-xl bg-stone-800/50 border border-stone-700/50 p-5">
+            <div className="rounded-xl bg-stone-50 border border-stone-200 p-5">
               <h4 className="text-xs font-medium text-stone-400 uppercase tracking-wider mb-3 flex items-center gap-2">
                 <Calendar className="h-3.5 w-3.5" /> Ghi chú
               </h4>
-              <p className="text-sm text-stone-300">{deal.notes}</p>
+              <p className="text-sm text-stone-600">{deal.notes}</p>
             </div>
           )}
         </div>

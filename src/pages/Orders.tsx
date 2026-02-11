@@ -142,7 +142,7 @@ export default function Orders() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="font-display text-2xl font-bold text-stone-50">Đơn hàng</h2>
+          <h2 className="font-display text-2xl font-bold text-stone-900">Đơn hàng</h2>
           <p className="text-sm text-stone-400 mt-1">
             {isLoading ? 'Đang tải...' : `${pagination.total} đơn hàng`}
           </p>
@@ -166,7 +166,7 @@ export default function Orders() {
               value={searchInput}
               onChange={(e) => setSearchInput(e.target.value)}
               placeholder="Tìm mã ĐH, PO..."
-              className="w-full rounded-lg bg-stone-900/50 border border-stone-700/50 pl-9 pr-3 py-2 text-sm text-stone-200 placeholder:text-stone-500 focus:outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20"
+              className="w-full rounded-lg bg-stone-50 border border-stone-200 pl-9 pr-3 py-2 text-sm text-stone-700 placeholder:text-stone-500 focus:outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20"
             />
           </div>
 
@@ -174,7 +174,7 @@ export default function Orders() {
           <select
             value={selectedStatus}
             onChange={(e) => setSelectedStatus(e.target.value)}
-            className="rounded-lg bg-stone-900/50 border border-stone-700/50 px-3 py-2 text-sm text-stone-200 focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20"
+            className="rounded-lg bg-stone-50 border border-stone-200 px-3 py-2 text-sm text-stone-700 focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20"
           >
             <option value="">Tất cả trạng thái</option>
             {ORDER_STATUSES.map((s) => (
@@ -188,7 +188,7 @@ export default function Orders() {
           <select
             value={selectedPaymentStatus}
             onChange={(e) => setSelectedPaymentStatus(e.target.value)}
-            className="rounded-lg bg-stone-900/50 border border-stone-700/50 px-3 py-2 text-sm text-stone-200 focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20"
+            className="rounded-lg bg-stone-50 border border-stone-200 px-3 py-2 text-sm text-stone-700 focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20"
           >
             <option value="">Tất cả thanh toán</option>
             <option value="unpaid">Chưa thanh toán</option>
@@ -200,7 +200,7 @@ export default function Orders() {
           {activeFiltersCount > 0 && (
             <button
               onClick={handleClearFilters}
-              className="flex items-center gap-1 px-3 py-2 text-sm text-stone-400 hover:text-white transition-colors"
+              className="flex items-center gap-1 px-3 py-2 text-sm text-stone-400 hover:text-stone-900 transition-colors"
             >
               <X className="h-4 w-4" />
               Xóa ({activeFiltersCount})
@@ -228,7 +228,7 @@ export default function Orders() {
               Array.from({ length: 8 }).map((_, idx) => (
                 <tr key={idx}>
                   <td colSpan={7}>
-                    <div className="h-10 bg-stone-800/50 animate-pulse rounded" />
+                    <div className="h-10 bg-stone-50 animate-pulse rounded" />
                   </td>
                 </tr>
               ))
@@ -236,11 +236,11 @@ export default function Orders() {
               <tr>
                 <td colSpan={7} className="py-16 text-center">
                   <div className="flex flex-col items-center gap-3">
-                    <div className="rounded-full bg-stone-800/50 p-4">
+                    <div className="rounded-full bg-stone-50 p-4">
                       <Package className="h-8 w-8 text-stone-500" />
                     </div>
                     <div>
-                      <p className="font-medium text-stone-300">Không tìm thấy đơn hàng</p>
+                      <p className="font-medium text-stone-600">Không tìm thấy đơn hàng</p>
                       <p className="text-sm text-stone-500 mt-1">Thử thay đổi bộ lọc</p>
                     </div>
                     {activeFiltersCount > 0 && (
@@ -260,7 +260,7 @@ export default function Orders() {
                   key={order.id}
                   className={cn(
                     'cursor-pointer transition-colors duration-150',
-                    idx % 2 === 0 && 'even:bg-stone-800/10',
+                    idx % 2 === 0 && 'even:bg-stone-50',
                     isOverdue(order) && 'bg-red-500/5'
                   )}
                   onClick={() => navigate(`/orders/${order.id}`)}
@@ -268,13 +268,13 @@ export default function Orders() {
                   <td>
                     <span className="part-number">{order.orderNumber}</span>
                   </td>
-                  <td className="text-sm text-stone-200">{order.customerName || '—'}</td>
+                  <td className="text-sm text-stone-700">{order.customerName || '—'}</td>
                   <td>
                     <span className="font-mono text-sm text-stone-400">{order.poNumber || '—'}</span>
                   </td>
                   <td>
                     <div>
-                      <p className="text-sm font-medium text-stone-200">
+                      <p className="text-sm font-medium text-stone-700">
                         {formatCurrency(order.totalAmount)}
                       </p>
                       {order.paidAmount > 0 && (
@@ -307,7 +307,7 @@ export default function Orders() {
                     <span
                       className={cn(
                         'badge border text-xs',
-                        PAYMENT_STATUS_COLORS[order.paymentStatus] || 'bg-stone-700/50 text-stone-300 border-stone-600'
+                        PAYMENT_STATUS_COLORS[order.paymentStatus] || 'bg-stone-100 text-stone-600 border-stone-600'
                       )}
                     >
                       {PAYMENT_LABELS[order.paymentStatus] || order.paymentStatus}
@@ -331,7 +331,7 @@ export default function Orders() {
 
         {/* Pagination */}
         {!isLoading && pagination.totalPages > 1 && (
-          <div className="flex items-center justify-between border-t border-stone-700 bg-stone-900/50 px-4 py-3">
+          <div className="flex items-center justify-between border-t border-stone-200 bg-stone-50 px-4 py-3">
             <p className="text-sm text-stone-400">
               Hiển thị {(page - 1) * 20 + 1}-{Math.min(page * 20, pagination.total)} / {pagination.total} đơn hàng
             </p>

@@ -63,7 +63,7 @@ function StatusStepper({ currentStatus }: { currentStatus: string }) {
               <div
                 className={cn(
                   'h-10 w-10 rounded-full flex items-center justify-center transition-colors',
-                  isActive ? 'bg-brand-500/20 text-brand-400' : 'bg-stone-800 text-stone-600',
+                  isActive ? 'bg-brand-500/20 text-brand-400' : 'bg-stone-100 text-stone-600',
                   isCurrent && 'ring-2 ring-brand-500/40 ring-offset-2 ring-offset-stone-900'
                 )}
               >
@@ -72,14 +72,14 @@ function StatusStepper({ currentStatus }: { currentStatus: string }) {
               <span
                 className={cn(
                   'text-[10px] font-medium',
-                  isActive ? 'text-stone-300' : 'text-stone-600'
+                  isActive ? 'text-stone-600' : 'text-stone-600'
                 )}
               >
                 {step.label}
               </span>
             </div>
             {idx < steps.length - 1 && (
-              <div className={cn('h-0.5 w-8 mx-1 mt-[-16px]', isActive ? 'bg-brand-500' : 'bg-stone-700')} />
+              <div className={cn('h-0.5 w-8 mx-1 mt-[-16px]', isActive ? 'bg-brand-500' : 'bg-stone-200')} />
             )}
           </div>
         )
@@ -185,13 +185,13 @@ export default function OrderDetail() {
         <div className="flex items-center gap-4">
           <button
             onClick={() => navigate('/orders')}
-            className="flex h-9 w-9 items-center justify-center rounded-lg text-stone-400 hover:bg-stone-800 hover:text-stone-200 transition-colors"
+            className="flex h-9 w-9 items-center justify-center rounded-lg text-stone-400 hover:bg-stone-100 hover:text-stone-700 transition-colors"
           >
             <ArrowLeft className="h-5 w-5" />
           </button>
           <div>
             <div className="flex items-center gap-3">
-              <h2 className="font-display text-2xl font-bold text-stone-50">{order.orderNumber}</h2>
+              <h2 className="font-display text-2xl font-bold text-stone-900">{order.orderNumber}</h2>
               <span className={cn('badge border text-xs', ORDER_STATUS_COLORS[order.status])}>
                 {ORDER_STATUSES.find((s) => s.value === order.status)?.label || order.status}
               </span>
@@ -207,7 +207,7 @@ export default function OrderDetail() {
         <div className="flex items-center gap-2">
           <button
             onClick={() => navigate(`/orders/${orderId}/edit`)}
-            className="flex items-center gap-1.5 rounded-lg bg-stone-700 px-3 py-2 text-sm font-medium text-stone-200 hover:bg-stone-600 transition-colors"
+            className="flex items-center gap-1.5 rounded-lg bg-stone-200 px-3 py-2 text-sm font-medium text-stone-700 hover:bg-stone-200 transition-colors"
           >
             <Edit className="h-4 w-4" /> Sửa
           </button>
@@ -257,27 +257,27 @@ export default function OrderDetail() {
             <h4 className="text-xs font-medium text-stone-400 uppercase tracking-wider mb-3 flex items-center gap-2">
               <User className="h-3.5 w-3.5" /> Khách hàng
             </h4>
-            <p className="text-sm font-medium text-stone-200">{order.customerName || '—'}</p>
+            <p className="text-sm font-medium text-stone-700">{order.customerName || '—'}</p>
             {order.customerContact && <p className="text-xs text-stone-400 mt-1">{order.customerContact}</p>}
             {order.customerPhone && <p className="text-xs text-stone-400">{order.customerPhone}</p>}
             {order.customerEmail && <p className="text-xs text-stone-400">{order.customerEmail}</p>}
             {order.deliveryAddress && (
-              <div className="mt-3 pt-3 border-t border-stone-700/50">
+              <div className="mt-3 pt-3 border-t border-stone-200">
                 <p className="text-xs text-stone-500 mb-1">Địa chỉ giao hàng</p>
-                <p className="text-sm text-stone-300">{order.deliveryAddress}</p>
+                <p className="text-sm text-stone-600">{order.deliveryAddress}</p>
               </div>
             )}
           </div>
 
           {/* Line Items */}
           <div className="card overflow-hidden">
-            <div className="px-5 py-3 border-b border-stone-700/50">
+            <div className="px-5 py-3 border-b border-stone-200">
               <h4 className="text-xs font-medium text-stone-400 uppercase tracking-wider flex items-center gap-2">
                 <Package className="h-3.5 w-3.5" /> Sản phẩm ({order.items?.length || 0})
               </h4>
             </div>
             <table className="w-full">
-              <thead className="bg-stone-900/30">
+              <thead className="bg-stone-50">
                 <tr>
                   <th className="px-4 py-2 text-left text-xs font-medium text-stone-500">#</th>
                   <th className="px-4 py-2 text-left text-xs font-medium text-stone-500">Sản phẩm</th>
@@ -294,11 +294,11 @@ export default function OrderDetail() {
                       <p className="text-sm font-mono text-amber-400">{item.productPartNumber}</p>
                       <p className="text-xs text-stone-400">{item.productName}</p>
                     </td>
-                    <td className="px-4 py-2.5 text-right text-sm text-stone-300">{item.quantity}</td>
-                    <td className="px-4 py-2.5 text-right text-sm text-stone-300">
+                    <td className="px-4 py-2.5 text-right text-sm text-stone-600">{item.quantity}</td>
+                    <td className="px-4 py-2.5 text-right text-sm text-stone-600">
                       {new Intl.NumberFormat('vi-VN').format(item.unitPrice)}
                     </td>
-                    <td className="px-4 py-2.5 text-right text-sm font-medium text-stone-200">
+                    <td className="px-4 py-2.5 text-right text-sm font-medium text-stone-700">
                       {new Intl.NumberFormat('vi-VN').format(item.amount)}
                     </td>
                   </tr>
@@ -307,11 +307,11 @@ export default function OrderDetail() {
             </table>
 
             {/* Totals */}
-            <div className="border-t border-stone-700 px-5 py-4">
+            <div className="border-t border-stone-200 px-5 py-4">
               <div className="flex justify-end">
                 <div className="w-64 space-y-1.5">
-                  <div className="flex justify-between text-base font-bold border-t border-stone-700 pt-2">
-                    <span className="text-stone-300">Tổng cộng</span>
+                  <div className="flex justify-between text-base font-bold border-t border-stone-200 pt-2">
+                    <span className="text-stone-600">Tổng cộng</span>
                     <span className="text-amber-400">{formatCurrency(order.totalAmount)}</span>
                   </div>
                 </div>
@@ -325,11 +325,11 @@ export default function OrderDetail() {
               {order.notes && (
                 <div>
                   <p className="text-xs text-stone-500 mb-1">Ghi chú</p>
-                  <p className="text-sm text-stone-300">{order.notes}</p>
+                  <p className="text-sm text-stone-600">{order.notes}</p>
                 </div>
               )}
               {order.internalNotes && (
-                <div className={order.notes ? 'pt-3 border-t border-stone-700/50' : ''}>
+                <div className={order.notes ? 'pt-3 border-t border-stone-200' : ''}>
                   <p className="text-xs text-stone-500 mb-1">Ghi chú nội bộ</p>
                   <p className="text-sm text-yellow-400/80 italic">{order.internalNotes}</p>
                 </div>
@@ -349,21 +349,21 @@ export default function OrderDetail() {
             <div className="space-y-3">
               <div className="flex justify-between text-sm">
                 <span className="text-stone-400">Tổng cộng</span>
-                <span className="text-stone-200 font-medium">{formatCurrency(order.totalAmount)}</span>
+                <span className="text-stone-700 font-medium">{formatCurrency(order.totalAmount)}</span>
               </div>
               <div className="flex justify-between text-sm">
                 <span className="text-stone-400">Đã thanh toán</span>
                 <span className="text-green-400 font-medium">{formatCurrency(order.paidAmount)}</span>
               </div>
-              <div className="flex justify-between text-sm border-t border-stone-700/50 pt-2">
-                <span className="text-stone-300 font-medium">Còn lại</span>
+              <div className="flex justify-between text-sm border-t border-stone-200 pt-2">
+                <span className="text-stone-600 font-medium">Còn lại</span>
                 <span className={cn('font-bold', remainingAmount > 0 ? 'text-amber-400' : 'text-green-400')}>
                   {formatCurrency(remainingAmount)}
                 </span>
               </div>
 
               {/* Progress bar */}
-              <div className="h-2 bg-stone-800 rounded-full overflow-hidden">
+              <div className="h-2 bg-stone-100 rounded-full overflow-hidden">
                 <div
                   className="h-full bg-green-500 rounded-full transition-all"
                   style={{
@@ -381,7 +381,7 @@ export default function OrderDetail() {
                         value={paymentAmount}
                         onChange={(e) => setPaymentAmount(e.target.value)}
                         placeholder="Số tiền..."
-                        className="w-full rounded-lg bg-stone-900 border border-stone-700 px-3 py-2 text-sm text-stone-200 focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500"
+                        className="w-full rounded-lg bg-white border border-stone-200 px-3 py-2 text-sm text-stone-700 focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500"
                       />
                       <div className="flex gap-2">
                         <button
@@ -422,20 +422,20 @@ export default function OrderDetail() {
               {order.poNumber && (
                 <div>
                   <p className="text-xs text-stone-500">Số PO</p>
-                  <p className="text-stone-200 font-mono">{order.poNumber}</p>
+                  <p className="text-stone-700 font-mono">{order.poNumber}</p>
                 </div>
               )}
               {order.paymentDueDate && (
                 <div>
                   <p className="text-xs text-stone-500">Hạn thanh toán</p>
-                  <p className="text-stone-300">{format(new Date(order.paymentDueDate), 'dd/MM/yyyy')}</p>
+                  <p className="text-stone-600">{format(new Date(order.paymentDueDate), 'dd/MM/yyyy')}</p>
                 </div>
               )}
               {order.expectedDelivery && (
                 <div>
                   <p className="text-xs text-stone-500">Giao hàng dự kiến</p>
                   <p className={cn(
-                    'text-stone-300',
+                    'text-stone-600',
                     new Date(order.expectedDelivery) < new Date() &&
                       order.status !== 'delivered' &&
                       order.status !== 'completed' &&
@@ -454,12 +454,12 @@ export default function OrderDetail() {
               {order.trackingNumber && (
                 <div>
                   <p className="text-xs text-stone-500">Tracking</p>
-                  <p className="text-stone-200 font-mono">{order.trackingNumber}</p>
+                  <p className="text-stone-700 font-mono">{order.trackingNumber}</p>
                 </div>
               )}
               <div>
                 <p className="text-xs text-stone-500">Tiền tệ</p>
-                <p className="text-stone-300">{order.currency}</p>
+                <p className="text-stone-600">{order.currency}</p>
               </div>
             </div>
           </div>

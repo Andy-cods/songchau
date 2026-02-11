@@ -126,11 +126,11 @@ export default function CustomerDetail({
       />
 
       {/* Slide-over Panel */}
-      <div className="fixed inset-y-0 right-0 w-full max-w-3xl bg-stone-900 border-l border-stone-700 z-50 overflow-y-auto slide-over-panel">
+      <div className="fixed inset-y-0 right-0 w-full max-w-3xl bg-white border-l border-stone-200 z-50 overflow-y-auto slide-over-panel">
         {/* Header */}
-        <div className="sticky top-0 z-10 flex items-center justify-between bg-stone-900/95 backdrop-blur border-b border-stone-700 px-6 py-4">
+        <div className="sticky top-0 z-10 flex items-center justify-between bg-white/95 backdrop-blur border-b border-stone-200 px-6 py-4">
           <div>
-            <h2 className="font-display text-xl font-semibold text-stone-50">
+            <h2 className="font-display text-xl font-semibold text-stone-900">
               {customer.companyName}
             </h2>
             <div className="flex items-center gap-2 mt-2">
@@ -138,7 +138,7 @@ export default function CustomerDetail({
                 className={cn(
                   'inline-block px-2 py-1 rounded border text-xs font-medium',
                   CUSTOMER_TYPE_COLORS[customer.type] ||
-                    'bg-stone-700/50 text-stone-300 border-stone-600'
+                    'bg-stone-100 text-stone-600 border-stone-600'
                 )}
               >
                 {customer.type}
@@ -148,7 +148,7 @@ export default function CustomerDetail({
                   className={cn(
                     'inline-block px-2 py-1 rounded border text-xs font-medium',
                     TIER_COLORS[customer.tier] ||
-                      'bg-stone-700/50 text-stone-300 border-stone-600'
+                      'bg-stone-100 text-stone-600 border-stone-600'
                   )}
                 >
                   Tier {customer.tier}
@@ -168,7 +168,7 @@ export default function CustomerDetail({
             )}
             <button
               onClick={onClose}
-              className="flex h-9 w-9 items-center justify-center rounded-lg text-stone-400 hover:bg-stone-800 hover:text-stone-200 transition-colors"
+              className="flex h-9 w-9 items-center justify-center rounded-lg text-stone-400 hover:bg-stone-100 hover:text-stone-700 transition-colors"
             >
               <X className="h-5 w-5" />
             </button>
@@ -176,7 +176,7 @@ export default function CustomerDetail({
         </div>
 
         {/* Tabs */}
-        <div className="border-b border-stone-700 px-6">
+        <div className="border-b border-stone-200 px-6">
           <div className="flex gap-6">
             <button
               onClick={() => setActiveTab('overview')}
@@ -184,7 +184,7 @@ export default function CustomerDetail({
                 'pb-3 pt-4 text-sm font-medium border-b-2 transition-colors',
                 activeTab === 'overview'
                   ? 'border-amber-400 text-amber-400'
-                  : 'border-transparent text-stone-500 hover:text-stone-300'
+                  : 'border-transparent text-stone-500 hover:text-stone-600'
               )}
             >
               Tổng quan
@@ -195,7 +195,7 @@ export default function CustomerDetail({
                 'pb-3 pt-4 text-sm font-medium border-b-2 transition-colors',
                 activeTab === 'purchase'
                   ? 'border-amber-400 text-amber-400'
-                  : 'border-transparent text-stone-500 hover:text-stone-300'
+                  : 'border-transparent text-stone-500 hover:text-stone-600'
               )}
             >
               Lịch sử mua
@@ -206,7 +206,7 @@ export default function CustomerDetail({
                 'pb-3 pt-4 text-sm font-medium border-b-2 transition-colors',
                 activeTab === 'activities'
                   ? 'border-amber-400 text-amber-400'
-                  : 'border-transparent text-stone-500 hover:text-stone-300'
+                  : 'border-transparent text-stone-500 hover:text-stone-600'
               )}
             >
               Activities
@@ -221,19 +221,19 @@ export default function CustomerDetail({
             <>
               {/* Health Summary */}
               <div className="grid grid-cols-3 gap-4 stagger-children">
-                <div className="rounded-xl bg-stone-800/60 border border-stone-700/40 p-4 text-center">
+                <div className="rounded-xl bg-white border border-stone-200 p-4 text-center">
                   <ShoppingCart className="h-5 w-5 text-amber-400 mx-auto mb-1" />
-                  <p className="text-2xl font-bold text-stone-50">{healthStats.orders}</p>
+                  <p className="text-2xl font-bold text-stone-900">{healthStats.orders}</p>
                   <p className="text-xs text-stone-400">Đơn hàng</p>
                 </div>
-                <div className="rounded-xl bg-stone-800/60 border border-stone-700/40 p-4 text-center">
-                  <FileText className="h-5 w-5 text-stone-300 mx-auto mb-1" />
-                  <p className="text-2xl font-bold text-stone-50">{healthStats.quotations}</p>
+                <div className="rounded-xl bg-white border border-stone-200 p-4 text-center">
+                  <FileText className="h-5 w-5 text-stone-600 mx-auto mb-1" />
+                  <p className="text-2xl font-bold text-stone-900">{healthStats.quotations}</p>
                   <p className="text-xs text-stone-400">Báo giá</p>
                 </div>
-                <div className="rounded-xl bg-stone-800/60 border border-stone-700/40 p-4 text-center">
-                  <Target className="h-5 w-5 text-stone-300 mx-auto mb-1" />
-                  <p className="text-2xl font-bold text-stone-50">{healthStats.activities}</p>
+                <div className="rounded-xl bg-white border border-stone-200 p-4 text-center">
+                  <Target className="h-5 w-5 text-stone-600 mx-auto mb-1" />
+                  <p className="text-2xl font-bold text-stone-900">{healthStats.activities}</p>
                   <p className="text-xs text-stone-400">Hoạt động</p>
                 </div>
               </div>
@@ -257,7 +257,7 @@ export default function CustomerDetail({
                 {customer.contactPhone && (
                   <a
                     href={`tel:${customer.contactPhone}`}
-                    className="flex items-center gap-2 rounded-lg bg-stone-700/50 border border-stone-600/40 px-3 py-2 text-xs font-medium text-stone-300 hover:bg-stone-700 hover:border-stone-500 transition-all"
+                    className="flex items-center gap-2 rounded-lg bg-stone-100 border border-stone-600/40 px-3 py-2 text-xs font-medium text-stone-600 hover:bg-stone-200 hover:border-stone-500 transition-all"
                   >
                     <Phone className="h-3.5 w-3.5" />
                     Gọi điện
@@ -266,10 +266,10 @@ export default function CustomerDetail({
               </div>
 
               {/* Company Info */}
-              <div className="rounded-xl bg-stone-800/50 border border-stone-700/50 p-6">
+              <div className="rounded-xl bg-stone-50 border border-stone-200 p-6">
                 <div className="flex items-center gap-2 mb-4">
                   <Building2 className="h-5 w-5 text-stone-400" />
-                  <h3 className="font-display text-lg font-semibold text-stone-50">
+                  <h3 className="font-display text-lg font-semibold text-stone-900">
                     Company Information
                   </h3>
                 </div>
@@ -279,7 +279,7 @@ export default function CustomerDetail({
                     <label className="text-xs text-stone-500 uppercase tracking-wider">
                       Company Name
                     </label>
-                    <p className="text-stone-200 mt-1">{customer.companyName}</p>
+                    <p className="text-stone-700 mt-1">{customer.companyName}</p>
                     {customer.companyNameLocal && (
                       <p className="text-sm text-stone-400">{customer.companyNameLocal}</p>
                     )}
@@ -289,7 +289,7 @@ export default function CustomerDetail({
                     <label className="text-xs text-stone-500 uppercase tracking-wider">
                       Industry
                     </label>
-                    <p className="text-stone-200 mt-1 capitalize">
+                    <p className="text-stone-700 mt-1 capitalize">
                       {customer.industry || '—'}
                     </p>
                   </div>
@@ -298,14 +298,14 @@ export default function CustomerDetail({
                     <label className="text-xs text-stone-500 uppercase tracking-wider">
                       Industrial Zone
                     </label>
-                    <p className="text-stone-200 mt-1">{customer.industrialZone || '—'}</p>
+                    <p className="text-stone-700 mt-1">{customer.industrialZone || '—'}</p>
                   </div>
 
                   <div>
                     <label className="text-xs text-stone-500 uppercase tracking-wider">
                       Province
                     </label>
-                    <p className="text-stone-200 mt-1">{customer.province || '—'}</p>
+                    <p className="text-stone-700 mt-1">{customer.province || '—'}</p>
                   </div>
 
                   {customer.address && (
@@ -314,7 +314,7 @@ export default function CustomerDetail({
                         <MapPin className="h-3 w-3" />
                         Address
                       </label>
-                      <p className="text-stone-200 mt-1">{customer.address}</p>
+                      <p className="text-stone-700 mt-1">{customer.address}</p>
                     </div>
                   )}
                 </div>
@@ -342,8 +342,8 @@ export default function CustomerDetail({
 
               {/* SMT Equipment */}
               {(smtBrands.length > 0 || smtModels.length > 0) && (
-                <div className="rounded-xl bg-stone-800/50 border border-stone-700/50 p-6">
-                  <h3 className="font-display text-lg font-semibold text-stone-50 mb-4">
+                <div className="rounded-xl bg-stone-50 border border-stone-200 p-6">
+                  <h3 className="font-display text-lg font-semibold text-stone-900 mb-4">
                     SMT Equipment
                   </h3>
                   <div className="grid grid-cols-2 gap-4">
@@ -374,7 +374,7 @@ export default function CustomerDetail({
                           {smtModels.map((model: string) => (
                             <span
                               key={model}
-                              className="inline-block px-2 py-1 rounded bg-stone-700/50 border border-stone-600 text-xs text-stone-300"
+                              className="inline-block px-2 py-1 rounded bg-stone-100 border border-stone-600 text-xs text-stone-600"
                             >
                               {model}
                             </span>
@@ -387,10 +387,10 @@ export default function CustomerDetail({
               )}
 
               {/* Business Info */}
-              <div className="rounded-xl bg-stone-800/50 border border-stone-700/50 p-6">
+              <div className="rounded-xl bg-stone-50 border border-stone-200 p-6">
                 <div className="flex items-center gap-2 mb-4">
                   <DollarSign className="h-5 w-5 text-stone-400" />
-                  <h3 className="font-display text-lg font-semibold text-stone-50">
+                  <h3 className="font-display text-lg font-semibold text-stone-900">
                     Business Information
                   </h3>
                 </div>
@@ -400,7 +400,7 @@ export default function CustomerDetail({
                     <label className="text-xs text-stone-500 uppercase tracking-wider">
                       Purchase Frequency
                     </label>
-                    <p className="text-stone-200 mt-1 capitalize">
+                    <p className="text-stone-700 mt-1 capitalize">
                       {customer.purchaseFrequency?.replace('_', ' ') || '—'}
                     </p>
                   </div>
@@ -409,7 +409,7 @@ export default function CustomerDetail({
                     <label className="text-xs text-stone-500 uppercase tracking-wider">
                       Payment Terms
                     </label>
-                    <p className="text-stone-200 mt-1 uppercase">
+                    <p className="text-stone-700 mt-1 uppercase">
                       {customer.paymentTerms || '—'}
                     </p>
                   </div>
@@ -419,7 +419,7 @@ export default function CustomerDetail({
                       <label className="text-xs text-stone-500 uppercase tracking-wider">
                         Est. Annual Value
                       </label>
-                      <p className="text-stone-200 mt-1 font-semibold">
+                      <p className="text-stone-700 mt-1 font-semibold">
                         {customer.estimatedAnnualValue.toLocaleString()} VND
                       </p>
                     </div>
@@ -430,7 +430,7 @@ export default function CustomerDetail({
                       <label className="text-xs text-stone-500 uppercase tracking-wider">
                         Source
                       </label>
-                      <p className="text-stone-200 mt-1 capitalize">
+                      <p className="text-stone-700 mt-1 capitalize">
                         {customer.source.replace('_', ' ')}
                       </p>
                     </div>
@@ -438,11 +438,11 @@ export default function CustomerDetail({
                 </div>
 
                 {customer.notes && (
-                  <div className="mt-4 pt-4 border-t border-stone-700">
+                  <div className="mt-4 pt-4 border-t border-stone-200">
                     <label className="text-xs text-stone-500 uppercase tracking-wider">
                       Notes
                     </label>
-                    <p className="text-stone-300 mt-2">{customer.notes}</p>
+                    <p className="text-stone-600 mt-2">{customer.notes}</p>
                   </div>
                 )}
               </div>
@@ -455,16 +455,16 @@ export default function CustomerDetail({
               {loadingPurchase ? (
                 <div className="space-y-3">
                   {[1, 2, 3].map((i) => (
-                    <div key={i} className="h-16 bg-stone-800/50 animate-pulse rounded-lg" />
+                    <div key={i} className="h-16 bg-stone-50 animate-pulse rounded-lg" />
                   ))}
                 </div>
               ) : (
                 <>
                   {/* Quotations */}
-                  <div className="rounded-xl bg-stone-800/50 border border-stone-700/50 p-6">
+                  <div className="rounded-xl bg-stone-50 border border-stone-200 p-6">
                     <div className="flex items-center gap-2 mb-4">
                       <FileText className="h-5 w-5 text-amber-400" />
-                      <h3 className="font-display text-lg font-semibold text-stone-50">
+                      <h3 className="font-display text-lg font-semibold text-stone-900">
                         Báo giá ({quotations.length})
                       </h3>
                     </div>
@@ -476,7 +476,7 @@ export default function CustomerDetail({
                           <div
                             key={q.id}
                             onClick={() => { navigate(`/quotations`); onClose() }}
-                            className="flex items-center justify-between p-3 rounded-lg bg-stone-900/50 hover:bg-stone-900 cursor-pointer transition-colors"
+                            className="flex items-center justify-between p-3 rounded-lg bg-stone-50 hover:bg-white cursor-pointer transition-colors"
                           >
                             <div className="flex items-center gap-3">
                               <span className="font-mono text-sm text-amber-400">{q.quoteNumber}</span>
@@ -485,13 +485,13 @@ export default function CustomerDetail({
                                 q.status === 'accepted' ? 'bg-green-500/10 text-green-400 border-green-500/20' :
                                 q.status === 'sent' ? 'bg-amber-500/10 text-amber-400 border-amber-500/20' :
                                 q.status === 'rejected' ? 'bg-red-500/10 text-red-400 border-red-500/20' :
-                                'bg-stone-700/50 text-stone-300 border-stone-600'
+                                'bg-stone-100 text-stone-600 border-stone-600'
                               )}>
                                 {q.status}
                               </span>
                             </div>
                             <div className="flex items-center gap-4">
-                              <span className="text-sm font-mono text-stone-300">
+                              <span className="text-sm font-mono text-stone-600">
                                 {q.totalAmount ? new Intl.NumberFormat('vi-VN').format(q.totalAmount) + ' ' + q.currency : '—'}
                               </span>
                               <span className="text-xs text-stone-500">
@@ -505,10 +505,10 @@ export default function CustomerDetail({
                   </div>
 
                   {/* Orders */}
-                  <div className="rounded-xl bg-stone-800/50 border border-stone-700/50 p-6">
+                  <div className="rounded-xl bg-stone-50 border border-stone-200 p-6">
                     <div className="flex items-center gap-2 mb-4">
                       <ShoppingCart className="h-5 w-5 text-amber-400" />
-                      <h3 className="font-display text-lg font-semibold text-stone-50">
+                      <h3 className="font-display text-lg font-semibold text-stone-900">
                         Đơn hàng ({orders.length})
                       </h3>
                     </div>
@@ -520,7 +520,7 @@ export default function CustomerDetail({
                           <div
                             key={o.id}
                             onClick={() => { navigate(`/orders/${o.id}`); onClose() }}
-                            className="flex items-center justify-between p-3 rounded-lg bg-stone-900/50 hover:bg-stone-900 cursor-pointer transition-colors"
+                            className="flex items-center justify-between p-3 rounded-lg bg-stone-50 hover:bg-white cursor-pointer transition-colors"
                           >
                             <div className="flex items-center gap-3">
                               <span className="font-mono text-sm text-amber-400">{o.orderNumber}</span>
@@ -529,7 +529,7 @@ export default function CustomerDetail({
                                 o.status === 'delivered' ? 'bg-green-500/10 text-green-400 border-green-500/20' :
                                 o.status === 'processing' ? 'bg-amber-500/10 text-amber-400 border-amber-500/20' :
                                 o.status === 'cancelled' ? 'bg-red-500/10 text-red-400 border-red-500/20' :
-                                'bg-stone-700/50 text-stone-300 border-stone-600'
+                                'bg-stone-100 text-stone-600 border-stone-600'
                               )}>
                                 {o.status}
                               </span>
@@ -537,13 +537,13 @@ export default function CustomerDetail({
                                 'badge border text-xs',
                                 o.paymentStatus === 'paid' ? 'bg-green-500/10 text-green-400 border-green-500/20' :
                                 o.paymentStatus === 'partial' ? 'bg-amber-500/10 text-amber-400 border-amber-500/20' :
-                                'bg-stone-700/50 text-stone-300 border-stone-600'
+                                'bg-stone-100 text-stone-600 border-stone-600'
                               )}>
                                 {o.paymentStatus}
                               </span>
                             </div>
                             <div className="flex items-center gap-4">
-                              <span className="text-sm font-mono text-stone-300">
+                              <span className="text-sm font-mono text-stone-600">
                                 {o.totalAmount ? new Intl.NumberFormat('vi-VN').format(o.totalAmount) + ' ' + o.currency : '—'}
                               </span>
                               <span className="text-xs text-stone-500">
@@ -562,8 +562,8 @@ export default function CustomerDetail({
 
           {/* Activities Tab */}
           {activeTab === 'activities' && (
-            <div className="rounded-xl bg-stone-800/50 border border-stone-700/50 p-6">
-              <h3 className="font-display text-lg font-semibold text-stone-50 mb-4">
+            <div className="rounded-xl bg-stone-50 border border-stone-200 p-6">
+              <h3 className="font-display text-lg font-semibold text-stone-900 mb-4">
                 Activity Timeline
               </h3>
               {loadingActivities ? (

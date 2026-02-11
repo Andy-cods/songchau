@@ -3,7 +3,7 @@ import { cn } from '@/lib/utils'
 import type { Product } from '@/lib/api'
 
 const MATERIAL_COLORS: Record<string, string> = {
-  CERAMIC: 'bg-stone-400/10 text-stone-300 border-stone-400/20',
+  CERAMIC: 'bg-stone-400/10 text-stone-600 border-stone-400/20',
   METAL: 'bg-stone-500/10 text-stone-400 border-stone-500/20',
   RUBBER: 'bg-stone-500/10 text-stone-400 border-stone-500/20',
   'O-RING': 'bg-stone-500/10 text-stone-400 border-stone-500/20',
@@ -19,13 +19,13 @@ export default function ProductCard({ product, onClick, onEdit }: ProductCardPro
   return (
     <div
       onClick={onClick}
-      className="group relative rounded-xl bg-stone-800/60 border border-stone-700/40 p-5 cursor-pointer transition-all duration-300 hover:border-brand-500/30 hover:shadow-lg hover:shadow-brand-500/5 hover:-translate-y-0.5"
+      className="group relative rounded-xl bg-white border border-stone-200 p-5 cursor-pointer transition-all duration-300 hover:border-brand-500/30 hover:shadow-lg hover:shadow-brand-500/5 hover:-translate-y-0.5"
     >
       {/* Quick edit button */}
       <div className="absolute top-3 right-3 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
         <button
           onClick={(e) => { e.stopPropagation(); onEdit(product) }}
-          className="p-1.5 rounded-lg bg-stone-700/80 text-stone-400 hover:text-white hover:bg-stone-600 transition-colors"
+          className="p-1.5 rounded-lg bg-stone-200 text-stone-400 hover:text-stone-900 hover:bg-stone-200 transition-colors"
         >
           <Edit className="h-3.5 w-3.5" />
         </button>
@@ -37,18 +37,18 @@ export default function ProductCard({ product, onClick, onEdit }: ProductCardPro
           {product.partNumber}
         </span>
         {product.material && (
-          <span className={cn('inline-flex items-center px-2 py-0.5 rounded-md border text-[10px] font-medium uppercase', MATERIAL_COLORS[product.material] || 'bg-stone-700/50 text-stone-400 border-stone-600/50')}>
+          <span className={cn('inline-flex items-center px-2 py-0.5 rounded-md border text-[10px] font-medium uppercase', MATERIAL_COLORS[product.material] || 'bg-stone-100 text-stone-400 border-stone-600/50')}>
             {product.material}
           </span>
         )}
       </div>
 
       {/* Product name */}
-      <h4 className="text-sm font-medium text-stone-200 mb-2 line-clamp-1">{product.name}</h4>
+      <h4 className="text-sm font-medium text-stone-700 mb-2 line-clamp-1">{product.name}</h4>
 
       {/* Size display */}
       {product.size && (
-        <p className="font-mono text-lg font-bold text-stone-100 mb-2">{product.size}</p>
+        <p className="font-mono text-lg font-bold text-stone-800 mb-2">{product.size}</p>
       )}
 
       {/* Meta: brand + model */}
@@ -59,14 +59,14 @@ export default function ProductCard({ product, onClick, onEdit }: ProductCardPro
           </span>
         )}
         {product.machineModel && (
-          <span className="inline-flex items-center px-2 py-0.5 rounded-md bg-stone-700/50 border border-stone-600/50 text-[10px] font-medium text-stone-400">
+          <span className="inline-flex items-center px-2 py-0.5 rounded-md bg-stone-100 border border-stone-600/50 text-[10px] font-medium text-stone-400">
             {product.machineModel}
           </span>
         )}
       </div>
 
       {/* Footer: stock + price */}
-      <div className="pt-3 border-t border-stone-700/40 flex items-center justify-between">
+      <div className="pt-3 border-t border-stone-200 flex items-center justify-between">
         <span className="text-xs text-stone-500">
           Tồn: <span className={cn('font-medium', product.stockQuantity > 0 ? 'text-lime-400' : 'text-stone-500')}>{product.stockQuantity}</span>
         </span>

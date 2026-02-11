@@ -19,9 +19,9 @@ function ScoreBar({ label, score, color }: { label: string; score: number | null
     <div>
       <div className="flex items-center justify-between mb-1">
         <span className="text-xs text-stone-400">{label}</span>
-        <span className="text-xs font-medium text-stone-300">{score}/10</span>
+        <span className="text-xs font-medium text-stone-600">{score}/10</span>
       </div>
-      <div className="h-2 bg-stone-700 rounded-full overflow-hidden">
+      <div className="h-2 bg-stone-200 rounded-full overflow-hidden">
         <div
           className={cn('h-full rounded-full transition-all', color)}
           style={{ width: `${percentage}%` }}
@@ -44,11 +44,11 @@ export default function SupplierDetail({ supplier, isOpen, onClose, onEdit, onDe
       <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-40 slide-over-backdrop" onClick={onClose} />
 
       {/* Slide-over Panel */}
-      <div className="fixed inset-y-0 right-0 w-full max-w-2xl bg-stone-900 border-l border-stone-700 z-50 overflow-y-auto slide-over-panel">
+      <div className="fixed inset-y-0 right-0 w-full max-w-2xl bg-white border-l border-stone-200 z-50 overflow-y-auto slide-over-panel">
         {/* Header */}
-        <div className="sticky top-0 z-10 flex items-center justify-between bg-stone-900/95 backdrop-blur border-b border-stone-700 px-6 py-4">
+        <div className="sticky top-0 z-10 flex items-center justify-between bg-white/95 backdrop-blur border-b border-stone-200 px-6 py-4">
           <div>
-            <h2 className="font-display text-xl font-semibold text-stone-50">
+            <h2 className="font-display text-xl font-semibold text-stone-900">
               {supplier.companyName}
             </h2>
             {supplier.companyNameLocal && (
@@ -59,7 +59,7 @@ export default function SupplierDetail({ supplier, isOpen, onClose, onEdit, onDe
             {onDelete && (
               <button
                 onClick={() => setShowDeleteConfirm(true)}
-                className="flex items-center gap-2 rounded-lg bg-stone-800 px-3 py-2 text-sm font-medium text-red-400 hover:bg-red-600 hover:text-white transition-colors"
+                className="flex items-center gap-2 rounded-lg bg-stone-100 px-3 py-2 text-sm font-medium text-red-400 hover:bg-red-600 hover:text-stone-900 transition-colors"
               >
                 <Trash2 className="h-4 w-4" />
                 Xóa
@@ -76,7 +76,7 @@ export default function SupplierDetail({ supplier, isOpen, onClose, onEdit, onDe
             )}
             <button
               onClick={onClose}
-              className="flex h-9 w-9 items-center justify-center rounded-lg text-stone-400 hover:bg-stone-800 hover:text-stone-200 transition-colors"
+              className="flex h-9 w-9 items-center justify-center rounded-lg text-stone-400 hover:bg-stone-100 hover:text-stone-700 transition-colors"
             >
               <X className="h-5 w-5" />
             </button>
@@ -98,7 +98,7 @@ export default function SupplierDetail({ supplier, isOpen, onClose, onEdit, onDe
               </button>
               <button
                 onClick={() => setShowDeleteConfirm(false)}
-                className="rounded-lg bg-stone-800 px-4 py-2 text-sm font-medium text-stone-300 hover:bg-stone-700 transition-colors"
+                className="rounded-lg bg-stone-100 px-4 py-2 text-sm font-medium text-stone-600 hover:bg-stone-200 transition-colors"
               >
                 Hủy
               </button>
@@ -109,11 +109,11 @@ export default function SupplierDetail({ supplier, isOpen, onClose, onEdit, onDe
         {/* Content */}
         <div className="p-6 space-y-6">
           {/* Info Card */}
-          <div className="rounded-xl bg-stone-800/50 border border-stone-700/50 p-6">
+          <div className="rounded-xl bg-stone-50 border border-stone-200 p-6">
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <label className="text-xs text-stone-500 uppercase tracking-wider">Quốc gia</label>
-                <p className="text-stone-200 mt-1 flex items-center gap-2">
+                <p className="text-stone-700 mt-1 flex items-center gap-2">
                   <span className="text-xl">{countryData?.flag || '🌐'}</span>
                   <span className="capitalize">{supplier.country}</span>
                 </p>
@@ -156,7 +156,7 @@ export default function SupplierDetail({ supplier, isOpen, onClose, onEdit, onDe
                           )}
                         />
                       ))}
-                      <span className="ml-1 text-sm text-stone-300">({supplier.rating})</span>
+                      <span className="ml-1 text-sm text-stone-600">({supplier.rating})</span>
                     </>
                   ) : (
                     <span className="text-stone-500">—</span>
@@ -166,7 +166,7 @@ export default function SupplierDetail({ supplier, isOpen, onClose, onEdit, onDe
 
               <div>
                 <label className="text-xs text-stone-500 uppercase tracking-wider">Lead Time</label>
-                <p className="text-stone-200 mt-1">
+                <p className="text-stone-700 mt-1">
                   {supplier.leadTimeDays ? `${supplier.leadTimeDays} ngày` : '—'}
                 </p>
               </div>
@@ -200,7 +200,7 @@ export default function SupplierDetail({ supplier, isOpen, onClose, onEdit, onDe
               {supplier.minOrderValue && (
                 <div>
                   <label className="text-xs text-stone-500 uppercase tracking-wider">MOQ</label>
-                  <p className="text-stone-200 mt-1">${supplier.minOrderValue.toLocaleString()}</p>
+                  <p className="text-stone-700 mt-1">${supplier.minOrderValue.toLocaleString()}</p>
                 </div>
               )}
 
@@ -209,7 +209,7 @@ export default function SupplierDetail({ supplier, isOpen, onClose, onEdit, onDe
                   <label className="text-xs text-stone-500 uppercase tracking-wider">Thanh toán</label>
                   <div className="flex flex-wrap gap-1.5 mt-2">
                     {safeParseJsonArray(supplier.paymentMethods).map((item) => (
-                      <span key={item} className="inline-block px-2.5 py-1 rounded-lg bg-stone-700/80 border border-stone-600/50 text-xs font-medium text-stone-300">
+                      <span key={item} className="inline-block px-2.5 py-1 rounded-lg bg-stone-200 border border-stone-600/50 text-xs font-medium text-stone-600">
                         {item}
                       </span>
                     ))}
@@ -221,8 +221,8 @@ export default function SupplierDetail({ supplier, isOpen, onClose, onEdit, onDe
 
           {/* Score Card */}
           {(supplier.qualityScore || supplier.deliveryScore || supplier.priceScore) && (
-            <div className="rounded-xl bg-stone-800/50 border border-stone-700/50 p-6">
-              <h3 className="font-display text-lg font-semibold text-stone-50 mb-4">Scorecard</h3>
+            <div className="rounded-xl bg-stone-50 border border-stone-200 p-6">
+              <h3 className="font-display text-lg font-semibold text-stone-900 mb-4">Scorecard</h3>
               <div className="space-y-4">
                 <ScoreBar label="Quality" score={supplier.qualityScore} color="bg-green-500" />
                 <ScoreBar label="Delivery" score={supplier.deliveryScore} color="bg-amber-500" />
@@ -232,33 +232,33 @@ export default function SupplierDetail({ supplier, isOpen, onClose, onEdit, onDe
           )}
 
           {/* Contact Card */}
-          <div className="rounded-xl bg-stone-800/50 border border-stone-700/50 p-6">
-            <h3 className="font-display text-lg font-semibold text-stone-50 mb-4">Liên hệ</h3>
+          <div className="rounded-xl bg-stone-50 border border-stone-200 p-6">
+            <h3 className="font-display text-lg font-semibold text-stone-900 mb-4">Liên hệ</h3>
             <div className="space-y-3">
               {supplier.contactName && (
                 <div className="flex items-center gap-3">
-                  <div className="h-8 w-8 rounded-full bg-stone-700 flex items-center justify-center text-stone-400">
+                  <div className="h-8 w-8 rounded-full bg-stone-200 flex items-center justify-center text-stone-400">
                     {supplier.contactName.charAt(0).toUpperCase()}
                   </div>
                   <div>
-                    <p className="text-sm font-medium text-stone-200">{supplier.contactName}</p>
+                    <p className="text-sm font-medium text-stone-700">{supplier.contactName}</p>
                   </div>
                 </div>
               )}
               {supplier.contactPhone && (
-                <div className="flex items-center gap-3 text-sm text-stone-300">
+                <div className="flex items-center gap-3 text-sm text-stone-600">
                   <Phone className="h-4 w-4 text-stone-500" />
                   {supplier.contactPhone}
                 </div>
               )}
               {supplier.contactEmail && (
-                <div className="flex items-center gap-3 text-sm text-stone-300">
+                <div className="flex items-center gap-3 text-sm text-stone-600">
                   <Mail className="h-4 w-4 text-stone-500" />
                   {supplier.contactEmail}
                 </div>
               )}
               {supplier.contactWechat && (
-                <div className="flex items-center gap-3 text-sm text-stone-300">
+                <div className="flex items-center gap-3 text-sm text-stone-600">
                   <MessageCircle className="h-4 w-4 text-stone-500" />
                   WeChat: {supplier.contactWechat}
                 </div>
@@ -271,9 +271,9 @@ export default function SupplierDetail({ supplier, isOpen, onClose, onEdit, onDe
 
           {/* Notes */}
           {supplier.notes && (
-            <div className="rounded-xl bg-stone-800/50 border border-stone-700/50 p-6">
-              <h3 className="font-display text-lg font-semibold text-stone-50 mb-3">Ghi chú</h3>
-              <p className="text-sm text-stone-300 whitespace-pre-wrap">{supplier.notes}</p>
+            <div className="rounded-xl bg-stone-50 border border-stone-200 p-6">
+              <h3 className="font-display text-lg font-semibold text-stone-900 mb-3">Ghi chú</h3>
+              <p className="text-sm text-stone-600 whitespace-pre-wrap">{supplier.notes}</p>
             </div>
           )}
         </div>

@@ -87,7 +87,7 @@ export default function Quotations() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="font-display text-2xl font-bold text-stone-50">
+          <h2 className="font-display text-2xl font-bold text-stone-900">
             Quotation Management
           </h2>
           <p className="text-sm text-stone-400 mt-1">
@@ -104,7 +104,7 @@ export default function Quotations() {
       </div>
 
       {/* Filters */}
-      <div className="rounded-xl bg-stone-800/50 border border-stone-700/50 p-4">
+      <div className="rounded-xl bg-stone-50 border border-stone-200 p-4">
         <div className="grid grid-cols-3 gap-3">
           {/* Search */}
           <div className="col-span-2">
@@ -115,7 +115,7 @@ export default function Quotations() {
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 placeholder="Search quote number, notes..."
-                className="w-full rounded-lg bg-stone-900/50 border border-stone-700/50 pl-9 pr-3 py-2 text-sm text-stone-200 placeholder-stone-500 focus:outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20"
+                className="w-full rounded-lg bg-stone-50 border border-stone-200 pl-9 pr-3 py-2 text-sm text-stone-700 placeholder-stone-500 focus:outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20"
               />
             </div>
           </div>
@@ -124,7 +124,7 @@ export default function Quotations() {
           <select
             value={selectedStatus}
             onChange={(e) => setSelectedStatus(e.target.value)}
-            className="rounded-lg bg-stone-900/50 border border-stone-700/50 px-3 py-2 text-sm text-stone-200 focus:outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20"
+            className="rounded-lg bg-stone-50 border border-stone-200 px-3 py-2 text-sm text-stone-700 focus:outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20"
           >
             <option value="">All Status</option>
             {QUOTATION_STATUSES.map((s) => (
@@ -137,7 +137,7 @@ export default function Quotations() {
         {(search || selectedStatus) && (
           <button
             onClick={handleClearFilters}
-            className="mt-3 flex items-center gap-2 text-sm text-stone-400 hover:text-stone-200 transition-colors"
+            className="mt-3 flex items-center gap-2 text-sm text-stone-400 hover:text-stone-700 transition-colors"
           >
             <X className="h-4 w-4" />
             Clear all filters
@@ -146,27 +146,27 @@ export default function Quotations() {
       </div>
 
       {/* Table */}
-      <div className="rounded-xl bg-stone-800/50 border border-stone-700/50 overflow-hidden">
+      <div className="rounded-xl bg-stone-50 border border-stone-200 overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full">
-            <thead className="bg-stone-800/30 border-b-2 border-stone-700/50">
+            <thead className="bg-stone-100/30 border-b-2 border-stone-200">
               <tr>
-                <th className="px-4 py-3.5 text-left text-xs font-semibold text-stone-300 uppercase tracking-wider">
+                <th className="px-4 py-3.5 text-left text-xs font-semibold text-stone-600 uppercase tracking-wider">
                   Quote Number
                 </th>
-                <th className="px-4 py-3.5 text-left text-xs font-semibold text-stone-300 uppercase tracking-wider">
+                <th className="px-4 py-3.5 text-left text-xs font-semibold text-stone-600 uppercase tracking-wider">
                   Customer
                 </th>
-                <th className="px-4 py-3.5 text-left text-xs font-semibold text-stone-300 uppercase tracking-wider">
+                <th className="px-4 py-3.5 text-left text-xs font-semibold text-stone-600 uppercase tracking-wider">
                   Created Date
                 </th>
-                <th className="px-4 py-3.5 text-left text-xs font-semibold text-stone-300 uppercase tracking-wider">
+                <th className="px-4 py-3.5 text-left text-xs font-semibold text-stone-600 uppercase tracking-wider">
                   Total Amount
                 </th>
-                <th className="px-4 py-3.5 text-left text-xs font-semibold text-stone-300 uppercase tracking-wider">
+                <th className="px-4 py-3.5 text-left text-xs font-semibold text-stone-600 uppercase tracking-wider">
                   Status
                 </th>
-                <th className="px-4 py-3.5 text-left text-xs font-semibold text-stone-300 uppercase tracking-wider">
+                <th className="px-4 py-3.5 text-left text-xs font-semibold text-stone-600 uppercase tracking-wider">
                   Actions
                 </th>
               </tr>
@@ -198,8 +198,8 @@ export default function Quotations() {
                     key={quotation.id}
                     className={cn(
                       'transition-colors',
-                      idx % 2 === 0 ? 'bg-stone-900/20' : 'bg-transparent',
-                      'hover:bg-stone-700/30'
+                      idx % 2 === 0 ? 'bg-stone-100/50' : 'bg-transparent',
+                      'hover:bg-stone-200/30'
                     )}
                   >
                     <td className="px-4 py-3">
@@ -208,13 +208,13 @@ export default function Quotations() {
                       </p>
                     </td>
                     <td className="px-4 py-3">
-                      <p className="text-sm text-stone-200">{quotation.customerName || '—'}</p>
+                      <p className="text-sm text-stone-700">{quotation.customerName || '—'}</p>
                     </td>
-                    <td className="px-4 py-3 text-sm text-stone-300">
+                    <td className="px-4 py-3 text-sm text-stone-600">
                       {format(new Date(quotation.createdAt), 'dd/MM/yyyy')}
                     </td>
                     <td className="px-4 py-3">
-                      <p className="text-sm font-medium text-stone-200">
+                      <p className="text-sm font-medium text-stone-700">
                         {formatCurrency(quotation.totalAmount)}
                       </p>
                     </td>
@@ -223,7 +223,7 @@ export default function Quotations() {
                         className={cn(
                           'inline-block px-2 py-1 rounded border text-xs font-medium',
                           QUOTATION_STATUS_COLORS[quotation.status] ||
-                            'bg-stone-700/50 text-stone-300 border-stone-600'
+                            'bg-stone-100 text-stone-600 border-stone-600'
                         )}
                       >
                         {QUOTATION_STATUS_LABELS[quotation.status] || quotation.status}
@@ -305,7 +305,7 @@ export default function Quotations() {
 
         {/* Pagination */}
         {!loading && totalPages > 1 && (
-          <div className="flex items-center justify-between border-t border-stone-700 bg-stone-900/50 px-4 py-3">
+          <div className="flex items-center justify-between border-t border-stone-200 bg-stone-50 px-4 py-3">
             <p className="text-sm text-stone-400">
               Page {page} of {totalPages} ({total} total)
             </p>
@@ -313,14 +313,14 @@ export default function Quotations() {
               <button
                 onClick={() => setPage((p) => Math.max(1, p - 1))}
                 disabled={page === 1}
-                className="flex h-8 w-8 items-center justify-center rounded-lg text-stone-400 hover:bg-stone-800 hover:text-stone-200 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                className="flex h-8 w-8 items-center justify-center rounded-lg text-stone-400 hover:bg-stone-100 hover:text-stone-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
               >
                 <ChevronLeft className="h-4 w-4" />
               </button>
               <button
                 onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
                 disabled={page === totalPages}
-                className="flex h-8 w-8 items-center justify-center rounded-lg text-stone-400 hover:bg-stone-800 hover:text-stone-200 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                className="flex h-8 w-8 items-center justify-center rounded-lg text-stone-400 hover:bg-stone-100 hover:text-stone-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
               >
                 <ChevronRight className="h-4 w-4" />
               </button>

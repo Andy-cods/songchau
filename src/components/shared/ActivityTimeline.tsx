@@ -87,7 +87,7 @@ export default function ActivityTimeline({
       {isAdding && (
         <form
           onSubmit={handleSubmit}
-          className="rounded-lg bg-stone-800/50 border border-stone-700 p-4 space-y-3"
+          className="rounded-lg bg-stone-50 border border-stone-200 p-4 space-y-3"
         >
           <div className="grid grid-cols-2 gap-3">
             <div>
@@ -97,7 +97,7 @@ export default function ActivityTimeline({
               <select
                 value={formData.type}
                 onChange={(e) => setFormData({ ...formData, type: e.target.value })}
-                className="w-full rounded-lg bg-stone-900 border border-stone-700 px-3 py-2 text-sm text-stone-200 focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500"
+                className="w-full rounded-lg bg-white border border-stone-200 px-3 py-2 text-sm text-stone-700 focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500"
               >
                 {ACTIVITY_TYPES.map((type) => (
                   <option key={type.value} value={type.value}>
@@ -116,7 +116,7 @@ export default function ActivityTimeline({
                 value={formData.title}
                 onChange={(e) => setFormData({ ...formData, title: e.target.value })}
                 placeholder="Tiêu đề ngắn gọn"
-                className="w-full rounded-lg bg-stone-900 border border-stone-700 px-3 py-2 text-sm text-stone-200 placeholder-stone-500 focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500"
+                className="w-full rounded-lg bg-white border border-stone-200 px-3 py-2 text-sm text-stone-700 placeholder-stone-500 focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500"
               />
             </div>
           </div>
@@ -130,7 +130,7 @@ export default function ActivityTimeline({
               onChange={(e) => setFormData({ ...formData, content: e.target.value })}
               placeholder="Ghi chú về cuộc gọi, email, hoặc hoạt động..."
               rows={3}
-              className="w-full rounded-lg bg-stone-900 border border-stone-700 px-3 py-2 text-sm text-stone-200 placeholder-stone-500 focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500 resize-none"
+              className="w-full rounded-lg bg-white border border-stone-200 px-3 py-2 text-sm text-stone-700 placeholder-stone-500 focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500 resize-none"
               required
             />
           </div>
@@ -143,7 +143,7 @@ export default function ActivityTimeline({
               type="datetime-local"
               value={formData.followUpAt}
               onChange={(e) => setFormData({ ...formData, followUpAt: e.target.value })}
-              className="w-full rounded-lg bg-stone-900 border border-stone-700 px-3 py-2 text-sm text-stone-200 focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500"
+              className="w-full rounded-lg bg-white border border-stone-200 px-3 py-2 text-sm text-stone-700 focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500"
             />
           </div>
 
@@ -161,7 +161,7 @@ export default function ActivityTimeline({
                 setIsAdding(false)
                 setFormData({ type: 'note', title: '', content: '', followUpAt: '' })
               }}
-              className="px-4 py-2 text-sm font-medium text-stone-300 hover:bg-stone-700 rounded-lg transition-colors"
+              className="px-4 py-2 text-sm font-medium text-stone-600 hover:bg-stone-200 rounded-lg transition-colors"
             >
               Hủy
             </button>
@@ -184,11 +184,11 @@ export default function ActivityTimeline({
               <div key={activity.id} className="flex gap-3">
                 {/* Icon */}
                 <div className="flex flex-col items-center">
-                  <div className="flex h-8 w-8 items-center justify-center rounded-full bg-stone-800 border border-stone-700">
+                  <div className="flex h-8 w-8 items-center justify-center rounded-full bg-stone-100 border border-stone-200">
                     <Icon className="h-4 w-4 text-stone-400" />
                   </div>
                   {idx < activities.length - 1 && (
-                    <div className="w-px flex-1 bg-stone-700 mt-2" />
+                    <div className="w-px flex-1 bg-stone-200 mt-2" />
                   )}
                 </div>
 
@@ -197,7 +197,7 @@ export default function ActivityTimeline({
                   <div className="flex items-start justify-between gap-2 mb-1">
                     <div>
                       {activity.title && (
-                        <p className="text-sm font-medium text-stone-200">
+                        <p className="text-sm font-medium text-stone-700">
                           {activity.title}
                         </p>
                       )}
@@ -210,7 +210,7 @@ export default function ActivityTimeline({
                   </div>
 
                   {activity.content && (
-                    <p className="text-sm text-stone-300 mb-2">{activity.content}</p>
+                    <p className="text-sm text-stone-600 mb-2">{activity.content}</p>
                   )}
 
                   {/* Follow-up badge */}

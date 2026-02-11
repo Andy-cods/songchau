@@ -98,13 +98,13 @@ export default function QuotationDetail({ quotationId, isOpen, onClose }: Quotat
       <div className="fixed inset-0 z-40 bg-black/60 backdrop-blur-sm slide-over-backdrop" onClick={onClose} />
 
       {/* Panel */}
-      <div className="fixed inset-y-0 right-0 z-50 w-full max-w-2xl bg-stone-900 border-l border-stone-700 shadow-2xl overflow-y-auto slide-over-panel">
+      <div className="fixed inset-y-0 right-0 z-50 w-full max-w-2xl bg-white border-l border-stone-200 shadow-2xl overflow-y-auto slide-over-panel">
         {/* Header */}
-        <div className="sticky top-0 z-10 flex items-center justify-between bg-stone-900/95 backdrop-blur border-b border-stone-700 px-6 py-4">
+        <div className="sticky top-0 z-10 flex items-center justify-between bg-white/95 backdrop-blur border-b border-stone-200 px-6 py-4">
           <div className="flex items-center gap-3">
             <FileText className="h-5 w-5 text-amber-400" />
             <div>
-              <h3 className="text-lg font-semibold text-stone-50">
+              <h3 className="text-lg font-semibold text-stone-900">
                 {isLoading ? '...' : quotation?.quoteNumber}
               </h3>
               {quotation && (
@@ -121,7 +121,7 @@ export default function QuotationDetail({ quotationId, isOpen, onClose }: Quotat
           </div>
           <button
             onClick={onClose}
-            className="p-2 rounded-lg text-stone-400 hover:bg-stone-800 hover:text-stone-200 transition-colors"
+            className="p-2 rounded-lg text-stone-400 hover:bg-stone-100 hover:text-stone-700 transition-colors"
           >
             <X className="h-5 w-5" />
           </button>
@@ -139,7 +139,7 @@ export default function QuotationDetail({ quotationId, isOpen, onClose }: Quotat
             <div className="flex flex-wrap gap-2">
               <button
                 onClick={() => navigate(`/quotations/${quotationId}/edit`)}
-                className="flex items-center gap-1.5 rounded-lg bg-stone-700 px-3 py-1.5 text-xs font-medium text-stone-200 hover:bg-stone-600 transition-colors"
+                className="flex items-center gap-1.5 rounded-lg bg-stone-200 px-3 py-1.5 text-xs font-medium text-stone-700 hover:bg-stone-200 transition-colors"
               >
                 <Edit className="h-3.5 w-3.5" /> Edit
               </button>
@@ -196,11 +196,11 @@ export default function QuotationDetail({ quotationId, isOpen, onClose }: Quotat
             </div>
 
             {/* Customer Info */}
-            <div className="rounded-xl bg-stone-800/50 border border-stone-700/50 p-5">
+            <div className="rounded-xl bg-stone-50 border border-stone-200 p-5">
               <h4 className="text-xs font-medium text-stone-400 uppercase tracking-wider mb-3 flex items-center gap-2">
                 <User className="h-3.5 w-3.5" /> Customer
               </h4>
-              <p className="text-sm font-medium text-stone-200">{quotation.customerName}</p>
+              <p className="text-sm font-medium text-stone-700">{quotation.customerName}</p>
               {quotation.customerContact && (
                 <p className="text-xs text-stone-400 mt-1">{quotation.customerContact}</p>
               )}
@@ -213,18 +213,18 @@ export default function QuotationDetail({ quotationId, isOpen, onClose }: Quotat
             </div>
 
             {/* Quote Info */}
-            <div className="rounded-xl bg-stone-800/50 border border-stone-700/50 p-5">
+            <div className="rounded-xl bg-stone-50 border border-stone-200 p-5">
               <h4 className="text-xs font-medium text-stone-400 uppercase tracking-wider mb-3 flex items-center gap-2">
                 <Calendar className="h-3.5 w-3.5" /> Details
               </h4>
               <div className="grid grid-cols-2 gap-3 text-sm">
                 <div>
                   <p className="text-xs text-stone-500">Created</p>
-                  <p className="text-stone-300">{format(new Date(quotation.createdAt), 'dd/MM/yyyy HH:mm')}</p>
+                  <p className="text-stone-600">{format(new Date(quotation.createdAt), 'dd/MM/yyyy HH:mm')}</p>
                 </div>
                 <div>
                   <p className="text-xs text-stone-500">Valid Until</p>
-                  <p className="text-stone-300">
+                  <p className="text-stone-600">
                     {quotation.validUntil
                       ? format(new Date(quotation.validUntil), 'dd/MM/yyyy')
                       : '—'}
@@ -233,28 +233,28 @@ export default function QuotationDetail({ quotationId, isOpen, onClose }: Quotat
                 {quotation.sentAt && (
                   <div>
                     <p className="text-xs text-stone-500">Sent At</p>
-                    <p className="text-stone-300">{format(new Date(quotation.sentAt), 'dd/MM/yyyy HH:mm')}</p>
+                    <p className="text-stone-600">{format(new Date(quotation.sentAt), 'dd/MM/yyyy HH:mm')}</p>
                   </div>
                 )}
                 {quotation.acceptedAt && (
                   <div>
                     <p className="text-xs text-stone-500">Accepted At</p>
-                    <p className="text-stone-300">{format(new Date(quotation.acceptedAt), 'dd/MM/yyyy HH:mm')}</p>
+                    <p className="text-stone-600">{format(new Date(quotation.acceptedAt), 'dd/MM/yyyy HH:mm')}</p>
                   </div>
                 )}
                 <div>
                   <p className="text-xs text-stone-500">Currency</p>
-                  <p className="text-stone-300">{quotation.currency}</p>
+                  <p className="text-stone-600">{quotation.currency}</p>
                 </div>
               </div>
               {quotation.notes && (
-                <div className="mt-3 pt-3 border-t border-stone-700/50">
+                <div className="mt-3 pt-3 border-t border-stone-200">
                   <p className="text-xs text-stone-500 mb-1">Notes</p>
-                  <p className="text-sm text-stone-300">{quotation.notes}</p>
+                  <p className="text-sm text-stone-600">{quotation.notes}</p>
                 </div>
               )}
               {quotation.internalNotes && (
-                <div className="mt-3 pt-3 border-t border-stone-700/50">
+                <div className="mt-3 pt-3 border-t border-stone-200">
                   <p className="text-xs text-stone-500 mb-1">Internal Notes</p>
                   <p className="text-sm text-yellow-400/80 italic">{quotation.internalNotes}</p>
                 </div>
@@ -262,14 +262,14 @@ export default function QuotationDetail({ quotationId, isOpen, onClose }: Quotat
             </div>
 
             {/* Line Items */}
-            <div className="rounded-xl bg-stone-800/50 border border-stone-700/50 overflow-hidden">
-              <div className="px-5 py-3 border-b border-stone-700/50">
+            <div className="rounded-xl bg-stone-50 border border-stone-200 overflow-hidden">
+              <div className="px-5 py-3 border-b border-stone-200">
                 <h4 className="text-xs font-medium text-stone-400 uppercase tracking-wider">
                   Items ({quotation.items?.length || 0})
                 </h4>
               </div>
               <table className="w-full">
-                <thead className="bg-stone-900/30">
+                <thead className="bg-stone-50">
                   <tr>
                     <th className="px-4 py-2 text-left text-xs font-medium text-stone-500">#</th>
                     <th className="px-4 py-2 text-left text-xs font-medium text-stone-500">Product</th>
@@ -286,11 +286,11 @@ export default function QuotationDetail({ quotationId, isOpen, onClose }: Quotat
                         <p className="text-sm font-mono text-amber-400">{item.productPartNumber}</p>
                         <p className="text-xs text-stone-400">{item.productName}</p>
                       </td>
-                      <td className="px-4 py-2.5 text-right text-sm text-stone-300">{item.quantity}</td>
-                      <td className="px-4 py-2.5 text-right text-sm text-stone-300">
+                      <td className="px-4 py-2.5 text-right text-sm text-stone-600">{item.quantity}</td>
+                      <td className="px-4 py-2.5 text-right text-sm text-stone-600">
                         {new Intl.NumberFormat('vi-VN').format(item.unitPrice)}
                       </td>
-                      <td className="px-4 py-2.5 text-right text-sm font-medium text-stone-200">
+                      <td className="px-4 py-2.5 text-right text-sm font-medium text-stone-700">
                         {new Intl.NumberFormat('vi-VN').format(item.amount)}
                       </td>
                     </tr>
@@ -299,23 +299,23 @@ export default function QuotationDetail({ quotationId, isOpen, onClose }: Quotat
               </table>
 
               {/* Totals */}
-              <div className="border-t border-stone-700 px-5 py-4">
+              <div className="border-t border-stone-200 px-5 py-4">
                 <div className="flex justify-end">
                   <div className="w-64 space-y-1.5">
                     <div className="flex justify-between text-sm">
                       <span className="text-stone-400">Subtotal</span>
-                      <span className="text-stone-300">
+                      <span className="text-stone-600">
                         {new Intl.NumberFormat('vi-VN').format(quotation.subtotal || 0)}
                       </span>
                     </div>
                     <div className="flex justify-between text-sm">
                       <span className="text-stone-400">VAT ({quotation.taxRate}%)</span>
-                      <span className="text-stone-300">
+                      <span className="text-stone-600">
                         {new Intl.NumberFormat('vi-VN').format(quotation.taxAmount || 0)}
                       </span>
                     </div>
-                    <div className="flex justify-between text-base font-bold border-t border-stone-700 pt-2">
-                      <span className="text-stone-300">Total</span>
+                    <div className="flex justify-between text-base font-bold border-t border-stone-200 pt-2">
+                      <span className="text-stone-600">Total</span>
                       <span className="text-amber-400">
                         {new Intl.NumberFormat('vi-VN').format(quotation.totalAmount || 0)}{' '}
                         {quotation.currency}

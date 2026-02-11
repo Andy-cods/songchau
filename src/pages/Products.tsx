@@ -109,21 +109,21 @@ export default function Products() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="font-display text-2xl font-bold text-stone-50">Sản phẩm</h2>
+          <h2 className="font-display text-2xl font-bold text-stone-900">Sản phẩm</h2>
           <p className="text-sm text-stone-400 mt-1">
             {isLoading ? 'Đang tải...' : `${pagination.total} sản phẩm trong catalog`}
           </p>
         </div>
         <div className="flex items-center gap-3">
           {/* View Toggle */}
-          <div className="flex items-center rounded-lg bg-stone-800/60 border border-stone-700/40 p-1">
+          <div className="flex items-center rounded-lg bg-white border border-stone-200 p-1">
             <button
               onClick={() => setViewMode('grid')}
               className={cn(
                 'flex items-center justify-center rounded-md p-2 transition-all',
                 viewMode === 'grid'
                   ? 'bg-brand-500/20 text-brand-400 shadow-sm'
-                  : 'text-stone-400 hover:text-stone-200'
+                  : 'text-stone-400 hover:text-stone-700'
               )}
             >
               <LayoutGrid className="h-4 w-4" />
@@ -134,7 +134,7 @@ export default function Products() {
                 'flex items-center justify-center rounded-md p-2 transition-all',
                 viewMode === 'table'
                   ? 'bg-brand-500/20 text-brand-400 shadow-sm'
-                  : 'text-stone-400 hover:text-stone-200'
+                  : 'text-stone-400 hover:text-stone-700'
               )}
             >
               <List className="h-4 w-4" />
@@ -157,7 +157,7 @@ export default function Products() {
               value={searchInput}
               onChange={(e) => setSearchInput(e.target.value)}
               placeholder="Tìm theo mã, tên..."
-              className="w-full rounded-lg bg-stone-900/50 border border-stone-700/50 pl-9 pr-3 py-2 text-sm text-stone-200 placeholder:text-stone-500 focus:outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20"
+              className="w-full rounded-lg bg-stone-50 border border-stone-200 pl-9 pr-3 py-2 text-sm text-stone-700 placeholder:text-stone-500 focus:outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20"
             />
           </div>
 
@@ -165,7 +165,7 @@ export default function Products() {
           <select
             value={selectedCategory}
             onChange={(e) => setSelectedCategory(e.target.value)}
-            className="rounded-lg bg-stone-900/50 border border-stone-700/50 px-3 py-2 text-sm text-stone-200 focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20"
+            className="rounded-lg bg-stone-50 border border-stone-200 px-3 py-2 text-sm text-stone-700 focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20"
           >
             <option value="">Tất cả loại</option>
             {categories.map((cat) => (
@@ -179,7 +179,7 @@ export default function Products() {
           <select
             value={selectedBrand}
             onChange={(e) => handleBrandChange(e.target.value)}
-            className="rounded-lg bg-stone-900/50 border border-stone-700/50 px-3 py-2 text-sm text-stone-200 focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20"
+            className="rounded-lg bg-stone-50 border border-stone-200 px-3 py-2 text-sm text-stone-700 focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20"
           >
             <option value="">Tất cả thương hiệu</option>
             {brands.map((brand) => (
@@ -194,7 +194,7 @@ export default function Products() {
             value={selectedModel}
             onChange={(e) => setSelectedModel(e.target.value)}
             disabled={!selectedBrand}
-            className="rounded-lg bg-stone-900/50 border border-stone-700/50 px-3 py-2 text-sm text-stone-200 focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20 disabled:opacity-50 disabled:cursor-not-allowed"
+            className="rounded-lg bg-stone-50 border border-stone-200 px-3 py-2 text-sm text-stone-700 focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             <option value="">Tất cả model</option>
             {models.map((model) => (
@@ -208,7 +208,7 @@ export default function Products() {
           <select
             value={selectedMaterial}
             onChange={(e) => setSelectedMaterial(e.target.value)}
-            className="rounded-lg bg-stone-900/50 border border-stone-700/50 px-3 py-2 text-sm text-stone-200 focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20"
+            className="rounded-lg bg-stone-50 border border-stone-200 px-3 py-2 text-sm text-stone-700 focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20"
           >
             <option value="">Tất cả vật liệu</option>
             {MATERIALS.map((material) => (
@@ -222,7 +222,7 @@ export default function Products() {
           {activeFiltersCount > 0 && (
             <button
               onClick={handleClearFilters}
-              className="flex items-center gap-1 px-3 py-2 text-sm text-stone-400 hover:text-white transition-colors"
+              className="flex items-center gap-1 px-3 py-2 text-sm text-stone-400 hover:text-stone-900 transition-colors"
             >
               <X className="h-4 w-4" />
               Xóa ({activeFiltersCount})
@@ -237,7 +237,7 @@ export default function Products() {
           {isLoading ? (
             <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
               {Array.from({ length: 8 }).map((_, idx) => (
-                <div key={idx} className="rounded-xl bg-stone-800/50 border border-stone-700/50 p-5">
+                <div key={idx} className="rounded-xl bg-stone-50 border border-stone-200 p-5">
                   <div className="skeleton h-4 w-24 mb-3" />
                   <div className="skeleton h-5 w-full mb-2" />
                   <div className="skeleton h-8 w-20 mb-3" />
@@ -247,10 +247,10 @@ export default function Products() {
             </div>
           ) : products.length === 0 ? (
             <div className="flex flex-col items-center gap-3 py-16">
-              <div className="rounded-full bg-stone-800/50 p-4">
+              <div className="rounded-full bg-stone-50 p-4">
                 <Search className="h-8 w-8 text-stone-500" />
               </div>
-              <p className="font-medium text-stone-300">Không tìm thấy sản phẩm</p>
+              <p className="font-medium text-stone-600">Không tìm thấy sản phẩm</p>
               <p className="text-sm text-stone-500">Thử thay đổi bộ lọc</p>
               {activeFiltersCount > 0 && (
                 <button onClick={handleClearFilters} className="btn btn-secondary px-3 py-1.5 text-xs">
@@ -293,7 +293,7 @@ export default function Products() {
                 Array.from({ length: 8 }).map((_, idx) => (
                   <tr key={idx}>
                     <td colSpan={7}>
-                      <div className="h-10 bg-stone-800/50 animate-pulse rounded" />
+                      <div className="h-10 bg-stone-50 animate-pulse rounded" />
                     </td>
                   </tr>
                 ))
@@ -301,11 +301,11 @@ export default function Products() {
                 <tr>
                   <td colSpan={7} className="py-16 text-center">
                     <div className="flex flex-col items-center gap-3">
-                      <div className="rounded-full bg-stone-800/50 p-4">
+                      <div className="rounded-full bg-stone-50 p-4">
                         <Search className="h-8 w-8 text-stone-500" />
                       </div>
                       <div>
-                        <p className="font-medium text-stone-300">Không tìm thấy sản phẩm</p>
+                        <p className="font-medium text-stone-600">Không tìm thấy sản phẩm</p>
                         <p className="text-sm text-stone-500 mt-1">Thử thay đổi bộ lọc</p>
                       </div>
                       {activeFiltersCount > 0 && (
@@ -326,19 +326,19 @@ export default function Products() {
                     onClick={() => handleRowClick(product)}
                     className={cn(
                       'cursor-pointer transition-colors duration-150',
-                      idx % 2 === 0 && 'even:bg-stone-800/10'
+                      idx % 2 === 0 && 'even:bg-stone-50'
                     )}
                   >
                     <td>
                       <span className="part-number">{product.partNumber}</span>
                     </td>
-                    <td className="text-sm text-stone-200">{product.name}</td>
+                    <td className="text-sm text-stone-700">{product.name}</td>
                     <td>
                       {product.brand ? (
                         <span
                           className={cn(
                             'badge border',
-                            brandColors[product.brand] || 'bg-stone-700/50 text-stone-300 border-stone-600'
+                            brandColors[product.brand] || 'bg-stone-100 text-stone-600 border-stone-600'
                           )}
                         >
                           {product.brand}
@@ -353,7 +353,7 @@ export default function Products() {
                         <span
                           className={cn(
                             'badge border',
-                            materialColors[product.material] || 'bg-stone-700/50 text-stone-300 border-stone-600'
+                            materialColors[product.material] || 'bg-stone-100 text-stone-600 border-stone-600'
                           )}
                         >
                           {product.material}
@@ -374,7 +374,7 @@ export default function Products() {
 
       {/* Pagination */}
       {!isLoading && pagination.totalPages > 1 && (
-        <div className="flex items-center justify-between rounded-xl bg-stone-800/60 border border-stone-700/40 px-4 py-3">
+        <div className="flex items-center justify-between rounded-xl bg-white border border-stone-200 px-4 py-3">
           <p className="text-sm text-stone-400">
             Hiển thị {(page - 1) * 20 + 1}-{Math.min(page * 20, pagination.total)} / {pagination.total} sản phẩm
           </p>

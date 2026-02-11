@@ -6,24 +6,24 @@
 
 @layer base {
   :root {
-    --background: 20 14% 8%;
-    --foreground: 60 9% 98%;
-    --card: 20 6% 13%;
-    --card-foreground: 60 9% 98%;
-    --popover: 20 6% 13%;
-    --popover-foreground: 60 9% 98%;
+    --background: 40 20% 98%;
+    --foreground: 20 14% 11%;
+    --card: 0 0% 100%;
+    --card-foreground: 20 14% 11%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 20 14% 11%;
     --primary: 38 92% 50%;
-    --primary-foreground: 20 14% 8%;
-    --secondary: 20 6% 13%;
-    --secondary-foreground: 60 9% 98%;
-    --muted: 20 6% 13%;
-    --muted-foreground: 24 6% 64%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 40 10% 96%;
+    --secondary-foreground: 20 14% 11%;
+    --muted: 40 10% 96%;
+    --muted-foreground: 24 6% 45%;
     --accent: 38 92% 50%;
-    --accent-foreground: 60 9% 98%;
+    --accent-foreground: 0 0% 100%;
     --destructive: 0 72% 51%;
-    --destructive-foreground: 60 9% 98%;
-    --border: 20 6% 15%;
-    --input: 20 6% 15%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 24 6% 87%;
+    --input: 24 6% 87%;
     --ring: 38 92% 50%;
     --radius: 0.75rem;
   }
@@ -35,13 +35,13 @@
   }
 
   body {
-    @apply bg-stone-950 text-stone-100 antialiased;
+    @apply bg-stone-50 text-stone-800 antialiased;
     font-feature-settings: "rlig" 1, "calt" 1;
   }
 
   /* Selection color */
   ::selection {
-    @apply bg-amber-500/30 text-white;
+    @apply bg-amber-500/20 text-stone-900;
   }
 
   /* Scrollbar styling */
@@ -54,17 +54,17 @@
   }
 
   ::-webkit-scrollbar-thumb {
-    @apply bg-stone-700 rounded-full;
+    @apply bg-stone-300 rounded-full;
   }
 
   ::-webkit-scrollbar-thumb:hover {
-    @apply bg-stone-600;
+    @apply bg-stone-400;
   }
 
   /* Focus rings */
   *:focus-visible {
     outline: none;
-    box-shadow: 0 0 0 2px rgb(28 25 23), 0 0 0 4px rgb(217 119 6);
+    box-shadow: 0 0 0 2px rgb(255 255 255), 0 0 0 4px rgb(217 119 6);
   }
 
   /* Smooth transitions for page changes */
@@ -157,7 +157,7 @@
   }
 
   .skeleton {
-    background: linear-gradient(90deg, rgb(28 25 23 / 0.5) 25%, rgb(68 64 60 / 0.5) 50%, rgb(28 25 23 / 0.5) 75%);
+    background: linear-gradient(90deg, rgb(214 211 209 / 0.5) 25%, rgb(245 245 244 / 0.5) 50%, rgb(214 211 209 / 0.5) 75%);
     background-size: 200% 100%;
     animation: shimmer 1.5s ease-in-out infinite;
     border-radius: 0.5rem;
@@ -201,7 +201,7 @@
   /* Button base styles with micro-interactions */
   .btn {
     @apply inline-flex items-center justify-center gap-2 rounded-lg font-medium transition-all duration-200;
-    @apply focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:ring-offset-2 focus-visible:ring-offset-stone-950;
+    @apply focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500 focus-visible:ring-offset-2 focus-visible:ring-offset-white;
     @apply disabled:pointer-events-none disabled:opacity-50;
   }
 
@@ -211,31 +211,30 @@
   }
 
   .btn-secondary {
-    @apply bg-white/5 text-stone-200 hover:bg-white/10 active:scale-95 border border-stone-700/50;
+    @apply bg-stone-100 text-stone-700 hover:bg-stone-200 active:scale-95 border border-stone-300;
   }
 
   .btn-ghost {
-    @apply text-stone-400 hover:text-white hover:bg-white/5 active:scale-95;
+    @apply text-stone-500 hover:text-stone-900 hover:bg-stone-100 active:scale-95;
   }
 
   .btn-danger {
-    @apply bg-red-700 text-white hover:bg-red-600 active:scale-95 shadow-lg shadow-red-700/20;
+    @apply bg-red-600 text-white hover:bg-red-500 active:scale-95 shadow-lg shadow-red-600/20;
   }
 
   /* Card styles */
   .card {
-    @apply bg-stone-900/60 border border-stone-800/60 rounded-xl p-6 transition-all duration-300;
-    @apply hover:border-stone-700/60 hover:shadow-xl hover:shadow-black/20;
-    @apply hover:bg-stone-900/80;
+    @apply bg-white border border-stone-200 rounded-xl p-6 transition-all duration-300 shadow-sm;
+    @apply hover:border-stone-300 hover:shadow-md;
   }
 
   /* Input styles */
   .input {
-    @apply w-full rounded-lg bg-stone-950/50 border border-stone-800/50 px-4 py-2.5 text-sm;
-    @apply text-stone-200 placeholder:text-stone-500;
+    @apply w-full rounded-lg bg-white border border-stone-300 px-4 py-2.5 text-sm;
+    @apply text-stone-800 placeholder:text-stone-400;
     @apply transition-all duration-200;
     @apply focus:outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20;
-    @apply hover:border-stone-700/50;
+    @apply hover:border-stone-400;
   }
 
   /* Badge styles */
@@ -244,28 +243,28 @@
   }
 
   .badge-primary {
-    @apply bg-amber-500/10 text-amber-400 border border-amber-500/20;
+    @apply bg-amber-50 text-amber-700 border border-amber-200;
   }
 
   .badge-success {
-    @apply bg-lime-500/10 text-lime-400 border border-lime-500/20;
+    @apply bg-lime-50 text-lime-700 border border-lime-200;
   }
 
   .badge-warning {
-    @apply bg-yellow-500/10 text-yellow-400 border border-yellow-500/20;
+    @apply bg-yellow-50 text-yellow-700 border border-yellow-200;
   }
 
   .badge-danger {
-    @apply bg-red-500/10 text-red-400 border border-red-500/20;
+    @apply bg-red-50 text-red-700 border border-red-200;
   }
 
   .badge-neutral {
-    @apply bg-stone-500/10 text-stone-400 border border-stone-500/20;
+    @apply bg-stone-100 text-stone-600 border border-stone-200;
   }
 
   /* Table styles */
   .table-wrapper {
-    @apply w-full overflow-auto rounded-xl border border-stone-800/50;
+    @apply w-full overflow-auto rounded-xl border border-stone-200 bg-white;
   }
 
   .table {
@@ -273,22 +272,22 @@
   }
 
   .table thead {
-    @apply bg-stone-900/30 sticky top-0 z-10;
+    @apply bg-stone-50 sticky top-0 z-10;
   }
 
   .table th {
-    @apply px-4 py-3.5 text-left text-xs font-semibold uppercase tracking-wider text-stone-400;
-    @apply border-b-2 border-stone-800/50;
+    @apply px-4 py-3.5 text-left text-xs font-semibold uppercase tracking-wider text-stone-500;
+    @apply border-b-2 border-stone-200;
   }
 
   .table td {
-    @apply px-4 py-3 text-stone-300;
-    @apply border-b border-stone-900/50;
+    @apply px-4 py-3 text-stone-700;
+    @apply border-b border-stone-100;
   }
 
   .table tbody tr {
     @apply transition-colors duration-150;
-    @apply hover:bg-stone-800/20;
+    @apply hover:bg-stone-50;
   }
 
   /* Empty state */
@@ -297,11 +296,11 @@
   }
 
   .empty-state-icon {
-    @apply rounded-2xl bg-stone-900/50 p-5 border border-stone-800/30;
+    @apply rounded-2xl bg-stone-50 p-5 border border-stone-200;
   }
 
   .empty-state-title {
-    @apply text-base font-medium text-stone-300;
+    @apply text-base font-medium text-stone-700;
   }
 
   .empty-state-description {
@@ -310,7 +309,7 @@
 
   /* Part number styling */
   .part-number {
-    @apply font-mono tracking-wide text-amber-400 text-sm;
+    @apply font-mono tracking-wide text-amber-600 text-sm;
   }
 
   /* Status indicators */
@@ -327,6 +326,6 @@
   }
 
   .status-dot-inactive {
-    @apply bg-stone-500 shadow-lg shadow-stone-500/50;
+    @apply bg-stone-400 shadow-lg shadow-stone-400/50;
   }
 }

@@ -127,15 +127,15 @@ export default function SupplierForm({ isOpen, onClose, supplier, mode }: Suppli
 
       {/* Modal */}
       <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-        <div className="w-full max-w-2xl max-h-[90vh] bg-stone-900 rounded-xl border border-stone-700 overflow-hidden flex flex-col">
+        <div className="w-full max-w-2xl max-h-[90vh] bg-white rounded-xl border border-stone-200 overflow-hidden flex flex-col">
           {/* Header */}
-          <div className="flex items-center justify-between bg-stone-800/50 px-6 py-4 border-b border-stone-700">
-            <h2 className="font-display text-xl font-semibold text-stone-50">
+          <div className="flex items-center justify-between bg-stone-50 px-6 py-4 border-b border-stone-200">
+            <h2 className="font-display text-xl font-semibold text-stone-900">
               {isEdit ? 'Sửa nhà cung cấp' : 'Thêm nhà cung cấp mới'}
             </h2>
             <button
               onClick={handleClose}
-              className="flex h-9 w-9 items-center justify-center rounded-lg text-stone-400 hover:bg-stone-700 hover:text-stone-200 transition-colors"
+              className="flex h-9 w-9 items-center justify-center rounded-lg text-stone-400 hover:bg-stone-200 hover:text-stone-700 transition-colors"
             >
               <X className="h-5 w-5" />
             </button>
@@ -146,7 +146,7 @@ export default function SupplierForm({ isOpen, onClose, supplier, mode }: Suppli
             <div className="space-y-6">
               {/* Company Info */}
               <div>
-                <h3 className="text-sm font-medium text-stone-300 mb-3">Thông tin công ty</h3>
+                <h3 className="text-sm font-medium text-stone-600 mb-3">Thông tin công ty</h3>
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <label className="block text-xs font-medium text-stone-400 mb-1.5">
@@ -154,7 +154,7 @@ export default function SupplierForm({ isOpen, onClose, supplier, mode }: Suppli
                     </label>
                     <input
                       {...register('companyName')}
-                      className="w-full rounded-lg bg-stone-800 border border-stone-700 px-3 py-2 text-sm text-stone-200 placeholder-stone-500 focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500"
+                      className="w-full rounded-lg bg-stone-100 border border-stone-200 px-3 py-2 text-sm text-stone-700 placeholder-stone-500 focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500"
                       placeholder="Company Name"
                     />
                     {errors.companyName && (
@@ -165,7 +165,7 @@ export default function SupplierForm({ isOpen, onClose, supplier, mode }: Suppli
                     <label className="block text-xs font-medium text-stone-400 mb-1.5">Tên tiếng Trung/bản địa</label>
                     <input
                       {...register('companyNameLocal')}
-                      className="w-full rounded-lg bg-stone-800 border border-stone-700 px-3 py-2 text-sm text-stone-200 placeholder-stone-500 focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500"
+                      className="w-full rounded-lg bg-stone-100 border border-stone-200 px-3 py-2 text-sm text-stone-700 placeholder-stone-500 focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500"
                       placeholder="本地名称"
                     />
                   </div>
@@ -175,7 +175,7 @@ export default function SupplierForm({ isOpen, onClose, supplier, mode }: Suppli
                     </label>
                     <select
                       {...register('country')}
-                      className="w-full rounded-lg bg-stone-800 border border-stone-700 px-3 py-2 text-sm text-stone-200 focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500"
+                      className="w-full rounded-lg bg-stone-100 border border-stone-200 px-3 py-2 text-sm text-stone-700 focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500"
                     >
                       {SUPPLIER_COUNTRIES.map((c) => (
                         <option key={c.value} value={c.value}>
@@ -191,7 +191,7 @@ export default function SupplierForm({ isOpen, onClose, supplier, mode }: Suppli
                     <label className="block text-xs font-medium text-stone-400 mb-1.5">Platform</label>
                     <select
                       {...register('platform')}
-                      className="w-full rounded-lg bg-stone-800 border border-stone-700 px-3 py-2 text-sm text-stone-200 focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500"
+                      className="w-full rounded-lg bg-stone-100 border border-stone-200 px-3 py-2 text-sm text-stone-700 focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500"
                     >
                       <option value="">-- Chọn --</option>
                       {SUPPLIER_PLATFORMS.map((p) => (
@@ -206,20 +206,20 @@ export default function SupplierForm({ isOpen, onClose, supplier, mode }: Suppli
 
               {/* Contact */}
               <div>
-                <h3 className="text-sm font-medium text-stone-300 mb-3">Liên hệ</h3>
+                <h3 className="text-sm font-medium text-stone-600 mb-3">Liên hệ</h3>
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <label className="block text-xs font-medium text-stone-400 mb-1.5">Tên liên hệ</label>
                     <input
                       {...register('contactName')}
-                      className="w-full rounded-lg bg-stone-800 border border-stone-700 px-3 py-2 text-sm text-stone-200 placeholder-stone-500 focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500"
+                      className="w-full rounded-lg bg-stone-100 border border-stone-200 px-3 py-2 text-sm text-stone-700 placeholder-stone-500 focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500"
                     />
                   </div>
                   <div>
                     <label className="block text-xs font-medium text-stone-400 mb-1.5">Điện thoại</label>
                     <input
                       {...register('contactPhone')}
-                      className="w-full rounded-lg bg-stone-800 border border-stone-700 px-3 py-2 text-sm text-stone-200 placeholder-stone-500 focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500"
+                      className="w-full rounded-lg bg-stone-100 border border-stone-200 px-3 py-2 text-sm text-stone-700 placeholder-stone-500 focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500"
                     />
                   </div>
                   <div>
@@ -227,14 +227,14 @@ export default function SupplierForm({ isOpen, onClose, supplier, mode }: Suppli
                     <input
                       {...register('contactEmail')}
                       type="email"
-                      className="w-full rounded-lg bg-stone-800 border border-stone-700 px-3 py-2 text-sm text-stone-200 placeholder-stone-500 focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500"
+                      className="w-full rounded-lg bg-stone-100 border border-stone-200 px-3 py-2 text-sm text-stone-700 placeholder-stone-500 focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500"
                     />
                   </div>
                   <div>
                     <label className="block text-xs font-medium text-stone-400 mb-1.5">WeChat</label>
                     <input
                       {...register('contactWechat')}
-                      className="w-full rounded-lg bg-stone-800 border border-stone-700 px-3 py-2 text-sm text-stone-200 placeholder-stone-500 focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500"
+                      className="w-full rounded-lg bg-stone-100 border border-stone-200 px-3 py-2 text-sm text-stone-700 placeholder-stone-500 focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500"
                     />
                   </div>
                 </div>
@@ -242,7 +242,7 @@ export default function SupplierForm({ isOpen, onClose, supplier, mode }: Suppli
 
               {/* Scores */}
               <div>
-                <h3 className="text-sm font-medium text-stone-300 mb-3">Đánh giá</h3>
+                <h3 className="text-sm font-medium text-stone-600 mb-3">Đánh giá</h3>
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <label className="block text-xs font-medium text-stone-400 mb-1.5">
@@ -301,14 +301,14 @@ export default function SupplierForm({ isOpen, onClose, supplier, mode }: Suppli
 
               {/* Business Info */}
               <div>
-                <h3 className="text-sm font-medium text-stone-300 mb-3">Thông tin kinh doanh</h3>
+                <h3 className="text-sm font-medium text-stone-600 mb-3">Thông tin kinh doanh</h3>
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <label className="block text-xs font-medium text-stone-400 mb-1.5">Chuyên môn</label>
                     <input
                       {...register('speciality')}
                       placeholder="Nozzle, Feeder..."
-                      className="w-full rounded-lg bg-stone-800 border border-stone-700 px-3 py-2 text-sm text-stone-200 placeholder-stone-500 focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500"
+                      className="w-full rounded-lg bg-stone-100 border border-stone-200 px-3 py-2 text-sm text-stone-700 placeholder-stone-500 focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500"
                     />
                   </div>
                   <div>
@@ -316,7 +316,7 @@ export default function SupplierForm({ isOpen, onClose, supplier, mode }: Suppli
                     <input
                       {...register('brands')}
                       placeholder="Panasonic, Fuji..."
-                      className="w-full rounded-lg bg-stone-800 border border-stone-700 px-3 py-2 text-sm text-stone-200 placeholder-stone-500 focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500"
+                      className="w-full rounded-lg bg-stone-100 border border-stone-200 px-3 py-2 text-sm text-stone-700 placeholder-stone-500 focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500"
                     />
                   </div>
                   <div>
@@ -324,7 +324,7 @@ export default function SupplierForm({ isOpen, onClose, supplier, mode }: Suppli
                     <input
                       type="number"
                       {...register('minOrderValue', { valueAsNumber: true })}
-                      className="w-full rounded-lg bg-stone-800 border border-stone-700 px-3 py-2 text-sm text-stone-200 placeholder-stone-500 focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500"
+                      className="w-full rounded-lg bg-stone-100 border border-stone-200 px-3 py-2 text-sm text-stone-700 placeholder-stone-500 focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500"
                     />
                   </div>
                   <div>
@@ -332,7 +332,7 @@ export default function SupplierForm({ isOpen, onClose, supplier, mode }: Suppli
                     <input
                       type="number"
                       {...register('leadTimeDays', { valueAsNumber: true })}
-                      className="w-full rounded-lg bg-stone-800 border border-stone-700 px-3 py-2 text-sm text-stone-200 placeholder-stone-500 focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500"
+                      className="w-full rounded-lg bg-stone-100 border border-stone-200 px-3 py-2 text-sm text-stone-700 placeholder-stone-500 focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500"
                     />
                   </div>
                 </div>
@@ -344,18 +344,18 @@ export default function SupplierForm({ isOpen, onClose, supplier, mode }: Suppli
                 <textarea
                   {...register('notes')}
                   rows={3}
-                  className="w-full rounded-lg bg-stone-800 border border-stone-700 px-3 py-2 text-sm text-stone-200 placeholder-stone-500 focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500 resize-none"
+                  className="w-full rounded-lg bg-stone-100 border border-stone-200 px-3 py-2 text-sm text-stone-700 placeholder-stone-500 focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500 resize-none"
                 />
               </div>
             </div>
           </form>
 
           {/* Footer */}
-          <div className="flex items-center justify-end gap-3 border-t border-stone-700 bg-stone-800/50 px-6 py-4">
+          <div className="flex items-center justify-end gap-3 border-t border-stone-200 bg-stone-50 px-6 py-4">
             <button
               type="button"
               onClick={handleClose}
-              className="rounded-lg px-4 py-2 text-sm font-medium text-stone-300 hover:bg-stone-700 transition-colors"
+              className="rounded-lg px-4 py-2 text-sm font-medium text-stone-600 hover:bg-stone-200 transition-colors"
             >
               Hủy
             </button>

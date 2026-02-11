@@ -46,7 +46,7 @@ function DealCard({ deal, isDragging, onClick }: DealCardProps) {
   return (
     <div
       className={cn(
-        'rounded-lg bg-stone-800 border border-stone-700/50 p-4 group',
+        'rounded-lg bg-stone-100 border border-stone-200 p-4 group',
         'hover:border-stone-600 hover:shadow-md transition-all',
         'cursor-grab active:cursor-grabbing',
         isDragging && 'opacity-50'
@@ -55,7 +55,7 @@ function DealCard({ deal, isDragging, onClick }: DealCardProps) {
     >
       <div className="flex items-start justify-between mb-2">
         <div className="flex-1">
-          <h3 className="text-sm font-medium text-white mb-0.5">{deal.customerName || 'No customer'}</h3>
+          <h3 className="text-sm font-medium text-stone-900 mb-0.5">{deal.customerName || 'No customer'}</h3>
           <p className="text-xs text-stone-400">{deal.title}</p>
         </div>
         <GripVertical className="h-4 w-4 text-stone-600 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0 ml-2" />
@@ -108,7 +108,7 @@ function DroppableColumn({ stageValue, children }: { stageValue: string; childre
       ref={setNodeRef}
       className={cn(
         'space-y-2 min-h-[400px] rounded-lg border-2 border-dashed p-2 transition-colors',
-        isOver ? 'bg-amber-500/5 border-amber-500/30' : 'bg-stone-900/20 border-stone-800'
+        isOver ? 'bg-amber-500/5 border-amber-500/30' : 'bg-stone-100/50 border-stone-200'
       )}
     >
       {children}
@@ -239,7 +239,7 @@ export default function Pipeline() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="font-display text-2xl font-bold text-stone-50">Sales Pipeline</h2>
+          <h2 className="font-display text-2xl font-bold text-stone-900">Sales Pipeline</h2>
           <p className="text-sm text-stone-400 mt-1">{deals.length} deals</p>
         </div>
         <button
@@ -260,7 +260,7 @@ export default function Pipeline() {
             </div>
             <div>
               <p className="text-xs text-stone-400">Tổng deals</p>
-              <p className="text-xl font-bold text-stone-50">{deals.length}</p>
+              <p className="text-xl font-bold text-stone-900">{deals.length}</p>
             </div>
           </div>
         </div>
@@ -272,7 +272,7 @@ export default function Pipeline() {
             </div>
             <div>
               <p className="text-xs text-stone-400">Won</p>
-              <p className="text-xl font-bold text-stone-50">{getStageStats('won').count}</p>
+              <p className="text-xl font-bold text-stone-900">{getStageStats('won').count}</p>
             </div>
           </div>
         </div>
@@ -284,7 +284,7 @@ export default function Pipeline() {
             </div>
             <div>
               <p className="text-xs text-stone-400">Có trọng số</p>
-              <p className="text-xl font-bold text-stone-50">{formatCurrency(totalWeighted)} ₫</p>
+              <p className="text-xl font-bold text-stone-900">{formatCurrency(totalWeighted)} ₫</p>
             </div>
           </div>
         </div>
@@ -296,7 +296,7 @@ export default function Pipeline() {
             </div>
             <div>
               <p className="text-xs text-stone-400">Win Rate</p>
-              <p className="text-xl font-bold text-stone-50">
+              <p className="text-xl font-bold text-stone-900">
                 {deals.length > 0 ? Math.round((getStageStats('won').count / deals.length) * 100) : 0}%
               </p>
             </div>
@@ -328,7 +328,7 @@ export default function Pipeline() {
                     </div>
                     <button
                       onClick={() => { setDealFormStage(stage.value); setIsDealFormOpen(true) }}
-                      className="p-1 rounded hover:bg-stone-700/50 text-stone-400 hover:text-white transition-colors"
+                      className="p-1 rounded hover:bg-stone-100 text-stone-400 hover:text-stone-900 transition-colors"
                       title="Add deal"
                     >
                       <Plus className="h-3.5 w-3.5" />

@@ -66,7 +66,7 @@ export default function ProductLookup() {
     <div className="max-w-5xl mx-auto">
       {/* Header Section */}
       <div className="text-center pt-12 pb-8">
-        <h1 className="font-display text-2xl font-bold text-white">Song Châu</h1>
+        <h1 className="font-display text-2xl font-bold text-stone-900">Song Châu</h1>
         <p className="text-stone-400 mt-1">Tra cứu nhanh linh kiện SMT</p>
 
         {/* Stats */}
@@ -75,11 +75,11 @@ export default function ProductLookup() {
             <div className="text-stone-400">
               <span className="font-semibold text-brand-400">{stats.totalProducts}</span> sản phẩm
             </div>
-            <div className="w-px h-4 bg-stone-700" />
+            <div className="w-px h-4 bg-stone-200" />
             <div className="text-stone-400">
               <span className="font-semibold text-brand-400">{stats.totalBrands}</span> thương hiệu
             </div>
-            <div className="w-px h-4 bg-stone-700" />
+            <div className="w-px h-4 bg-stone-200" />
             <div className="text-stone-400">
               <span className="font-semibold text-brand-400">20+</span> dòng máy
             </div>
@@ -95,13 +95,13 @@ export default function ProductLookup() {
           value={searchInput}
           onChange={(e) => setSearchInput(e.target.value)}
           placeholder="Nhập mã part number, tên sản phẩm, hoặc kích thước..."
-          className="w-full h-14 rounded-xl bg-stone-800 border border-stone-700 pl-12 pr-12 text-lg text-white placeholder:text-stone-500 focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20 focus:outline-none transition-all"
+          className="w-full h-14 rounded-xl bg-white border border-stone-200 pl-12 pr-12 text-lg text-stone-800 placeholder:text-stone-400 focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20 focus:outline-none transition-all"
           autoFocus
         />
         {searchInput && (
           <button
             onClick={() => setSearchInput('')}
-            className="absolute right-4 top-1/2 -translate-y-1/2 p-1 text-stone-500 hover:text-stone-300 transition-colors"
+            className="absolute right-4 top-1/2 -translate-y-1/2 p-1 text-stone-500 hover:text-stone-600 transition-colors"
           >
             <X className="h-5 w-5" />
           </button>
@@ -122,7 +122,7 @@ export default function ProductLookup() {
                   'px-3 py-1.5 rounded-full text-sm border transition-all duration-200',
                   isActive
                     ? 'bg-brand-500/10 border-brand-500/50 text-brand-400'
-                    : cn('border-stone-700 text-stone-400', brandColors[brand])
+                    : cn('border-stone-200 text-stone-400', brandColors[brand])
                 )}
               >
                 {brand}
@@ -146,7 +146,7 @@ export default function ProductLookup() {
                   'px-3 py-1.5 rounded-full text-sm border transition-all duration-200',
                   isActive
                     ? materialColors[material]
-                    : 'border-stone-700 text-stone-400 hover:border-stone-600 hover:text-stone-300'
+                    : 'border-stone-200 text-stone-400 hover:border-stone-600 hover:text-stone-600'
                 )}
               >
                 {material}
@@ -180,16 +180,16 @@ export default function ProductLookup() {
       {isLoading ? (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {Array.from({ length: 6 }).map((_, idx) => (
-            <div key={idx} className="h-40 bg-stone-800/50 animate-pulse rounded-xl" />
+            <div key={idx} className="h-40 bg-stone-50 animate-pulse rounded-xl" />
           ))}
         </div>
       ) : products.length === 0 ? (
         // Empty State
         <div className="text-center py-16">
-          <div className="inline-flex h-20 w-20 items-center justify-center rounded-full bg-stone-800/50 border border-stone-700 mb-4">
+          <div className="inline-flex h-20 w-20 items-center justify-center rounded-full bg-stone-50 border border-stone-200 mb-4">
             <Search className="h-10 w-10 text-stone-500" />
           </div>
-          <h3 className="font-display text-xl font-semibold text-stone-300 mb-2">
+          <h3 className="font-display text-xl font-semibold text-stone-600 mb-2">
             Không tìm thấy sản phẩm
           </h3>
           <p className="text-stone-500 mb-4">
@@ -207,9 +207,9 @@ export default function ProductLookup() {
             <div
               key={product.id}
               className={cn(
-                'group bg-stone-800/50 border-2 rounded-xl p-5 transition-all duration-200 cursor-pointer',
-                'hover:bg-stone-800 hover:border-brand-500/30 hover:shadow-lg hover:shadow-brand-500/5',
-                brandColors[product.brand || ''] ? `border-stone-700 ${brandColors[product.brand || '']}` : 'border-stone-700'
+                'group bg-stone-50 border-2 rounded-xl p-5 transition-all duration-200 cursor-pointer',
+                'hover:bg-stone-100 hover:border-brand-500/30 hover:shadow-lg hover:shadow-brand-500/5',
+                brandColors[product.brand || ''] ? `border-stone-200 ${brandColors[product.brand || '']}` : 'border-stone-200'
               )}
             >
               {/* Part Number */}
@@ -219,7 +219,7 @@ export default function ProductLookup() {
 
               {/* Name & Size */}
               <div className="mb-3">
-                <p className="text-white font-medium">{product.name}</p>
+                <p className="text-stone-900 font-medium">{product.name}</p>
                 {product.size && (
                   <p className="font-mono text-sm text-stone-400 mt-1">{product.size}</p>
                 )}
@@ -228,17 +228,17 @@ export default function ProductLookup() {
               {/* Brand & Model & Material */}
               <div className="flex items-center gap-2 mb-3 flex-wrap">
                 {product.brand && (
-                  <span className="badge border bg-stone-900/50 border-stone-700 text-xs font-medium text-stone-300">
+                  <span className="badge border bg-stone-50 border-stone-200 text-xs font-medium text-stone-600">
                     {product.brand}
                   </span>
                 )}
                 {product.machineModel && (
-                  <span className="badge border bg-stone-900/50 border-stone-700 text-xs text-stone-400">
+                  <span className="badge border bg-stone-50 border-stone-200 text-xs text-stone-400">
                     {product.machineModel}
                   </span>
                 )}
                 {product.material && (
-                  <span className={cn('badge border text-xs font-medium', materialColors[product.material] || 'bg-stone-700/50 text-stone-300 border-stone-600')}>
+                  <span className={cn('badge border text-xs font-medium', materialColors[product.material] || 'bg-stone-100 text-stone-600 border-stone-600')}>
                     {product.material}
                   </span>
                 )}
@@ -246,7 +246,7 @@ export default function ProductLookup() {
 
               {/* Remark */}
               {product.remark && (
-                <div className="pt-3 border-t border-stone-700">
+                <div className="pt-3 border-t border-stone-200">
                   <p className="text-xs text-stone-500 mb-1">Compatible:</p>
                   <p className="text-xs text-stone-400">{product.remark}</p>
                 </div>

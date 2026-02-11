@@ -26,14 +26,14 @@ export default function ContactCard({
   }
 
   return (
-    <div className="rounded-lg bg-stone-800/30 border border-stone-700/50 p-4">
+    <div className="rounded-lg bg-stone-100/30 border border-stone-200 p-4">
       <h4 className="text-sm font-medium text-stone-400 uppercase tracking-wider mb-3">
         {title}
       </h4>
 
       {name && (
         <div className="mb-2">
-          <p className="text-stone-200 font-medium">{name}</p>
+          <p className="text-stone-700 font-medium">{name}</p>
           {jobTitle && <p className="text-sm text-stone-400">{jobTitle}</p>}
         </div>
       )}
@@ -44,7 +44,7 @@ export default function ContactCard({
             <Phone className="h-4 w-4 text-stone-500" />
             <a
               href={`tel:${phone}`}
-              className="text-stone-300 hover:text-amber-400 transition-colors"
+              className="text-stone-600 hover:text-amber-400 transition-colors"
             >
               {phone}
             </a>
@@ -56,7 +56,7 @@ export default function ContactCard({
             <Mail className="h-4 w-4 text-stone-500" />
             <a
               href={`mailto:${email}`}
-              className="text-stone-300 hover:text-amber-400 transition-colors"
+              className="text-stone-600 hover:text-amber-400 transition-colors"
             >
               {email}
             </a>
@@ -66,7 +66,7 @@ export default function ContactCard({
         {zalo && (
           <div className="flex items-center gap-2 text-sm">
             <MessageCircle className="h-4 w-4 text-stone-500" />
-            <span className="text-stone-300">
+            <span className="text-stone-600">
               Zalo: <span className="text-amber-400">{zalo}</span>
             </span>
           </div>
@@ -75,7 +75,7 @@ export default function ContactCard({
         {wechat && (
           <div className="flex items-center gap-2 text-sm">
             <MessageCircle className="h-4 w-4 text-stone-500" />
-            <span className="text-stone-300">
+            <span className="text-stone-600">
               WeChat: <span className="text-green-400">{wechat}</span>
             </span>
           </div>
@@ -84,7 +84,7 @@ export default function ContactCard({
         {line && (
           <div className="flex items-center gap-2 text-sm">
             <MessageCircle className="h-4 w-4 text-stone-500" />
-            <span className="text-stone-300">
+            <span className="text-stone-600">
               Line: <span className="text-emerald-400">{line}</span>
             </span>
           </div>

@@ -189,12 +189,12 @@ export default function QuotationForm({ quotationId }: QuotationFormProps) {
         <div className="flex items-center gap-4">
           <button
             onClick={() => navigate('/quotations')}
-            className="flex h-9 w-9 items-center justify-center rounded-lg text-stone-400 hover:bg-stone-800 hover:text-stone-200 transition-colors"
+            className="flex h-9 w-9 items-center justify-center rounded-lg text-stone-400 hover:bg-stone-100 hover:text-stone-700 transition-colors"
           >
             <ArrowLeft className="h-5 w-5" />
           </button>
           <div>
-            <h2 className="font-display text-2xl font-bold text-stone-50">
+            <h2 className="font-display text-2xl font-bold text-stone-900">
               {isEdit ? 'Edit Quotation' : 'New Quotation'}
             </h2>
             <p className="text-sm text-stone-400 mt-0.5">
@@ -216,8 +216,8 @@ export default function QuotationForm({ quotationId }: QuotationFormProps) {
 
       <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
         {/* Customer & Basic Info */}
-        <div className="rounded-xl bg-stone-800/50 border border-stone-700/50 p-6">
-          <h3 className="text-sm font-medium text-stone-300 mb-4">Customer & Quote Info</h3>
+        <div className="rounded-xl bg-stone-50 border border-stone-200 p-6">
+          <h3 className="text-sm font-medium text-stone-600 mb-4">Customer & Quote Info</h3>
           <div className="grid grid-cols-4 gap-4">
             {/* Customer Select */}
             <div className="col-span-2">
@@ -226,7 +226,7 @@ export default function QuotationForm({ quotationId }: QuotationFormProps) {
               </label>
               <select
                 {...register('customerId', { valueAsNumber: true })}
-                className="w-full rounded-lg bg-stone-900 border border-stone-700 px-3 py-2 text-sm text-stone-200 focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500"
+                className="w-full rounded-lg bg-white border border-stone-200 px-3 py-2 text-sm text-stone-700 focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500"
               >
                 <option value={0}>-- Select Customer --</option>
                 {customerList?.map((c) => (
@@ -245,7 +245,7 @@ export default function QuotationForm({ quotationId }: QuotationFormProps) {
               <label className="block text-xs font-medium text-stone-400 mb-1.5">Currency</label>
               <select
                 {...register('currency')}
-                className="w-full rounded-lg bg-stone-900 border border-stone-700 px-3 py-2 text-sm text-stone-200 focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500"
+                className="w-full rounded-lg bg-white border border-stone-200 px-3 py-2 text-sm text-stone-700 focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500"
               >
                 <option value="VND">VND</option>
                 <option value="USD">USD</option>
@@ -262,7 +262,7 @@ export default function QuotationForm({ quotationId }: QuotationFormProps) {
               <input
                 type="date"
                 {...register('validUntil')}
-                className="w-full rounded-lg bg-stone-900 border border-stone-700 px-3 py-2 text-sm text-stone-200 focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500"
+                className="w-full rounded-lg bg-white border border-stone-200 px-3 py-2 text-sm text-stone-700 focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500"
               />
               {errors.validUntil && (
                 <p className="mt-1 text-xs text-red-400">{errors.validUntil.message}</p>
@@ -276,7 +276,7 @@ export default function QuotationForm({ quotationId }: QuotationFormProps) {
                 type="number"
                 step="0.1"
                 {...register('taxRate', { valueAsNumber: true })}
-                className="w-full rounded-lg bg-stone-900 border border-stone-700 px-3 py-2 text-sm text-stone-200 focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500"
+                className="w-full rounded-lg bg-white border border-stone-200 px-3 py-2 text-sm text-stone-700 focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500"
               />
             </div>
 
@@ -287,7 +287,7 @@ export default function QuotationForm({ quotationId }: QuotationFormProps) {
                 {...register('notes')}
                 rows={2}
                 placeholder="Payment terms, delivery notes..."
-                className="w-full rounded-lg bg-stone-900 border border-stone-700 px-3 py-2 text-sm text-stone-200 placeholder-stone-500 focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500 resize-none"
+                className="w-full rounded-lg bg-white border border-stone-200 px-3 py-2 text-sm text-stone-700 placeholder-stone-500 focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500 resize-none"
               />
             </div>
 
@@ -298,16 +298,16 @@ export default function QuotationForm({ quotationId }: QuotationFormProps) {
                 {...register('internalNotes')}
                 rows={2}
                 placeholder="Internal use only..."
-                className="w-full rounded-lg bg-stone-900 border border-stone-700 px-3 py-2 text-sm text-stone-200 placeholder-stone-500 focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500 resize-none"
+                className="w-full rounded-lg bg-white border border-stone-200 px-3 py-2 text-sm text-stone-700 placeholder-stone-500 focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500 resize-none"
               />
             </div>
           </div>
         </div>
 
         {/* Line Items */}
-        <div className="rounded-xl bg-stone-800/50 border border-stone-700/50 p-6">
+        <div className="rounded-xl bg-stone-50 border border-stone-200 p-6">
           <div className="flex items-center justify-between mb-4">
-            <h3 className="text-sm font-medium text-stone-300 flex items-center gap-2">
+            <h3 className="text-sm font-medium text-stone-600 flex items-center gap-2">
               <Package className="h-4 w-4" />
               Line Items
             </h3>
@@ -325,7 +325,7 @@ export default function QuotationForm({ quotationId }: QuotationFormProps) {
                   notes: '',
                 })
               }
-              className="flex items-center gap-1.5 rounded-lg bg-stone-700 px-3 py-1.5 text-xs font-medium text-stone-200 hover:bg-stone-600 transition-colors"
+              className="flex items-center gap-1.5 rounded-lg bg-stone-200 px-3 py-1.5 text-xs font-medium text-stone-700 hover:bg-stone-200 transition-colors"
             >
               <Plus className="h-3.5 w-3.5" />
               Add Item
@@ -363,7 +363,7 @@ export default function QuotationForm({ quotationId }: QuotationFormProps) {
             <div className="overflow-x-auto">
               <table className="w-full">
                 <thead>
-                  <tr className="border-b border-stone-700">
+                  <tr className="border-b border-stone-200">
                     <th className="pb-2 text-left text-xs font-medium text-stone-400 w-8">#</th>
                     <th className="pb-2 text-left text-xs font-medium text-stone-400">Product</th>
                     <th className="pb-2 text-right text-xs font-medium text-stone-400 w-24">Qty</th>
@@ -397,17 +397,17 @@ export default function QuotationForm({ quotationId }: QuotationFormProps) {
                                 }}
                                 onFocus={() => setActiveItemIndex(index)}
                                 placeholder="Search part number or name..."
-                                className="w-full rounded-lg bg-stone-900 border border-stone-700 pl-8 pr-3 py-1.5 text-sm text-stone-200 placeholder-stone-500 focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500"
+                                className="w-full rounded-lg bg-white border border-stone-200 pl-8 pr-3 py-1.5 text-sm text-stone-700 placeholder-stone-500 focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500"
                               />
                             </div>
                             {activeItemIndex === index && productResults.length > 0 && (
-                              <div className="absolute z-20 mt-1 w-full max-h-48 overflow-auto rounded-lg bg-stone-800 border border-stone-600 shadow-xl">
+                              <div className="absolute z-20 mt-1 w-full max-h-48 overflow-auto rounded-lg bg-stone-100 border border-stone-600 shadow-xl">
                                 {productResults.map((p) => (
                                   <button
                                     key={p.id}
                                     type="button"
                                     onClick={() => handleAddProduct(p, index)}
-                                    className="w-full text-left px-3 py-2 hover:bg-stone-700 transition-colors"
+                                    className="w-full text-left px-3 py-2 hover:bg-stone-200 transition-colors"
                                   >
                                     <p className="text-sm font-mono text-amber-400">{p.partNumber}</p>
                                     <p className="text-xs text-stone-400">
@@ -419,7 +419,7 @@ export default function QuotationForm({ quotationId }: QuotationFormProps) {
                               </div>
                             )}
                             {activeItemIndex === index && searchingProducts && (
-                              <div className="absolute z-20 mt-1 w-full rounded-lg bg-stone-800 border border-stone-600 p-3 text-center">
+                              <div className="absolute z-20 mt-1 w-full rounded-lg bg-stone-100 border border-stone-600 p-3 text-center">
                                 <Loader2 className="h-4 w-4 animate-spin text-stone-400 mx-auto" />
                               </div>
                             )}
@@ -436,7 +436,7 @@ export default function QuotationForm({ quotationId }: QuotationFormProps) {
                             setValue(`items.${index}.quantity`, val)
                             setValue(`items.${index}.amount`, val * (watchItems?.[index]?.unitPrice || 0))
                           }}
-                          className="w-full rounded-lg bg-stone-900 border border-stone-700 px-2 py-1.5 text-sm text-right text-stone-200 focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500"
+                          className="w-full rounded-lg bg-white border border-stone-200 px-2 py-1.5 text-sm text-right text-stone-700 focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500"
                         />
                       </td>
                       <td className="py-3 pr-3">
@@ -449,11 +449,11 @@ export default function QuotationForm({ quotationId }: QuotationFormProps) {
                             setValue(`items.${index}.unitPrice`, val)
                             setValue(`items.${index}.amount`, (watchItems?.[index]?.quantity || 1) * val)
                           }}
-                          className="w-full rounded-lg bg-stone-900 border border-stone-700 px-2 py-1.5 text-sm text-right text-stone-200 focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500"
+                          className="w-full rounded-lg bg-white border border-stone-200 px-2 py-1.5 text-sm text-right text-stone-700 focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500"
                         />
                       </td>
                       <td className="py-3 pr-3 text-right">
-                        <p className="text-sm font-medium text-stone-200">
+                        <p className="text-sm font-medium text-stone-700">
                           {new Intl.NumberFormat('vi-VN').format(watchItems?.[index]?.amount || 0)}
                         </p>
                       </td>
@@ -476,23 +476,23 @@ export default function QuotationForm({ quotationId }: QuotationFormProps) {
 
         {/* Totals */}
         {fields.length > 0 && (
-          <div className="rounded-xl bg-stone-800/50 border border-stone-700/50 p-6">
+          <div className="rounded-xl bg-stone-50 border border-stone-200 p-6">
             <div className="flex justify-end">
               <div className="w-72 space-y-2">
                 <div className="flex items-center justify-between text-sm">
                   <span className="text-stone-400">Subtotal</span>
-                  <span className="text-stone-200 font-medium">
+                  <span className="text-stone-700 font-medium">
                     {new Intl.NumberFormat('vi-VN').format(subtotal)}
                   </span>
                 </div>
                 <div className="flex items-center justify-between text-sm">
                   <span className="text-stone-400">VAT ({watchTaxRate}%)</span>
-                  <span className="text-stone-200">
+                  <span className="text-stone-700">
                     {new Intl.NumberFormat('vi-VN').format(taxAmount)}
                   </span>
                 </div>
-                <div className="border-t border-stone-700 pt-2 flex items-center justify-between">
-                  <span className="text-sm font-medium text-stone-300">Total</span>
+                <div className="border-t border-stone-200 pt-2 flex items-center justify-between">
+                  <span className="text-sm font-medium text-stone-600">Total</span>
                   <span className="text-lg font-bold text-amber-400">
                     {new Intl.NumberFormat('vi-VN').format(totalAmount)} {watch('currency')}
                   </span>

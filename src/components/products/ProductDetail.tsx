@@ -28,11 +28,11 @@ export default function ProductDetail({ product, isOpen, onClose, onEdit }: Prod
       />
 
       {/* Slide-over Panel */}
-      <div className="fixed inset-y-0 right-0 w-full max-w-2xl bg-stone-900 border-l border-stone-700 z-50 overflow-y-auto">
+      <div className="fixed inset-y-0 right-0 w-full max-w-2xl bg-white border-l border-stone-200 z-50 overflow-y-auto">
         {/* Header */}
-        <div className="sticky top-0 z-10 flex items-center justify-between bg-stone-900/95 backdrop-blur border-b border-stone-700 px-6 py-4">
+        <div className="sticky top-0 z-10 flex items-center justify-between bg-white/95 backdrop-blur border-b border-stone-200 px-6 py-4">
           <div>
-            <h2 className="font-display text-xl font-semibold text-stone-50">
+            <h2 className="font-display text-xl font-semibold text-stone-900">
               Chi tiết sản phẩm
             </h2>
             <p className="text-sm text-stone-400 mt-1">
@@ -51,7 +51,7 @@ export default function ProductDetail({ product, isOpen, onClose, onEdit }: Prod
             )}
             <button
               onClick={onClose}
-              className="flex h-9 w-9 items-center justify-center rounded-lg text-stone-400 hover:bg-stone-800 hover:text-stone-200 transition-colors"
+              className="flex h-9 w-9 items-center justify-center rounded-lg text-stone-400 hover:bg-stone-100 hover:text-stone-700 transition-colors"
             >
               <X className="h-5 w-5" />
             </button>
@@ -61,8 +61,8 @@ export default function ProductDetail({ product, isOpen, onClose, onEdit }: Prod
         {/* Content */}
         <div className="p-6 space-y-6">
           {/* Main Info Card */}
-          <div className="rounded-xl bg-stone-800/50 border border-stone-700/50 p-6">
-            <h3 className="font-display text-lg font-semibold text-stone-50 mb-4">
+          <div className="rounded-xl bg-stone-50 border border-stone-200 p-6">
+            <h3 className="font-display text-lg font-semibold text-stone-900 mb-4">
               Thông tin sản phẩm
             </h3>
 
@@ -80,28 +80,28 @@ export default function ProductDetail({ product, isOpen, onClose, onEdit }: Prod
                 <label className="text-xs text-stone-500 uppercase tracking-wider">
                   Name
                 </label>
-                <p className="text-stone-200 mt-1">{product.name}</p>
+                <p className="text-stone-700 mt-1">{product.name}</p>
               </div>
 
               <div>
                 <label className="text-xs text-stone-500 uppercase tracking-wider">
                   Category
                 </label>
-                <p className="text-stone-200 mt-1 capitalize">{product.category}</p>
+                <p className="text-stone-700 mt-1 capitalize">{product.category}</p>
               </div>
 
               <div>
                 <label className="text-xs text-stone-500 uppercase tracking-wider">
                   Brand
                 </label>
-                <p className="text-stone-200 mt-1">{product.brand || '—'}</p>
+                <p className="text-stone-700 mt-1">{product.brand || '—'}</p>
               </div>
 
               <div>
                 <label className="text-xs text-stone-500 uppercase tracking-wider">
                   Machine Model
                 </label>
-                <p className="text-stone-200 mt-1">{product.machineModel || '—'}</p>
+                <p className="text-stone-700 mt-1">{product.machineModel || '—'}</p>
               </div>
 
               <div>
@@ -112,13 +112,13 @@ export default function ProductDetail({ product, isOpen, onClose, onEdit }: Prod
                   <span
                     className={cn(
                       'inline-block px-3 py-1 rounded-md border text-xs font-medium mt-1',
-                      materialColors[product.material] || 'bg-stone-700/50 text-stone-300 border-stone-600'
+                      materialColors[product.material] || 'bg-stone-100 text-stone-600 border-stone-600'
                     )}
                   >
                     {product.material}
                   </span>
                 ) : (
-                  <p className="text-stone-200 mt-1">—</p>
+                  <p className="text-stone-700 mt-1">—</p>
                 )}
               </div>
 
@@ -126,21 +126,21 @@ export default function ProductDetail({ product, isOpen, onClose, onEdit }: Prod
                 <label className="text-xs text-stone-500 uppercase tracking-wider">
                   Size / Spec
                 </label>
-                <p className="font-mono text-stone-200 mt-1">{product.size || '—'}</p>
+                <p className="font-mono text-stone-700 mt-1">{product.size || '—'}</p>
               </div>
 
               <div>
                 <label className="text-xs text-stone-500 uppercase tracking-wider">
                   Remark
                 </label>
-                <p className="text-stone-200 mt-1">{product.remark || '—'}</p>
+                <p className="text-stone-700 mt-1">{product.remark || '—'}</p>
               </div>
 
               <div>
                 <label className="text-xs text-stone-500 uppercase tracking-wider">
                   Stock Quantity
                 </label>
-                <p className="text-stone-200 mt-1">{product.stockQuantity} {product.unit}</p>
+                <p className="text-stone-700 mt-1">{product.stockQuantity} {product.unit}</p>
               </div>
 
               <div>
@@ -159,18 +159,18 @@ export default function ProductDetail({ product, isOpen, onClose, onEdit }: Prod
             </div>
 
             {product.notes && (
-              <div className="mt-6 pt-6 border-t border-stone-700">
+              <div className="mt-6 pt-6 border-t border-stone-200">
                 <label className="text-xs text-stone-500 uppercase tracking-wider">
                   Notes
                 </label>
-                <p className="text-stone-300 mt-2">{product.notes}</p>
+                <p className="text-stone-600 mt-2">{product.notes}</p>
               </div>
             )}
           </div>
 
           {/* Pricing Card */}
-          <div className="rounded-xl bg-stone-800/50 border border-stone-700/50 p-6">
-            <h3 className="font-display text-lg font-semibold text-stone-50 mb-4">
+          <div className="rounded-xl bg-stone-50 border border-stone-200 p-6">
+            <h3 className="font-display text-lg font-semibold text-stone-900 mb-4">
               Pricing Information
             </h3>
             <div className="grid grid-cols-2 gap-4">
@@ -178,7 +178,7 @@ export default function ProductDetail({ product, isOpen, onClose, onEdit }: Prod
                 <label className="text-xs text-stone-500 uppercase tracking-wider">
                   Cost Price
                 </label>
-                <p className="text-stone-200 mt-1">
+                <p className="text-stone-700 mt-1">
                   {product.costPrice ? `${product.costPrice.toLocaleString()} ${product.costCurrency}` : '—'}
                 </p>
               </div>
@@ -186,7 +186,7 @@ export default function ProductDetail({ product, isOpen, onClose, onEdit }: Prod
                 <label className="text-xs text-stone-500 uppercase tracking-wider">
                   Selling Price
                 </label>
-                <p className="text-stone-200 mt-1">
+                <p className="text-stone-700 mt-1">
                   {product.sellingPrice ? `${product.sellingPrice.toLocaleString()} ${product.sellingCurrency}` : '—'}
                 </p>
               </div>
@@ -204,15 +204,15 @@ export default function ProductDetail({ product, isOpen, onClose, onEdit }: Prod
           </div>
 
           {/* Tabs Placeholder */}
-          <div className="rounded-xl bg-stone-800/50 border border-stone-700/50 p-6">
-            <div className="flex gap-4 border-b border-stone-700 mb-4">
+          <div className="rounded-xl bg-stone-50 border border-stone-200 p-6">
+            <div className="flex gap-4 border-b border-stone-200 mb-4">
               <button className="pb-3 text-sm font-medium text-amber-400 border-b-2 border-amber-400">
                 Thông tin
               </button>
-              <button className="pb-3 text-sm font-medium text-stone-500 hover:text-stone-300">
+              <button className="pb-3 text-sm font-medium text-stone-500 hover:text-stone-600">
                 Lịch sử bán
               </button>
-              <button className="pb-3 text-sm font-medium text-stone-500 hover:text-stone-300">
+              <button className="pb-3 text-sm font-medium text-stone-500 hover:text-stone-600">
                 Nhà cung cấp
               </button>
             </div>

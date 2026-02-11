@@ -123,15 +123,15 @@ export default function DealForm({ isOpen, onClose, deal, defaultStage }: DealFo
 
       {/* Modal */}
       <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-        <div className="w-full max-w-lg max-h-[90vh] bg-stone-900 rounded-xl border border-stone-700 overflow-hidden flex flex-col">
+        <div className="w-full max-w-lg max-h-[90vh] bg-white rounded-xl border border-stone-200 overflow-hidden flex flex-col">
           {/* Header */}
-          <div className="flex items-center justify-between bg-stone-800/50 px-6 py-4 border-b border-stone-700">
-            <h2 className="font-display text-xl font-semibold text-stone-50">
+          <div className="flex items-center justify-between bg-stone-50 px-6 py-4 border-b border-stone-200">
+            <h2 className="font-display text-xl font-semibold text-stone-900">
               {isEdit ? 'Sửa deal' : 'Tạo deal mới'}
             </h2>
             <button
               onClick={handleClose}
-              className="flex h-9 w-9 items-center justify-center rounded-lg text-stone-400 hover:bg-stone-700 hover:text-stone-200 transition-colors"
+              className="flex h-9 w-9 items-center justify-center rounded-lg text-stone-400 hover:bg-stone-200 hover:text-stone-700 transition-colors"
             >
               <X className="h-5 w-5" />
             </button>
@@ -148,7 +148,7 @@ export default function DealForm({ isOpen, onClose, deal, defaultStage }: DealFo
                 <input
                   {...register('title')}
                   placeholder="VD: Nozzle cho Samsung VN"
-                  className="w-full rounded-lg bg-stone-800 border border-stone-700 px-3 py-2 text-sm text-stone-200 placeholder-stone-500 focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500"
+                  className="w-full rounded-lg bg-stone-100 border border-stone-200 px-3 py-2 text-sm text-stone-700 placeholder-stone-500 focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500"
                 />
                 {errors.title && (
                   <p className="mt-1 text-xs text-red-400">{errors.title.message}</p>
@@ -160,7 +160,7 @@ export default function DealForm({ isOpen, onClose, deal, defaultStage }: DealFo
                 <label className="block text-xs font-medium text-stone-400 mb-1.5">Khách hàng</label>
                 <select
                   {...register('customerId', { valueAsNumber: true })}
-                  className="w-full rounded-lg bg-stone-800 border border-stone-700 px-3 py-2 text-sm text-stone-200 focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500"
+                  className="w-full rounded-lg bg-stone-100 border border-stone-200 px-3 py-2 text-sm text-stone-700 focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500"
                 >
                   <option value="">-- Chọn khách hàng --</option>
                   {customerList?.map((c) => (
@@ -179,7 +179,7 @@ export default function DealForm({ isOpen, onClose, deal, defaultStage }: DealFo
                     type="number"
                     {...register('dealValue', { valueAsNumber: true })}
                     placeholder="0"
-                    className="w-full rounded-lg bg-stone-800 border border-stone-700 px-3 py-2 text-sm text-stone-200 placeholder-stone-500 focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500"
+                    className="w-full rounded-lg bg-stone-100 border border-stone-200 px-3 py-2 text-sm text-stone-700 placeholder-stone-500 focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500"
                   />
                 </div>
 
@@ -188,7 +188,7 @@ export default function DealForm({ isOpen, onClose, deal, defaultStage }: DealFo
                   <label className="block text-xs font-medium text-stone-400 mb-1.5">Tiền tệ</label>
                   <select
                     {...register('currency')}
-                    className="w-full rounded-lg bg-stone-800 border border-stone-700 px-3 py-2 text-sm text-stone-200 focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500"
+                    className="w-full rounded-lg bg-stone-100 border border-stone-200 px-3 py-2 text-sm text-stone-700 focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500"
                   >
                     <option value="VND">VND</option>
                     <option value="USD">USD</option>
@@ -218,7 +218,7 @@ export default function DealForm({ isOpen, onClose, deal, defaultStage }: DealFo
                   <label className="block text-xs font-medium text-stone-400 mb-1.5">Stage</label>
                   <select
                     {...register('stage')}
-                    className="w-full rounded-lg bg-stone-800 border border-stone-700 px-3 py-2 text-sm text-stone-200 focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500"
+                    className="w-full rounded-lg bg-stone-100 border border-stone-200 px-3 py-2 text-sm text-stone-700 focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500"
                   >
                     {STAGES.map((s) => (
                       <option key={s.value} value={s.value}>
@@ -235,7 +235,7 @@ export default function DealForm({ isOpen, onClose, deal, defaultStage }: DealFo
                 <input
                   type="date"
                   {...register('expectedCloseDate')}
-                  className="w-full rounded-lg bg-stone-800 border border-stone-700 px-3 py-2 text-sm text-stone-200 focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500"
+                  className="w-full rounded-lg bg-stone-100 border border-stone-200 px-3 py-2 text-sm text-stone-700 focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500"
                 />
               </div>
 
@@ -246,18 +246,18 @@ export default function DealForm({ isOpen, onClose, deal, defaultStage }: DealFo
                   {...register('notes')}
                   rows={3}
                   placeholder="Ghi chú thêm..."
-                  className="w-full rounded-lg bg-stone-800 border border-stone-700 px-3 py-2 text-sm text-stone-200 placeholder-stone-500 focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500 resize-none"
+                  className="w-full rounded-lg bg-stone-100 border border-stone-200 px-3 py-2 text-sm text-stone-700 placeholder-stone-500 focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500 resize-none"
                 />
               </div>
             </div>
           </form>
 
           {/* Footer */}
-          <div className="flex items-center justify-end gap-3 border-t border-stone-700 bg-stone-800/50 px-6 py-4">
+          <div className="flex items-center justify-end gap-3 border-t border-stone-200 bg-stone-50 px-6 py-4">
             <button
               type="button"
               onClick={handleClose}
-              className="rounded-lg px-4 py-2 text-sm font-medium text-stone-300 hover:bg-stone-700 transition-colors"
+              className="rounded-lg px-4 py-2 text-sm font-medium text-stone-600 hover:bg-stone-200 transition-colors"
             >
               Hủy
             </button>

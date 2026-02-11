@@ -32,8 +32,8 @@ export default {
           foreground: '#fafaf9',
         },
         secondary: {
-          DEFAULT: '#a8a29e',
-          foreground: '#fafaf9',
+          DEFAULT: '#f5f5f4',
+          foreground: '#1c1917',
         },
         accent: {
           DEFAULT: '#f59e0b',
@@ -42,12 +42,12 @@ export default {
         success: '#65a30d',
         danger: '#dc2626',
         muted: {
-          DEFAULT: '#1c1917',
-          foreground: '#a8a29e',
+          DEFAULT: '#f5f5f4',
+          foreground: '#78716c',
         },
         card: {
-          DEFAULT: '#1c1917',
-          foreground: '#fafaf9',
+          DEFAULT: '#ffffff',
+          foreground: '#1c1917',
         },
         popover: {
           DEFAULT: 'hsl(var(--popover))',

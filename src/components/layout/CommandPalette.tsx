@@ -222,19 +222,19 @@ export default function CommandPalette({ isOpen, onClose }: CommandPaletteProps)
 
       {/* Command Palette */}
       <div className="fixed top-[20%] left-1/2 -translate-x-1/2 w-full max-w-2xl z-50 animate-in fade-in slide-in-from-top-4 duration-200">
-        <div className="mx-4 rounded-xl bg-stone-900 border border-stone-700 shadow-2xl">
+        <div className="mx-4 rounded-xl bg-white border border-stone-200 shadow-2xl">
           {/* Search Input */}
-          <div className="flex items-center gap-3 px-4 py-3 border-b border-stone-700">
+          <div className="flex items-center gap-3 px-4 py-3 border-b border-stone-200">
             <Search className="h-5 w-5 text-stone-400" />
             <input
               type="text"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               placeholder="Tìm kiếm sản phẩm, khách hàng, hoặc chuyển trang..."
-              className="flex-1 bg-transparent text-stone-200 placeholder-stone-500 outline-none text-sm"
+              className="flex-1 bg-transparent text-stone-700 placeholder-stone-500 outline-none text-sm"
               autoFocus
             />
-            <kbd className="hidden sm:inline-block px-2 py-1 text-xs font-medium text-stone-400 bg-stone-800 border border-stone-700 rounded">
+            <kbd className="hidden sm:inline-block px-2 py-1 text-xs font-medium text-stone-400 bg-stone-100 border border-stone-200 rounded">
               ESC
             </kbd>
           </div>
@@ -267,7 +267,7 @@ export default function CommandPalette({ isOpen, onClose }: CommandPaletteProps)
                             'w-full flex items-center gap-3 px-3 py-2 rounded-lg text-left transition-colors',
                             isSelected
                               ? 'bg-amber-600 text-white'
-                              : 'text-stone-300 hover:bg-stone-800'
+                              : 'text-stone-600 hover:bg-stone-100'
                           )}
                         >
                           <Icon className="h-4 w-4 flex-shrink-0" />
@@ -295,20 +295,20 @@ export default function CommandPalette({ isOpen, onClose }: CommandPaletteProps)
           </div>
 
           {/* Footer */}
-          <div className="flex items-center justify-between px-4 py-2 border-t border-stone-700 text-xs text-stone-500">
+          <div className="flex items-center justify-between px-4 py-2 border-t border-stone-200 text-xs text-stone-500">
             <div className="flex items-center gap-4">
               <div className="flex items-center gap-1">
-                <kbd className="px-1.5 py-0.5 bg-stone-800 border border-stone-700 rounded">↑</kbd>
-                <kbd className="px-1.5 py-0.5 bg-stone-800 border border-stone-700 rounded">↓</kbd>
+                <kbd className="px-1.5 py-0.5 bg-stone-100 border border-stone-200 rounded">↑</kbd>
+                <kbd className="px-1.5 py-0.5 bg-stone-100 border border-stone-200 rounded">↓</kbd>
                 <span className="ml-1">di chuyển</span>
               </div>
               <div className="flex items-center gap-1">
-                <kbd className="px-1.5 py-0.5 bg-stone-800 border border-stone-700 rounded">↵</kbd>
+                <kbd className="px-1.5 py-0.5 bg-stone-100 border border-stone-200 rounded">↵</kbd>
                 <span className="ml-1">chọn</span>
               </div>
             </div>
             <div className="flex items-center gap-1">
-              <kbd className="px-1.5 py-0.5 bg-stone-800 border border-stone-700 rounded">ESC</kbd>
+              <kbd className="px-1.5 py-0.5 bg-stone-100 border border-stone-200 rounded">ESC</kbd>
               <span className="ml-1">đóng</span>
             </div>
           </div>
