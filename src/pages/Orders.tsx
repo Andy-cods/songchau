@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Plus, Search, X, Package, CheckCircle2, Clock, Truck, ClipboardCheck, Box } from 'lucide-react'
+import { Plus, Search, X, Package } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { useOrders, useDeleteOrder } from '@/hooks/useOrders'
 import { useDebounce } from '@/hooks/useDebounce'
@@ -109,9 +109,6 @@ export default function Orders() {
     setPage(1)
   }
 
-  const handleDelete = (id: number, orderNumber: string) => {
-    setConfirmDelete({ open: true, id, orderNumber })
-  }
 
   const handleConfirmDelete = async () => {
     try {

@@ -1,6 +1,6 @@
 import { db } from './index.js'
 import { customers, suppliers, activities, quotations, quoteItems, orders, orderItems, pipeline } from './schema.js'
-import { sql } from 'drizzle-orm'
+// import { sql } from 'drizzle-orm'
 import { products } from './schema.js'
 
 async function seedTestData() {

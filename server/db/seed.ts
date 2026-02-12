@@ -1,5 +1,5 @@
 import { db, schema } from './index'
-import { eq } from 'drizzle-orm'
+// import { eq } from 'drizzle-orm'
 
 // Product Categories Data
 const categories = [

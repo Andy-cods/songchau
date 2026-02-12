@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Plus, Search, X, ChevronLeft, ChevronRight, Star } from 'lucide-react'
+import { Plus, Search, X, Star } from 'lucide-react'
 import { type Supplier } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { SUPPLIER_COUNTRIES, SUPPLIER_PLATFORMS } from '@/lib/constants'

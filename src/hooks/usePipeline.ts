@@ -23,7 +23,7 @@ interface PipelineFilters {
 export function usePipeline(filters: PipelineFilters = {}) {
   return useQuery({
     queryKey: pipelineKeys.list(filters),
-    queryFn: () => fetchPipeline(filters),
+    queryFn: () => fetchPipeline(filters as any),
   })
 }
 
@@ -76,7 +76,7 @@ export function useUpdateDealStage() {
   const queryClient = useQueryClient()
 
   return useMutation({
-    mutationFn: ({ id, stage, lostReason, quotationId }: { id: number; stage: string; lostReason?: string; quotationId?: number }) =>
+    mutationFn: ({ id, stage, lostReason }: { id: number; stage: string; lostReason?: string; quotationId?: number }) =>
       updatePipelineStage(id, stage, lostReason),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: pipelineKeys.lists() })

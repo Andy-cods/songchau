@@ -41,7 +41,7 @@ export default function ProductDetail({ product, isOpen, onClose, onEdit }: Prod
 
   // Related products state
   const [relatedProducts, setRelatedProducts] = useState<RelatedProduct[]>([])
-  const [loadingRelated, setLoadingRelated] = useState(false)
+  const [, setLoadingRelated] = useState(false)
 
   // Reset when product changes
   useEffect(() => {

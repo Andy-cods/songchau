@@ -144,16 +144,16 @@ app.get('/models', async (c) => {
   const brand = c.req.query('brand') || ''
 
   try {
-    let query = db
-      .selectDistinct({ machineModel: schema.products.machineModel })
-      .from(schema.products)
-      .where(sql`${schema.products.machineModel} IS NOT NULL`)
-
+    const conditions = [sql`${schema.products.machineModel} IS NOT NULL`]
     if (brand) {
-      query = query.where(eq(schema.products.brand, brand))
+      conditions.push(eq(schema.products.brand, brand))
     }
 
-    const models = await query.orderBy(schema.products.machineModel)
+    const models = await db
+      .selectDistinct({ machineModel: schema.products.machineModel })
+      .from(schema.products)
+      .where(and(...conditions))
+      .orderBy(schema.products.machineModel)
 
     return c.json({
       data: models.map(m => m.machineModel).filter(Boolean),

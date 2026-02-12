@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
-import { Save, Undo2, Plus, Loader2, Trash2 } from 'lucide-react'
+import { Save, Undo2, Plus, Loader2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { Product } from '@/lib/api'
 
@@ -54,7 +54,7 @@ const EMPTY_NEW_ROW: Record<string, any> = {
   status: 'active',
 }
 
-export default function ProductSpreadsheet({ products, isLoading, onUpdate, onCreate, onDelete }: Props) {
+export default function ProductSpreadsheet({ products, isLoading, onUpdate, onCreate }: Props) {
   const [editingCell, setEditingCell] = useState<EditingCell>(null)
   const [dirtyRows, setDirtyRows] = useState<Map<number | 'new', Record<string, any>>>(new Map())
   const [savingRows, setSavingRows] = useState<Set<number | 'new'>>(new Set())

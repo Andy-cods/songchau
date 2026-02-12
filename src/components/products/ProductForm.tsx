@@ -37,7 +37,7 @@ export default function ProductForm({ isOpen, onClose, onSubmit, product, mode }
     reset,
   } = useForm<ProductFormData>({
     resolver: zodResolver(productSchema),
-    defaultValues: product || {},
+    defaultValues: (product || {}) as any,
   })
 
   if (!isOpen) return null

@@ -25,7 +25,7 @@ interface OrderFilters {
 export function useOrders(filters: OrderFilters = {}) {
   return useQuery({
     queryKey: orderKeys.list(filters),
-    queryFn: () => fetchOrders(filters),
+    queryFn: () => fetchOrders(filters as any),
   })
 }
 
@@ -43,7 +43,7 @@ export function useCreateOrder() {
   const queryClient = useQueryClient()
 
   return useMutation({
-    mutationFn: (data: Partial<Order>) => createOrder(data),
+    mutationFn: (data: Partial<Order>) => createOrder(data as any),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: orderKeys.lists() })
     },

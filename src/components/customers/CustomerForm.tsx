@@ -65,14 +65,13 @@ export default function CustomerForm({
     handleSubmit,
     formState: { errors, isSubmitting },
     reset,
-    watch,
   } = useForm<CustomerFormData>({
     resolver: zodResolver(customerSchema),
     defaultValues: customer
       ? {
           ...customer,
           smtBrands: customer.smtBrands ? JSON.parse(customer.smtBrands) : [],
-        }
+        } as any
       : { status: 'active', smtBrands: [] },
   })
 
@@ -80,7 +79,11 @@ export default function CustomerForm({
 
   const handleFormSubmit = async (data: CustomerFormData) => {
     try {
-      await onSubmit(data)
+      const submitData: any = {
+        ...data,
+        smtBrands: data.smtBrands ? JSON.stringify(data.smtBrands) : null,
+      }
+      await onSubmit(submitData)
       reset()
       onClose()
     } catch (error) {

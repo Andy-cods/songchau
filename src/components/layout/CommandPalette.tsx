@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, Fragment } from 'react'
+import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Search, ArrowRight, Package, Users, FileText, ShoppingCart, TrendingUp, Settings } from 'lucide-react'
 import { fetchProducts, fetchCustomers, type Product, type Customer } from '@/lib/api'
@@ -254,7 +254,7 @@ export default function CommandPalette({ isOpen, onClose }: CommandPaletteProps)
                     {GROUP_LABELS[group as keyof typeof GROUP_LABELS] || group}
                   </div>
                   <div className="space-y-1">
-                    {groupItems.map((item, idx) => {
+                    {groupItems.map((item) => {
                       const globalIndex = items.indexOf(item)
                       const Icon = item.icon
                       const isSelected = globalIndex === selectedIndex
