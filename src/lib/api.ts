@@ -152,6 +152,87 @@ export async function fetchMachineModels(brand?: string): Promise<{ data: string
   return res.json()
 }
 
+// ==================== PRODUCT DETAIL DATA ====================
+
+export interface SalesHistoryItem {
+  id: number
+  referenceNumber: string
+  customerName: string
+  date: string
+  quantity: number
+  unitPrice: number
+  amount: number
+  status: string
+}
+
+export interface SalesHistorySummary {
+  totalSoldQty: number
+  totalRevenue: number
+  uniqueCustomers: number
+  totalOrders: number
+  totalQuotations: number
+}
+
+export interface ProductSupplier {
+  id: number
+  supplierId: number
+  supplierName: string
+  country: string
+  platform: string | null
+  rating: number | null
+  qualityScore: number | null
+  deliveryScore: number | null
+  priceScore: number | null
+  costPrice: number | null
+  costCurrency: string
+  moq: number | null
+  leadTimeDays: number | null
+  lastPurchaseDate: string | null
+  lastPurchasePrice: number | null
+  notes: string | null
+}
+
+export interface RelatedProduct {
+  id: number
+  partNumber: string
+  name: string
+  category: string
+  material: string | null
+  size: string | null
+  sellingPrice: number | null
+  sellingCurrency: string
+  stockQuantity: number
+}
+
+export async function fetchProductSalesHistory(productId: number): Promise<{
+  data: {
+    orders: SalesHistoryItem[]
+    quotations: SalesHistoryItem[]
+    summary: SalesHistorySummary
+  }
+}> {
+  const res = await fetch(`${API_BASE}/products/${productId}/sales-history`)
+  if (!res.ok) throw new Error('Failed to fetch sales history')
+  return res.json()
+}
+
+export async function fetchProductSuppliers(productId: number): Promise<{
+  data: {
+    suppliers: ProductSupplier[]
+    bestPriceSupplierId: number | null
+  }
+}> {
+  const res = await fetch(`${API_BASE}/products/${productId}/suppliers`)
+  if (!res.ok) throw new Error('Failed to fetch product suppliers')
+  return res.json()
+}
+
+export async function fetchRelatedProducts(productId: number): Promise<{ data: RelatedProduct[] }> {
+  const res = await fetch(`${API_BASE}/products/${productId}/related`)
+  if (!res.ok) throw new Error('Failed to fetch related products')
+  return res.json()
+}
+
 // ==================== CUSTOMERS ====================
 
 export interface Customer {

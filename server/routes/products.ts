@@ -1,6 +1,6 @@
 import { Hono } from 'hono'
 import { db, schema } from '../db/index'
-import { eq, like, and, or, sql, desc } from 'drizzle-orm'
+import { eq, like, and, or, sql, desc, ne } from 'drizzle-orm'
 
 const app = new Hono()
 
@@ -161,6 +161,165 @@ app.get('/models', async (c) => {
   } catch (error) {
     console.error('Error fetching models:', error)
     return c.json({ error: 'Failed to fetch models' }, 500)
+  }
+})
+
+// GET /api/products/:id/sales-history - Get sales history for a product
+app.get('/:id/sales-history', async (c) => {
+  const id = parseInt(c.req.param('id'))
+  if (isNaN(id)) return c.json({ error: 'Invalid product ID' }, 400)
+
+  try {
+    const orderHistory = await db
+      .select({
+        id: schema.orderItems.id,
+        referenceNumber: schema.orders.orderNumber,
+        customerName: schema.customers.companyName,
+        date: schema.orders.createdAt,
+        quantity: schema.orderItems.quantity,
+        unitPrice: schema.orderItems.unitPrice,
+        amount: schema.orderItems.amount,
+        status: schema.orders.status,
+      })
+      .from(schema.orderItems)
+      .leftJoin(schema.orders, eq(schema.orderItems.orderId, schema.orders.id))
+      .leftJoin(schema.customers, eq(schema.orders.customerId, schema.customers.id))
+      .where(eq(schema.orderItems.productId, id))
+      .orderBy(desc(schema.orders.createdAt))
+
+    const quoteHistory = await db
+      .select({
+        id: schema.quoteItems.id,
+        referenceNumber: schema.quotations.quoteNumber,
+        customerName: schema.customers.companyName,
+        date: schema.quotations.createdAt,
+        quantity: schema.quoteItems.quantity,
+        unitPrice: schema.quoteItems.unitPrice,
+        amount: schema.quoteItems.amount,
+        status: schema.quotations.status,
+      })
+      .from(schema.quoteItems)
+      .leftJoin(schema.quotations, eq(schema.quoteItems.quotationId, schema.quotations.id))
+      .leftJoin(schema.customers, eq(schema.quotations.customerId, schema.customers.id))
+      .where(eq(schema.quoteItems.productId, id))
+      .orderBy(desc(schema.quotations.createdAt))
+
+    const totalSoldQty = orderHistory.reduce((sum, item) => sum + (item.quantity || 0), 0)
+    const totalRevenue = orderHistory.reduce((sum, item) => sum + (item.amount || 0), 0)
+    const uniqueCustomers = new Set(orderHistory.map(item => item.customerName).filter(Boolean)).size
+
+    return c.json({
+      data: {
+        orders: orderHistory,
+        quotations: quoteHistory,
+        summary: {
+          totalSoldQty,
+          totalRevenue,
+          uniqueCustomers,
+          totalOrders: orderHistory.length,
+          totalQuotations: quoteHistory.length,
+        },
+      },
+    })
+  } catch (error) {
+    console.error('Error fetching sales history:', error)
+    return c.json({ error: 'Failed to fetch sales history' }, 500)
+  }
+})
+
+// GET /api/products/:id/suppliers - Get suppliers for a product
+app.get('/:id/suppliers', async (c) => {
+  const id = parseInt(c.req.param('id'))
+  if (isNaN(id)) return c.json({ error: 'Invalid product ID' }, 400)
+
+  try {
+    const supplierData = await db
+      .select({
+        id: schema.supplierProducts.id,
+        supplierId: schema.supplierProducts.supplierId,
+        supplierName: schema.suppliers.companyName,
+        country: schema.suppliers.country,
+        platform: schema.suppliers.platform,
+        rating: schema.suppliers.rating,
+        qualityScore: schema.suppliers.qualityScore,
+        deliveryScore: schema.suppliers.deliveryScore,
+        priceScore: schema.suppliers.priceScore,
+        costPrice: schema.supplierProducts.costPrice,
+        costCurrency: schema.supplierProducts.costCurrency,
+        moq: schema.supplierProducts.moq,
+        leadTimeDays: schema.supplierProducts.leadTimeDays,
+        lastPurchaseDate: schema.supplierProducts.lastPurchaseDate,
+        lastPurchasePrice: schema.supplierProducts.lastPurchasePrice,
+        notes: schema.supplierProducts.notes,
+      })
+      .from(schema.supplierProducts)
+      .leftJoin(schema.suppliers, eq(schema.supplierProducts.supplierId, schema.suppliers.id))
+      .where(eq(schema.supplierProducts.productId, id))
+      .orderBy(schema.supplierProducts.costPrice)
+
+    const bestPriceSupplierId = supplierData.length > 0
+      ? supplierData.reduce((best, curr) =>
+          (curr.costPrice ?? Infinity) < (best.costPrice ?? Infinity) ? curr : best
+        ).supplierId
+      : null
+
+    return c.json({
+      data: {
+        suppliers: supplierData,
+        bestPriceSupplierId,
+      },
+    })
+  } catch (error) {
+    console.error('Error fetching product suppliers:', error)
+    return c.json({ error: 'Failed to fetch product suppliers' }, 500)
+  }
+})
+
+// GET /api/products/:id/related - Get related products (same machine model + brand)
+app.get('/:id/related', async (c) => {
+  const id = parseInt(c.req.param('id'))
+  if (isNaN(id)) return c.json({ error: 'Invalid product ID' }, 400)
+
+  try {
+    const [currentProduct] = await db
+      .select({
+        machineModel: schema.products.machineModel,
+        brand: schema.products.brand,
+      })
+      .from(schema.products)
+      .where(eq(schema.products.id, id))
+      .limit(1)
+
+    if (!currentProduct?.machineModel || !currentProduct?.brand) {
+      return c.json({ data: [] })
+    }
+
+    const related = await db
+      .select({
+        id: schema.products.id,
+        partNumber: schema.products.partNumber,
+        name: schema.products.name,
+        category: schema.products.category,
+        material: schema.products.material,
+        size: schema.products.size,
+        sellingPrice: schema.products.sellingPrice,
+        sellingCurrency: schema.products.sellingCurrency,
+        stockQuantity: schema.products.stockQuantity,
+      })
+      .from(schema.products)
+      .where(
+        and(
+          eq(schema.products.machineModel, currentProduct.machineModel),
+          eq(schema.products.brand, currentProduct.brand),
+          ne(schema.products.id, id)
+        )
+      )
+      .limit(5)
+
+    return c.json({ data: related })
+  } catch (error) {
+    console.error('Error fetching related products:', error)
+    return c.json({ error: 'Failed to fetch related products' }, 500)
   }
 })
 
