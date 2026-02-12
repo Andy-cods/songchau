@@ -794,6 +794,44 @@ export async function deleteOrder(id: number): Promise<void> {
   if (!res.ok) throw new Error('Failed to delete order')
 }
 
+// ==================== ORDER DOCUMENTS ====================
+
+export interface OrderDocument {
+  id: number
+  orderId: number
+  title: string
+  url: string
+  type: string
+  notes: string | null
+  createdAt: string
+}
+
+// Fetch documents for an order
+export async function fetchOrderDocuments(orderId: number): Promise<{ data: OrderDocument[] }> {
+  const res = await fetch(`${API_BASE}/orders/${orderId}/documents`)
+  if (!res.ok) throw new Error('Failed to fetch order documents')
+  return res.json()
+}
+
+// Create document for an order
+export async function createOrderDocument(orderId: number, data: { title: string; url: string; type?: string; notes?: string }): Promise<{ data: OrderDocument }> {
+  const res = await fetch(`${API_BASE}/orders/${orderId}/documents`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  })
+  if (!res.ok) throw new Error('Failed to create order document')
+  return res.json()
+}
+
+// Delete document
+export async function deleteOrderDocument(orderId: number, docId: number): Promise<void> {
+  const res = await fetch(`${API_BASE}/orders/${orderId}/documents/${docId}`, {
+    method: 'DELETE',
+  })
+  if (!res.ok) throw new Error('Failed to delete order document')
+}
+
 // ==================== PIPELINE ====================
 
 export interface PipelineDeal {

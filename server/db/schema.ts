@@ -213,7 +213,18 @@ export const activities = sqliteTable('activities', {
   createdAt: text('created_at').default(sql`CURRENT_TIMESTAMP`),
 })
 
-// Bảng 11: settings
+// Bảng 11: order_documents
+export const orderDocuments = sqliteTable('order_documents', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  orderId: integer('order_id').references(() => orders.id).notNull(),
+  title: text('title').notNull(),
+  url: text('url').notNull(),
+  type: text('type').default('other'), // 'contract'|'invoice'|'po'|'other'
+  notes: text('notes'),
+  createdAt: text('created_at').default(sql`CURRENT_TIMESTAMP`),
+})
+
+// Bảng 12: settings
 export const settings = sqliteTable('settings', {
   key: text('key').primaryKey(),
   value: text('value'),

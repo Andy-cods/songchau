@@ -1,6 +1,6 @@
 import { Hono } from 'hono'
 import { db } from '../db/index.js'
-import { orders, orderItems, customers, products } from '../db/schema.js'
+import { orders, orderItems, orderDocuments, customers, products } from '../db/schema.js'
 import { eq, like, and, or, desc, sql, gte, lte } from 'drizzle-orm'
 
 const app = new Hono()
@@ -294,6 +294,60 @@ app.post('/:id/payments', async (c) => {
   } catch (error) {
     console.error('Error recording payment:', error)
     return c.json({ error: 'Failed to record payment' }, 500)
+  }
+})
+
+// ==================== DOCUMENTS ====================
+
+// Get documents for an order
+app.get('/:id/documents', async (c) => {
+  const orderId = parseInt(c.req.param('id'))
+  try {
+    const docs = await db
+      .select()
+      .from(orderDocuments)
+      .where(eq(orderDocuments.orderId, orderId))
+      .orderBy(desc(orderDocuments.createdAt))
+
+    return c.json({ data: docs })
+  } catch (error) {
+    console.error('Error fetching documents:', error)
+    return c.json({ error: 'Failed to fetch documents' }, 500)
+  }
+})
+
+// Add document to order
+app.post('/:id/documents', async (c) => {
+  const orderId = parseInt(c.req.param('id'))
+  try {
+    const body = await c.req.json()
+    const [doc] = await db.insert(orderDocuments).values({
+      orderId,
+      title: body.title,
+      url: body.url,
+      type: body.type || 'other',
+      notes: body.notes || null,
+    }).returning()
+
+    return c.json({ data: doc }, 201)
+  } catch (error) {
+    console.error('Error creating document:', error)
+    return c.json({ error: 'Failed to create document' }, 500)
+  }
+})
+
+// Delete document
+app.delete('/:id/documents/:docId', async (c) => {
+  const docId = parseInt(c.req.param('docId'))
+  try {
+    const [deleted] = await db.delete(orderDocuments).where(eq(orderDocuments.id, docId)).returning()
+    if (!deleted) {
+      return c.json({ error: 'Document not found' }, 404)
+    }
+    return c.json({ success: true })
+  } catch (error) {
+    console.error('Error deleting document:', error)
+    return c.json({ error: 'Failed to delete document' }, 500)
   }
 })
 

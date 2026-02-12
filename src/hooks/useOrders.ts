@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { fetchOrders, fetchOrder, createOrder, updateOrder, updateOrderStatus, recordPayment, deleteOrder, type Order } from '@/lib/api'
+import { fetchOrders, fetchOrder, createOrder, updateOrder, updateOrderStatus, recordPayment, deleteOrder, fetchOrderDocuments, createOrderDocument, deleteOrderDocument, type Order } from '@/lib/api'
 
 // Query key factory
 const orderKeys = {
@@ -97,6 +97,43 @@ export function useDeleteOrder() {
     mutationFn: (id: number) => deleteOrder(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: orderKeys.lists() })
+    },
+  })
+}
+
+// ==================== ORDER DOCUMENTS ====================
+
+// Get documents for an order
+export function useOrderDocuments(orderId: number | null) {
+  return useQuery({
+    queryKey: [...orderKeys.detail(orderId!), 'documents'] as const,
+    queryFn: () => fetchOrderDocuments(orderId!),
+    enabled: !!orderId,
+  })
+}
+
+// Create document mutation
+export function useCreateOrderDocument() {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: ({ orderId, data }: { orderId: number; data: { title: string; url: string; type?: string; notes?: string } }) =>
+      createOrderDocument(orderId, data),
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: [...orderKeys.detail(variables.orderId), 'documents'] })
+    },
+  })
+}
+
+// Delete document mutation
+export function useDeleteOrderDocument() {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: ({ orderId, docId }: { orderId: number; docId: number }) =>
+      deleteOrderDocument(orderId, docId),
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: [...orderKeys.detail(variables.orderId), 'documents'] })
     },
   })
 }

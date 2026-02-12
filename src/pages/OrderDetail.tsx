@@ -11,17 +11,25 @@ import {
   CreditCard,
   Truck,
   CheckCircle2,
-  Clock,
   ClipboardCheck,
   Box,
   DollarSign,
+  FileText,
+  Receipt,
+  File,
+  ExternalLink,
+  Plus,
+  X,
 } from 'lucide-react'
-import { useOrder, useUpdateOrderStatus, useRecordPayment, useDeleteOrder } from '@/hooks/useOrders'
+import { useOrder, useUpdateOrderStatus, useRecordPayment, useDeleteOrder, useOrderDocuments, useCreateOrderDocument, useDeleteOrderDocument } from '@/hooks/useOrders'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { fetchActivities, createActivity, markFollowUpDone, type Activity } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { ORDER_STATUS_COLORS, PAYMENT_STATUS_COLORS } from '@/lib/constants'
 import { format } from 'date-fns'
 import { useToast } from '@/hooks/use-toast'
 import ConfirmDialog from '@/components/shared/ConfirmDialog'
+import ActivityTimeline from '@/components/shared/ActivityTimeline'
 
 const ORDER_STATUSES = [
   { value: 'confirmed', label: 'Confirmed', icon: CheckCircle2 },
@@ -103,6 +111,21 @@ export default function OrderDetail() {
   const [showPaymentForm, setShowPaymentForm] = useState(false)
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
 
+  // Activities (notes timeline)
+  const queryClient = useQueryClient()
+  const { data: activitiesData } = useQuery({
+    queryKey: ['activities', 'order', orderId],
+    queryFn: () => fetchActivities({ entityType: 'order', entityId: orderId! }),
+    enabled: !!orderId,
+  })
+
+  // Documents
+  const { data: docsData } = useOrderDocuments(orderId)
+  const createDocMutation = useCreateOrderDocument()
+  const deleteDocMutation = useDeleteOrderDocument()
+  const [showDocForm, setShowDocForm] = useState(false)
+  const [docForm, setDocForm] = useState({ title: '', url: '', type: 'other', notes: '' })
+
   const order = data?.data
 
   const formatCurrency = (amount: number | null | undefined) => {
@@ -145,6 +168,53 @@ export default function OrderDetail() {
     } finally {
       setShowDeleteConfirm(false)
     }
+  }
+
+  const handleAddActivity = async (activity: Partial<Activity>) => {
+    if (!orderId) return
+    await createActivity({ ...activity, entityType: 'order', entityId: orderId })
+    queryClient.invalidateQueries({ queryKey: ['activities', 'order', orderId] })
+  }
+
+  const handleMarkDone = async (activityId: number) => {
+    await markFollowUpDone(activityId)
+    queryClient.invalidateQueries({ queryKey: ['activities', 'order', orderId] })
+  }
+
+  const handleAddDocument = async () => {
+    if (!orderId || !docForm.title.trim() || !docForm.url.trim()) return
+    try {
+      await createDocMutation.mutateAsync({ orderId, data: docForm })
+      setDocForm({ title: '', url: '', type: 'other', notes: '' })
+      setShowDocForm(false)
+      toast({ title: 'Đã thêm tài liệu' })
+    } catch {
+      toast({ title: 'Thêm tài liệu thất bại', variant: 'destructive' })
+    }
+  }
+
+  const handleDeleteDocument = async (docId: number) => {
+    if (!orderId) return
+    try {
+      await deleteDocMutation.mutateAsync({ orderId, docId })
+      toast({ title: 'Đã xóa tài liệu' })
+    } catch {
+      toast({ title: 'Xóa tài liệu thất bại', variant: 'destructive' })
+    }
+  }
+
+  const DOC_TYPE_ICONS: Record<string, typeof FileText> = {
+    contract: FileText,
+    invoice: Receipt,
+    po: ClipboardCheck,
+    other: File,
+  }
+
+  const DOC_TYPE_LABELS: Record<string, string> = {
+    contract: 'Hợp đồng',
+    invoice: 'Hóa đơn',
+    po: 'PO',
+    other: 'Khác',
   }
 
   const getNextStatus = (current: string) => {
@@ -319,23 +389,160 @@ export default function OrderDetail() {
             </div>
           </div>
 
-          {/* Notes */}
-          {(order.notes || order.internalNotes) && (
-            <div className="card p-5 space-y-3">
-              {order.notes && (
-                <div>
-                  <p className="text-xs text-stone-500 mb-1">Ghi chú</p>
-                  <p className="text-sm text-stone-600">{order.notes}</p>
-                </div>
-              )}
-              {order.internalNotes && (
-                <div className={order.notes ? 'pt-3 border-t border-stone-200' : ''}>
-                  <p className="text-xs text-stone-500 mb-1">Ghi chú nội bộ</p>
-                  <p className="text-sm text-yellow-400/80 italic">{order.internalNotes}</p>
-                </div>
+          {/* Notes Timeline */}
+          <div className="card p-5">
+            <h4 className="text-xs font-medium text-stone-400 uppercase tracking-wider mb-4 flex items-center gap-2">
+              <FileText className="h-3.5 w-3.5" /> Ghi chú & Hoạt động
+            </h4>
+            {/* Legacy notes display */}
+            {(order.notes || order.internalNotes) && (
+              <div className="mb-4 p-3 rounded-lg bg-stone-50 border border-stone-200 space-y-2">
+                {order.notes && (
+                  <div>
+                    <p className="text-xs text-stone-500 mb-0.5">Ghi chú đơn hàng</p>
+                    <p className="text-sm text-stone-600">{order.notes}</p>
+                  </div>
+                )}
+                {order.internalNotes && (
+                  <div className={order.notes ? 'pt-2 border-t border-stone-200' : ''}>
+                    <p className="text-xs text-stone-500 mb-0.5">Ghi chú nội bộ</p>
+                    <p className="text-sm text-amber-600 italic">{order.internalNotes}</p>
+                  </div>
+                )}
+              </div>
+            )}
+            <ActivityTimeline
+              activities={activitiesData?.data || []}
+              onAddActivity={handleAddActivity}
+              onMarkDone={handleMarkDone}
+            />
+          </div>
+
+          {/* Documents */}
+          <div className="card p-5">
+            <div className="flex items-center justify-between mb-4">
+              <h4 className="text-xs font-medium text-stone-400 uppercase tracking-wider flex items-center gap-2">
+                <File className="h-3.5 w-3.5" /> Tài liệu & Hợp đồng
+              </h4>
+              {!showDocForm && (
+                <button
+                  onClick={() => setShowDocForm(true)}
+                  className="flex items-center gap-1 text-xs text-amber-500 hover:text-amber-400 transition-colors"
+                >
+                  <Plus className="h-3.5 w-3.5" /> Thêm
+                </button>
               )}
             </div>
-          )}
+
+            {/* Add Document Form */}
+            {showDocForm && (
+              <div className="mb-4 p-3 rounded-lg bg-stone-50 border border-stone-200 space-y-3">
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-medium text-stone-500 mb-1">Tên tài liệu</label>
+                    <input
+                      type="text"
+                      value={docForm.title}
+                      onChange={(e) => setDocForm({ ...docForm, title: e.target.value })}
+                      placeholder="VD: Hợp đồng mua bán..."
+                      className="w-full rounded-lg bg-white border border-stone-200 px-3 py-2 text-sm text-stone-700 placeholder-stone-400 focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-stone-500 mb-1">Loại</label>
+                    <select
+                      value={docForm.type}
+                      onChange={(e) => setDocForm({ ...docForm, type: e.target.value })}
+                      className="w-full rounded-lg bg-white border border-stone-200 px-3 py-2 text-sm text-stone-700 focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500"
+                    >
+                      <option value="contract">Hợp đồng</option>
+                      <option value="invoice">Hóa đơn</option>
+                      <option value="po">PO</option>
+                      <option value="other">Khác</option>
+                    </select>
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-stone-500 mb-1">Link tài liệu</label>
+                  <input
+                    type="url"
+                    value={docForm.url}
+                    onChange={(e) => setDocForm({ ...docForm, url: e.target.value })}
+                    placeholder="https://docs.google.com/..."
+                    className="w-full rounded-lg bg-white border border-stone-200 px-3 py-2 text-sm text-stone-700 placeholder-stone-400 focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-stone-500 mb-1">Ghi chú (tùy chọn)</label>
+                  <input
+                    type="text"
+                    value={docForm.notes}
+                    onChange={(e) => setDocForm({ ...docForm, notes: e.target.value })}
+                    placeholder="Ghi chú thêm..."
+                    className="w-full rounded-lg bg-white border border-stone-200 px-3 py-2 text-sm text-stone-700 placeholder-stone-400 focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500"
+                  />
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    onClick={handleAddDocument}
+                    disabled={createDocMutation.isPending || !docForm.title.trim() || !docForm.url.trim()}
+                    className="flex-1 rounded-lg bg-amber-600 px-4 py-2 text-sm font-medium text-white hover:bg-amber-700 transition-colors disabled:opacity-50"
+                  >
+                    {createDocMutation.isPending ? 'Đang lưu...' : 'Lưu tài liệu'}
+                  </button>
+                  <button
+                    onClick={() => { setShowDocForm(false); setDocForm({ title: '', url: '', type: 'other', notes: '' }) }}
+                    className="px-4 py-2 text-sm font-medium text-stone-600 hover:bg-stone-200 rounded-lg transition-colors"
+                  >
+                    Hủy
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Documents List */}
+            {docsData?.data && docsData.data.length > 0 ? (
+              <div className="space-y-2">
+                {docsData.data.map((doc) => {
+                  const DocIcon = DOC_TYPE_ICONS[doc.type] || File
+                  return (
+                    <div key={doc.id} className="flex items-center gap-3 p-3 rounded-lg bg-stone-50 border border-stone-200 group hover:border-stone-300 transition-colors">
+                      <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-amber-100 text-amber-600 shrink-0">
+                        <DocIcon className="h-4 w-4" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <a
+                          href={doc.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-sm font-medium text-stone-700 hover:text-amber-600 flex items-center gap-1"
+                        >
+                          {doc.title}
+                          <ExternalLink className="h-3 w-3 shrink-0" />
+                        </a>
+                        <p className="text-xs text-stone-400">
+                          {DOC_TYPE_LABELS[doc.type] || doc.type}
+                          {doc.notes && ` · ${doc.notes}`}
+                          {doc.createdAt && ` · ${format(new Date(doc.createdAt), 'dd/MM/yyyy')}`}
+                        </p>
+                      </div>
+                      <button
+                        onClick={() => handleDeleteDocument(doc.id)}
+                        className="opacity-0 group-hover:opacity-100 p-1 text-stone-400 hover:text-red-500 transition-all"
+                        title="Xóa"
+                      >
+                        <X className="h-4 w-4" />
+                      </button>
+                    </div>
+                  )
+                })}
+              </div>
+            ) : (
+              !showDocForm && (
+                <p className="text-center text-sm text-stone-400 py-4">Chưa có tài liệu nào</p>
+              )
+            )}
+          </div>
         </div>
 
         {/* Right Column - Sidebar */}
