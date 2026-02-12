@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Plus, Search, X, LayoutGrid, List } from 'lucide-react'
+import { Plus, Search, X, LayoutGrid, List, Sheet } from 'lucide-react'
 import { useProducts, useProductBrands, useProductModels, useCreateProduct, useUpdateProduct } from '@/hooks/useProducts'
 import { useQuery } from '@tanstack/react-query'
 import { fetchCategories, type Product } from '@/lib/api'
@@ -9,6 +9,7 @@ import { MATERIAL_COLORS, BRAND_COLORS } from '@/lib/constants'
 import ProductForm from '@/components/products/ProductForm'
 import ProductDetail from '@/components/products/ProductDetail'
 import ProductCard from '@/components/products/ProductCard'
+import ProductSpreadsheet from '@/components/products/ProductSpreadsheet'
 
 const MATERIALS = ['CERAMIC', 'METAL', 'RUBBER', 'O-RING']
 
@@ -22,7 +23,7 @@ export default function Products() {
   const [page, setPage] = useState(1)
 
   // UI State
-  const [viewMode, setViewMode] = useState<'table' | 'grid'>('grid')
+  const [viewMode, setViewMode] = useState<'table' | 'grid' | 'spreadsheet'>('grid')
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null)
   const [isDetailOpen, setIsDetailOpen] = useState(false)
   const [isFormOpen, setIsFormOpen] = useState(false)
@@ -39,7 +40,7 @@ export default function Products() {
     machineModel: selectedModel || undefined,
     material: selectedMaterial || undefined,
     page,
-    limit: 20,
+    limit: viewMode === 'spreadsheet' ? 100 : 20,
   })
 
   const { data: categoriesData } = useQuery({
@@ -138,6 +139,18 @@ export default function Products() {
               )}
             >
               <List className="h-4 w-4" />
+            </button>
+            <button
+              onClick={() => setViewMode('spreadsheet')}
+              className={cn(
+                'flex items-center justify-center rounded-md p-2 transition-all',
+                viewMode === 'spreadsheet'
+                  ? 'bg-brand-500/20 text-brand-400 shadow-sm'
+                  : 'text-stone-400 hover:text-stone-700'
+              )}
+              title="Bảng tính"
+            >
+              <Sheet className="h-4 w-4" />
             </button>
           </div>
           <button onClick={handleAddProduct} className="btn btn-primary px-4 py-2.5 text-sm">
@@ -372,11 +385,25 @@ export default function Products() {
         </div>
       )}
 
+      {/* Spreadsheet View */}
+      {viewMode === 'spreadsheet' && (
+        <ProductSpreadsheet
+          products={products}
+          isLoading={isLoading}
+          onUpdate={async (id, data) => {
+            await updateMutation.mutateAsync({ id, data })
+          }}
+          onCreate={async (data) => {
+            await createMutation.mutateAsync(data)
+          }}
+        />
+      )}
+
       {/* Pagination */}
       {!isLoading && pagination.totalPages > 1 && (
         <div className="flex items-center justify-between rounded-xl bg-white border border-stone-200 px-4 py-3">
           <p className="text-sm text-stone-400">
-            Hiển thị {(page - 1) * 20 + 1}-{Math.min(page * 20, pagination.total)} / {pagination.total} sản phẩm
+            Hiển thị {(page - 1) * (viewMode === 'spreadsheet' ? 100 : 20) + 1}-{Math.min(page * (viewMode === 'spreadsheet' ? 100 : 20), pagination.total)} / {pagination.total} sản phẩm
           </p>
           <div className="flex items-center gap-2">
             <button

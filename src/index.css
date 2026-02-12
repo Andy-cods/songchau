@@ -307,6 +307,59 @@
     @apply text-sm text-stone-500 max-w-sm;
   }
 
+  /* Spreadsheet styles */
+  .spreadsheet-wrapper {
+    @apply w-full overflow-auto rounded-xl border border-stone-200 bg-white;
+    max-height: calc(100vh - 280px);
+  }
+
+  .spreadsheet-table {
+    @apply w-full text-sm border-collapse;
+  }
+
+  .spreadsheet-table thead {
+    @apply sticky top-0 z-20;
+  }
+
+  .spreadsheet-table th {
+    @apply px-2.5 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wider text-stone-500;
+    @apply bg-stone-50 border-b-2 border-stone-200 border-r border-stone-100;
+  }
+
+  .spreadsheet-table td {
+    @apply px-2.5 py-1.5 text-stone-700 border-b border-r border-stone-100;
+  }
+
+  .spreadsheet-table tbody tr:hover td {
+    @apply bg-stone-50/60;
+  }
+
+  .spreadsheet-cell-editing {
+    @apply ring-2 ring-inset ring-amber-400 bg-amber-50/30 p-0;
+  }
+
+  .spreadsheet-cell-editing input,
+  .spreadsheet-cell-editing select {
+    @apply w-full border-0 outline-none bg-transparent px-2.5 text-sm;
+  }
+
+  .spreadsheet-row-dirty {
+    border-left: 3px solid #f59e0b;
+  }
+
+  .spreadsheet-row-dirty td:first-child {
+    padding-left: calc(0.625rem - 3px);
+  }
+
+  .spreadsheet-row-saving {
+    @apply opacity-60 pointer-events-none;
+  }
+
+  .spreadsheet-new-row td {
+    @apply bg-amber-50/40;
+    border-bottom-style: dashed;
+  }
+
   /* Part number styling */
   .part-number {
     @apply font-mono tracking-wide text-amber-600 text-sm;
