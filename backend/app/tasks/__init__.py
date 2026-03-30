@@ -14,3 +14,4 @@ To add new task modules:
 from app.tasks import bqms_sync       # noqa: F401 — registers bqms_nightly_sync
 from app.tasks import reports         # noqa: F401 — registers generate_daily_reports
 from app.tasks import notifications   # noqa: F401 — registers send_email_notification, check_deadline_reminders
+from app.tasks import onedrive_sync   # noqa: F401 — registers onedrive_delta_sync (mỗi 4 giờ)

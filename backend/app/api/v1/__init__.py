@@ -1,11 +1,11 @@
 """
 Song Châu ERP — API v1 Router Registry
 
-Tất cả 16 module routers được đăng ký tại đây.
+Tất cả 17 module routers được đăng ký tại đây.
 Mỗi router tương ứng với 1 file trong app/api/v1/:
   auth, users, workflows, suppliers, purchase_orders, inventory,
   bqms, files, notifications, sales_orders, finance, xnk,
-  customs, reports, dashboard, audit
+  customs, reports, dashboard, audit, etl
 """
 
 from fastapi import APIRouter
@@ -26,6 +26,7 @@ from app.api.v1.customs import router as customs_router
 from app.api.v1.reports import router as reports_router
 from app.api.v1.dashboard import router as dashboard_router
 from app.api.v1.audit import router as audit_router
+from app.api.v1.etl import router as etl_router
 
 v1_router = APIRouter()
 
@@ -54,3 +55,6 @@ v1_router.include_router(customs_router, prefix="/customs", tags=["customs"])
 
 # ── Báo cáo ──
 v1_router.include_router(reports_router, prefix="/reports", tags=["reports"])
+
+# ── ETL — Đồng bộ dữ liệu ──
+v1_router.include_router(etl_router, prefix="/etl", tags=["etl"])
