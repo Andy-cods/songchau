@@ -61,7 +61,9 @@ SYNC_DSN = _build_sync_dsn()
 # POSTGRES_* variables.
 
 app = procrastinate.App(
-    connector=procrastinate.SyncPsycopgConnector(json_dumps=None, json_loads=None),
+    connector=procrastinate.PsycopgConnector(
+        conninfo=SYNC_DSN,
+    ),
     import_paths=["app.tasks"],
 )
 
