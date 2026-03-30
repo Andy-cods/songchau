@@ -1,0 +1,279 @@
+# ═══════════════════════════════════════════════════════════════════
+# Song Châu ERP — Production Docker Compose Overrides
+# VPS: 103.56.158.129 (Ubuntu 24.04, 4vCPU/8GB RAM)
+#
+# Sử dụng: docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+#
+# File này ghi đè / bổ sung cấu hình production:
+#   - Restart policies nghiêm ngặt hơn
+#   - Resource limits được điều chỉnh cho VPS
+#   - Log driver với giới hạn kích thước
+#   - Health check intervals tối ưu
+#   - Ulimits cho hiệu năng cao
+# ═══════════════════════════════════════════════════════════════════
+
+services:
+
+  # ── PostgreSQL ──────────────────────────────────────────────────
+  postgres:
+    restart: always  # Production: luôn restart, không dừng khi host reboot
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"   # Giới hạn mỗi file log 10MB
+        max-file: "3"     # Giữ tối đa 3 file (tổng 30MB)
+        labels: "service=postgres,project=songchau-erp"
+
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 15s   # Kiểm tra mỗi 15s (production: ít thường xuyên hơn dev)
+      timeout: 10s
+      retries: 5
+      start_period: 60s  # Cho PostgreSQL 60s để khởi động lần đầu
+
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"       # Tối đa 2 CPU cores
+          memory: 2G        # Tối đa 2GB RAM
+        reservations:
+          cpus: "0.5"
+          memory: 1G
+      restart_policy:
+        condition: any
+        delay: 5s
+        max_attempts: 5
+        window: 120s
+
+    # Tăng giới hạn file descriptors cho PostgreSQL
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+
+  # ── Redis ───────────────────────────────────────────────────────
+  redis:
+    restart: always
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+        labels: "service=redis,project=songchau-erp"
+
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 320M
+        reservations:
+          cpus: "0.1"
+          memory: 128M
+      restart_policy:
+        condition: any
+        delay: 5s
+        max_attempts: 5
+        window: 60s
+
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+
+  # ── API Backend ─────────────────────────────────────────────────
+  api:
+    restart: always
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+        labels: "service=api,project=songchau-erp"
+
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/health"]
+      interval: 30s      # API check mỗi 30s
+      timeout: 15s       # Timeout dài hơn cho slow startup
+      retries: 3
+      start_period: 90s  # Cho API 90s để khởi động + load models
+
+    deploy:
+      resources:
+        limits:
+          cpus: "1.5"
+          memory: 1G
+        reservations:
+          cpus: "0.25"
+          memory: 512M
+      restart_policy:
+        condition: on-failure
+        delay: 10s
+        max_attempts: 5
+        window: 120s
+
+    # Biến môi trường production bổ sung
+    environment:
+      # Override từ docker-compose.yml
+      PYTHONDONTWRITEBYTECODE: "1"
+      PYTHONUNBUFFERED: "1"
+      # Tắt debug mode
+      DEBUG: "false"
+      # Tối ưu uvicorn cho production
+      WEB_CONCURRENCY: "4"
+
+  # ── Frontend Next.js ────────────────────────────────────────────
+  frontend:
+    restart: always
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+        labels: "service=frontend,project=songchau-erp"
+
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/api/healthz",
+             "||", "curl", "-f", "http://localhost:3000/"]
+      interval: 30s
+      timeout: 15s
+      retries: 3
+      start_period: 60s
+
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 512M
+        reservations:
+          cpus: "0.1"
+          memory: 256M
+      restart_policy:
+        condition: on-failure
+        delay: 10s
+        max_attempts: 5
+        window: 120s
+
+    environment:
+      NODE_ENV: production
+      NEXT_TELEMETRY_DISABLED: "1"  # Tắt Next.js telemetry
+
+  # ── Nginx ───────────────────────────────────────────────────────
+  nginx:
+    restart: always
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+        labels: "service=nginx,project=songchau-erp"
+
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost/api/health",
+             "||", "nginx", "-t"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 64M
+        reservations:
+          cpus: "0.05"
+          memory: 32M
+      restart_policy:
+        condition: any
+        delay: 5s
+        max_attempts: 5
+        window: 60s
+
+    # SSL volumes (uncomment sau khi cài certbot)
+    # volumes:
+    #   - ./nginx/conf.d:/etc/nginx/conf.d:ro
+    #   - ./data/files:/data/files:ro
+    #   - /etc/letsencrypt:/etc/letsencrypt:ro
+    #   - /var/www/certbot:/var/www/certbot:ro
+
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+
+  # ── Procrastinate Worker ────────────────────────────────────────
+  procrastinate-worker:
+    restart: always
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+        labels: "service=worker,project=songchau-erp"
+
+    healthcheck:
+      # Worker không có HTTP server, dùng process check
+      test: ["CMD-SHELL", "pgrep -f 'procrastinate.*worker' || exit 1"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 512M
+        reservations:
+          cpus: "0.1"
+          memory: 256M
+      restart_policy:
+        condition: on-failure
+        delay: 15s
+        max_attempts: 5
+        window: 180s
+
+  # ── Procrastinate Scheduler ─────────────────────────────────────
+  procrastinate-scheduler:
+    restart: always
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+        labels: "service=scheduler,project=songchau-erp"
+
+    healthcheck:
+      test: ["CMD-SHELL", "pgrep -f 'procrastinate.*scheduler' || exit 1"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+    deploy:
+      resources:
+        limits:
+          cpus: "0.25"
+          memory: 128M
+        reservations:
+          cpus: "0.05"
+          memory: 64M
+      restart_policy:
+        condition: on-failure
+        delay: 15s
+        max_attempts: 5
+        window: 180s
