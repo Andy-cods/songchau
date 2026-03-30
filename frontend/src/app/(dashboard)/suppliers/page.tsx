@@ -60,7 +60,7 @@ const columns = [
       return (
         <div className="flex items-center gap-1">
           <Star className="h-3.5 w-3.5 text-amber-400 fill-amber-400" />
-          <span className="text-sm font-mono text-slate-700">{rating.toFixed(1)}</span>
+          <span className="text-sm font-mono text-slate-700">{Number(rating || 0).toFixed(1)}</span>
         </div>
       );
     },

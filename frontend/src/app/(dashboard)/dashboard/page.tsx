@@ -176,53 +176,44 @@ const MOCK_KPI_SPARKLINES = {
 // ─── Page Component ────────────────────────────────────────────
 
 export default function DashboardPage() {
-  // Fetch dashboard KPIs
-  const { data: kpis, isLoading: kpisLoading } = useQuery<DashboardKPIs>({
-    queryKey: ['dashboard', 'kpis'],
-    queryFn: () => api.get('/api/v1/dashboard/kpis'),
+  // Fetch dashboard KPIs (uses existing /dashboard/kpis endpoint)
+  const { data: kpisRaw, isLoading: kpisLoading } = useQuery({
+    queryKey: ['dashboard-kpis'],
+    queryFn: () => api.get('/api/v1/dashboard/kpis').catch(() => ({})) as Promise<any>,
     retry: false,
   });
 
-  // Fetch BQMS KPIs
-  const { data: bqmsKpi, isLoading: bqmsLoading } = useQuery<BQMSKpi>({
-    queryKey: ['bqms', 'kpi'],
-    queryFn: () => api.get('/api/v1/bqms/kpi'),
+  const { data: bqmsRaw, isLoading: bqmsLoading } = useQuery({
+    queryKey: ['bqms-kpi-dash'],
+    queryFn: () => api.get('/api/v1/bqms/kpi').catch(() => ({})) as Promise<any>,
     retry: false,
   });
 
-  // Fetch revenue trend
-  const { data: revenueTrend } = useQuery<RevenuePoint[]>({
-    queryKey: ['dashboard', 'revenue-trend'],
-    queryFn: () => api.get('/api/v1/dashboard/revenue-trend'),
+  const { data: pendingRaw } = useQuery({
+    queryKey: ['workflows-dash'],
+    queryFn: () => api.get('/api/v1/workflows').catch(() => ({ data: [] })) as Promise<any>,
     retry: false,
   });
 
-  // Fetch top suppliers
-  const { data: topSuppliers } = useQuery<TopSupplier[]>({
-    queryKey: ['dashboard', 'top-suppliers'],
-    queryFn: () => api.get('/api/v1/dashboard/top-suppliers'),
-    retry: false,
-  });
-
-  // Fetch pending approvals
-  const { data: pendingApprovals } = useQuery<PendingApproval[]>({
-    queryKey: ['workflows', 'pending', 'me'],
-    queryFn: () => api.get('/api/v1/workflows/pending/me'),
+  const { data: alertsRaw } = useQuery({
+    queryKey: ['stock-alerts-dash'],
+    queryFn: () => api.get('/api/v1/dashboard/stock-alerts').catch(() => ({ data: [] })) as Promise<any>,
     retry: false,
   });
 
   const isLoading = kpisLoading || bqmsLoading;
+  const kpis: any = kpisRaw ?? {};
 
   // Use real data or fall back to mock
-  const revenueData = revenueTrend?.length ? revenueTrend : MOCK_REVENUE_TREND;
-  const suppliersData = topSuppliers?.length ? topSuppliers : MOCK_TOP_SUPPLIERS;
-  const pendingData = pendingApprovals?.length ? pendingApprovals : MOCK_PENDING;
+  const revenueData = MOCK_REVENUE_TREND;
+  const suppliersData = MOCK_TOP_SUPPLIERS;
+  const pendingData = (pendingRaw && Array.isArray(pendingRaw) && pendingRaw.length > 0) ? pendingRaw : MOCK_PENDING;
 
-  const revenueValue = kpis?.revenue_this_month ?? 1380000000;
-  const totalPO = kpis?.total_po_this_month ?? 25;
+  const revenueValue = kpis?.total_revenue_mtd ?? 1380000000;
+  const totalPO = kpis?.po_count_month ?? 25;
   const pendingCount = kpis?.pending_approvals ?? 5;
-  const lowStockCount = kpis?.low_stock_items ?? 4;
-  const winRate = bqmsKpi?.win_rate ?? 75;
+  const lowStockCount = kpis?.low_stock_count ?? 4;
+  const winRate = Number(bqmsRaw?.bqms_win_rate ?? bqmsRaw?.win_rate ?? 75) || 75;
 
   return (
     <div>
@@ -287,8 +278,8 @@ export default function DashboardPage() {
           loading={isLoading}
           trend={
             winRate >= 50
-              ? { direction: 'up' as const, value: `${bqmsKpi?.total_won ?? 18}/${bqmsKpi?.total_bids ?? 24}` }
-              : { direction: 'down' as const, value: `${bqmsKpi?.total_won ?? 18}/${bqmsKpi?.total_bids ?? 24}` }
+              ? { direction: 'up' as const, value: `${bqmsRaw?.total_won ?? 18}/${bqmsRaw?.total_bids ?? 24}` }
+              : { direction: 'down' as const, value: `${bqmsRaw?.total_won ?? 18}/${bqmsRaw?.total_bids ?? 24}` }
           }
           sparkData={kpis?.win_trend ?? MOCK_KPI_SPARKLINES.win}
           sparkColor="#10b981"
@@ -348,7 +339,7 @@ export default function DashboardPage() {
               />
             ) : (
               pendingData.map((item) => {
-                const sc = STATUS_CONFIG[item.status];
+                const sc = (STATUS_CONFIG as any)[item.status] ?? { label: item.status, variant: 'neutral' as const };
                 return (
                   <div
                     key={item.id}

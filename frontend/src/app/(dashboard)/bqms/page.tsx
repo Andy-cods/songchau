@@ -269,7 +269,7 @@ export default function BQMSPage() {
           loading={kpiLoading}
           trend={{
             direction: 'up',
-            value: `${kpiData.win_rate.toFixed(1)}% win`,
+            value: `${(kpiData?.win_rate ?? 0).toFixed(1)}% win`,
           }}
         />
         <KPICard
