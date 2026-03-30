@@ -6,145 +6,24 @@ import { FileSearch, Search } from 'lucide-react';
 import { api } from '@/lib/api';
 import { cn, formatCurrency } from '@/lib/utils';
 import { StatusBadge } from '@/components/shared/status-badge';
-import type { PaginatedResponse } from '@/types/models';
 
 // ─── Types ─────────────────────────────────────────────────────
 
 type RFQResult = 'won' | 'lost' | 'pending';
 
-interface BQMSRfq {
-  id: string;
-  rfq_number: string;
-  bqms_code: string;
-  spec: string;
-  maker: string;
-  quantity: number;
-  unit: string;
-  price_v1: number;
-  currency: 'VND' | 'USD' | 'RMB';
-  rfq_result: RFQResult;
-  supplier_name: string | null;
-}
-
 // ─── Status Config ─────────────────────────────────────────────
 
 const RFQ_STATUS_MAP: Record<
-  RFQResult,
+  string,
   { label: string; variant: 'success' | 'warning' | 'danger' | 'info' | 'neutral' }
 > = {
   won: { label: 'Trúng thầu', variant: 'success' },
   lost: { label: 'Trượt', variant: 'danger' },
   pending: { label: 'Đang xử lý', variant: 'warning' },
+  submitted: { label: 'Đã gửi', variant: 'info' },
+  draft: { label: 'Nháp', variant: 'neutral' },
+  cancelled: { label: 'Hủy', variant: 'neutral' },
 };
-
-// ─── Mock Data ─────────────────────────────────────────────────
-
-const MOCK_RFQS: BQMSRfq[] = [
-  {
-    id: '1',
-    rfq_number: 'RFQ-2026-0089',
-    bqms_code: 'BQ-260328-001',
-    spec: 'MCCB NF250-SEV 3P 200A',
-    maker: 'Mitsubishi',
-    quantity: 50,
-    unit: 'cái',
-    price_v1: 4500000,
-    currency: 'VND',
-    rfq_result: 'pending',
-    supplier_name: null,
-  },
-  {
-    id: '2',
-    rfq_number: 'RFQ-2026-0088',
-    bqms_code: 'BQ-260327-002',
-    spec: 'Contactor MC-85a 220V',
-    maker: 'LS Electric',
-    quantity: 200,
-    unit: 'cái',
-    price_v1: 850000,
-    currency: 'VND',
-    rfq_result: 'won',
-    supplier_name: 'Song Châu Trading',
-  },
-  {
-    id: '3',
-    rfq_number: 'RFQ-2026-0087',
-    bqms_code: 'BQ-260326-003',
-    spec: 'ACB NT06H1 630A 3P',
-    maker: 'Schneider',
-    quantity: 5,
-    unit: 'bộ',
-    price_v1: 45000000,
-    currency: 'VND',
-    rfq_result: 'pending',
-    supplier_name: null,
-  },
-  {
-    id: '4',
-    rfq_number: 'RFQ-2026-0085',
-    bqms_code: 'BQ-260325-001',
-    spec: 'VFD FR-E840-0120 5.5kW',
-    maker: 'Mitsubishi',
-    quantity: 10,
-    unit: 'bộ',
-    price_v1: 12500000,
-    currency: 'VND',
-    rfq_result: 'lost',
-    supplier_name: null,
-  },
-  {
-    id: '5',
-    rfq_number: 'RFQ-2026-0083',
-    bqms_code: 'BQ-260324-002',
-    spec: 'Relay G3PE-245B DC12-24',
-    maker: 'Omron',
-    quantity: 100,
-    unit: 'cái',
-    price_v1: 380000,
-    currency: 'VND',
-    rfq_result: 'won',
-    supplier_name: 'Song Châu Trading',
-  },
-  {
-    id: '6',
-    rfq_number: 'RFQ-2026-0081',
-    bqms_code: 'BQ-260323-001',
-    spec: 'MCB iC60N 3P 32A C',
-    maker: 'Schneider',
-    quantity: 500,
-    unit: 'cái',
-    price_v1: 320000,
-    currency: 'VND',
-    rfq_result: 'won',
-    supplier_name: 'Song Châu Trading',
-  },
-  {
-    id: '7',
-    rfq_number: 'RFQ-2026-0079',
-    bqms_code: 'BQ-260321-002',
-    spec: 'PLC FX5U-32MT/ES',
-    maker: 'Mitsubishi',
-    quantity: 8,
-    unit: 'bộ',
-    price_v1: 18500000,
-    currency: 'VND',
-    rfq_result: 'lost',
-    supplier_name: null,
-  },
-  {
-    id: '8',
-    rfq_number: 'RFQ-2026-0077',
-    bqms_code: 'BQ-260320-001',
-    spec: 'Sensor E3Z-D62 2M',
-    maker: 'Omron',
-    quantity: 50,
-    unit: 'cái',
-    price_v1: 1250000,
-    currency: 'VND',
-    rfq_result: 'pending',
-    supplier_name: null,
-  },
-];
 
 // ─── Filter options ────────────────────────────────────────────
 
@@ -160,38 +39,48 @@ const RESULT_FILTERS: { value: RFQResult | 'all'; label: string }[] = [
 export default function BQMSRfqPage() {
   const [resultFilter, setResultFilter] = useState<RFQResult | 'all'>('all');
   const [searchQuery, setSearchQuery] = useState('');
+  const [page, setPage] = useState(1);
 
-  const { data, isLoading } = useQuery<PaginatedResponse<BQMSRfq>>({
-    queryKey: ['bqms', 'rfq', resultFilter],
+  const { data: raw, isLoading, error } = useQuery({
+    queryKey: ['bqms', 'rfq', resultFilter, page],
     queryFn: () => {
-      const params = resultFilter !== 'all' ? `?result=${resultFilter}` : '';
-      return api.get(`/api/v1/bqms/rfq${params}`);
+      const params = new URLSearchParams();
+      if (resultFilter !== 'all') params.set('result', resultFilter);
+      params.set('page', String(page));
+      params.set('limit', '50');
+      const qs = params.toString();
+      return api.get<any>(`/api/v1/bqms/rfq${qs ? `?${qs}` : ''}`);
     },
-    retry: false,
+    retry: 1,
   });
 
-  const rfqs = data?.items?.length ? data.items : MOCK_RFQS;
+  // Extract data from API — no mock fallback
+  const rfqs: any[] = raw?.data ?? [];
+  const total = raw?.total ?? rfqs.length;
 
-  // Apply local filters
+  // Apply local search filter
   let filtered = rfqs;
-  if (resultFilter !== 'all') {
-    filtered = filtered.filter((r) => r.rfq_result === resultFilter);
-  }
   if (searchQuery) {
     const q = searchQuery.toLowerCase();
     filtered = filtered.filter(
-      (r) =>
-        r.rfq_number.toLowerCase().includes(q) ||
-        r.bqms_code.toLowerCase().includes(q) ||
-        r.spec.toLowerCase().includes(q) ||
-        r.maker.toLowerCase().includes(q)
+      (r: any) =>
+        (r.rfq_number || '').toLowerCase().includes(q) ||
+        (r.bqms_code || '').toLowerCase().includes(q) ||
+        (r.spec || r.product_name || '').toLowerCase().includes(q) ||
+        (r.maker || '').toLowerCase().includes(q)
     );
   }
 
-  // Summary stats
-  const totalWon = rfqs.filter((r) => r.rfq_result === 'won').length;
-  const totalLost = rfqs.filter((r) => r.rfq_result === 'lost').length;
-  const totalPending = rfqs.filter((r) => r.rfq_result === 'pending').length;
+  // Summary stats from real data
+  const totalWon = rfqs.filter(
+    (r: any) => r.rfq_result === 'won' || r.status === 'won'
+  ).length;
+  const totalLost = rfqs.filter(
+    (r: any) => r.rfq_result === 'lost' || r.status === 'lost'
+  ).length;
+  const totalPending = rfqs.filter(
+    (r: any) => r.rfq_result === 'pending' || r.status === 'pending'
+  ).length;
 
   return (
     <div>
@@ -205,26 +94,28 @@ export default function BQMSRfqPage() {
             Quản lý và theo dõi kết quả báo giá
           </p>
         </div>
-        <div className="flex items-center gap-4 text-sm">
-          <div className="flex items-center gap-1.5">
-            <span className="h-2 w-2 rounded-full bg-emerald-500" />
-            <span className="text-slate-600">
-              Trúng: <strong>{totalWon}</strong>
-            </span>
+        {rfqs.length > 0 && (
+          <div className="flex items-center gap-4 text-sm">
+            <div className="flex items-center gap-1.5">
+              <span className="h-2 w-2 rounded-full bg-emerald-500" />
+              <span className="text-slate-600">
+                Trúng: <strong>{totalWon}</strong>
+              </span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <span className="h-2 w-2 rounded-full bg-red-500" />
+              <span className="text-slate-600">
+                Trượt: <strong>{totalLost}</strong>
+              </span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <span className="h-2 w-2 rounded-full bg-amber-500" />
+              <span className="text-slate-600">
+                Chờ: <strong>{totalPending}</strong>
+              </span>
+            </div>
           </div>
-          <div className="flex items-center gap-1.5">
-            <span className="h-2 w-2 rounded-full bg-red-500" />
-            <span className="text-slate-600">
-              Trượt: <strong>{totalLost}</strong>
-            </span>
-          </div>
-          <div className="flex items-center gap-1.5">
-            <span className="h-2 w-2 rounded-full bg-amber-500" />
-            <span className="text-slate-600">
-              Chờ: <strong>{totalPending}</strong>
-            </span>
-          </div>
-        </div>
+        )}
       </div>
 
       {/* Filters */}
@@ -233,7 +124,10 @@ export default function BQMSRfqPage() {
           {RESULT_FILTERS.map((rf) => (
             <button
               key={rf.value}
-              onClick={() => setResultFilter(rf.value)}
+              onClick={() => {
+                setResultFilter(rf.value);
+                setPage(1);
+              }}
               className={cn(
                 'px-3 py-1.5 rounded-md text-xs font-medium transition-colors',
                 resultFilter === rf.value
@@ -258,6 +152,13 @@ export default function BQMSRfqPage() {
         </div>
       </div>
 
+      {/* Error State */}
+      {error && !isLoading && (
+        <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-lg">
+          <p className="text-sm text-red-700">Có lỗi xảy ra, thử lại sau</p>
+        </div>
+      )}
+
       {/* Table */}
       <div className="bg-white rounded-lg shadow-sm border border-slate-200 overflow-hidden">
         {isLoading ? (
@@ -266,7 +167,9 @@ export default function BQMSRfqPage() {
           <div className="flex flex-col items-center justify-center py-16 text-slate-300">
             <FileSearch className="h-12 w-12 mb-3" />
             <p className="text-sm text-slate-400 font-medium">
-              Không tìm thấy RFQ nào
+              {rfqs.length === 0
+                ? 'Chưa có dữ liệu RFQ'
+                : 'Không tìm thấy RFQ nào'}
             </p>
           </div>
         ) : (
@@ -285,38 +188,53 @@ export default function BQMSRfqPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {filtered.map((rfq) => {
-                  const statusCfg = RFQ_STATUS_MAP[rfq.rfq_result];
+                {filtered.map((rfq: any, idx: number) => {
+                  const result = rfq.rfq_result || rfq.status || 'pending';
+                  const statusCfg = RFQ_STATUS_MAP[result] ?? {
+                    label: result,
+                    variant: 'neutral' as const,
+                  };
                   return (
                     <tr
-                      key={rfq.id}
+                      key={rfq.id ?? idx}
                       className="hover:bg-slate-50/50 transition-colors"
                     >
                       <TD>
                         <span className="font-mono text-brand-600 font-medium">
-                          {rfq.rfq_number}
+                          {rfq.rfq_number ?? '—'}
                         </span>
                       </TD>
                       <TD>
-                        <span className="font-mono">{rfq.bqms_code}</span>
+                        <span className="font-mono">
+                          {rfq.bqms_code ?? '—'}
+                        </span>
                       </TD>
-                      <TD>{rfq.spec}</TD>
-                      <TD>{rfq.maker}</TD>
+                      <TD>{rfq.spec ?? rfq.product_name ?? '—'}</TD>
+                      <TD>{rfq.maker ?? '—'}</TD>
                       <TD align="right">
                         <span className="font-mono">
-                          {rfq.quantity.toLocaleString('vi-VN')} {rfq.unit}
+                          {rfq.quantity != null
+                            ? `${Number(rfq.quantity).toLocaleString('vi-VN')}${
+                                rfq.unit ? ` ${rfq.unit}` : ''
+                              }`
+                            : '—'}
                         </span>
                       </TD>
                       <TD align="right">
                         <span className="font-mono">
-                          {formatCurrency(rfq.price_v1, rfq.currency)}
+                          {rfq.price_v1 != null
+                            ? formatCurrency(
+                                rfq.price_v1,
+                                rfq.currency ?? 'VND'
+                              )
+                            : '—'}
                         </span>
                       </TD>
                       <TD>
                         <StatusBadge
                           label={statusCfg.label}
                           variant={statusCfg.variant}
-                          pulse={rfq.rfq_result === 'pending'}
+                          pulse={result === 'pending'}
                         />
                       </TD>
                       <TD>
@@ -335,7 +253,7 @@ export default function BQMSRfqPage() {
 
       {/* Count */}
       <div className="mt-4 text-sm text-slate-500">
-        Hiển thị {filtered.length} / {rfqs.length} yêu cầu báo giá
+        Hiển thị {filtered.length} / {total} yêu cầu báo giá
       </div>
     </div>
   );

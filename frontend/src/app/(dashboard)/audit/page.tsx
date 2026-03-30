@@ -1,7 +1,9 @@
 'use client';
 
-import { useState, useMemo } from 'react';
+import { useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { ClipboardList, Filter, Search } from 'lucide-react';
+import { api } from '@/lib/api';
 import { cn, formatDate, formatRelativeTime } from '@/lib/utils';
 
 // ─── Types ───────────────────────────────────────────────────────
@@ -15,126 +17,10 @@ type AuditAction =
   | 'APPROVE'
   | 'REJECT';
 
-interface AuditEntry {
-  id: string;
-  timestamp: string;
-  user_name: string;
-  user_email: string;
-  action: AuditAction;
-  table_name: string;
-  record_id: string;
-  detail: string;
-}
-
-// ─── Mock data ───────────────────────────────────────────────────
-
-const MOCK_AUDIT: AuditEntry[] = [
-  {
-    id: '1',
-    timestamp: new Date(Date.now() - 5 * 60 * 1000).toISOString(),
-    user_name: 'Nguyễn Văn Admin',
-    user_email: 'admin@songchau.vn',
-    action: 'CREATE',
-    table_name: 'purchase_orders',
-    record_id: 'PO-2026-001',
-    detail: 'Tạo đơn mua hàng PO-2026-001 từ NCC Công ty TNHH ABC',
-  },
-  {
-    id: '2',
-    timestamp: new Date(Date.now() - 20 * 60 * 1000).toISOString(),
-    user_name: 'Trần Thị Bích',
-    user_email: 'bich@songchau.vn',
-    action: 'APPROVE',
-    table_name: 'workflows',
-    record_id: 'WF-0045',
-    detail: 'Phê duyệt workflow WF-0045 cho PO-2026-001',
-  },
-  {
-    id: '3',
-    timestamp: new Date(Date.now() - 1 * 3600 * 1000).toISOString(),
-    user_name: 'Lê Hoàng Minh',
-    user_email: 'minh@songchau.vn',
-    action: 'UPDATE',
-    table_name: 'suppliers',
-    record_id: 'SUP-012',
-    detail: 'Cập nhật điều khoản thanh toán nhà cung cấp: TT30 → TT45',
-  },
-  {
-    id: '4',
-    timestamp: new Date(Date.now() - 2 * 3600 * 1000).toISOString(),
-    user_name: 'Phạm Thị Lan',
-    user_email: 'lan@songchau.vn',
-    action: 'LOGIN',
-    table_name: 'users',
-    record_id: 'USR-007',
-    detail: 'Đăng nhập từ IP 192.168.1.105',
-  },
-  {
-    id: '5',
-    timestamp: new Date(Date.now() - 3 * 3600 * 1000).toISOString(),
-    user_name: 'Nguyễn Văn Admin',
-    user_email: 'admin@songchau.vn',
-    action: 'DELETE',
-    table_name: 'inventory',
-    record_id: 'INV-093',
-    detail: 'Xóa mục tồn kho: Ốc vít M8x30 (hết hàng vĩnh viễn)',
-  },
-  {
-    id: '6',
-    timestamp: new Date(Date.now() - 4 * 3600 * 1000).toISOString(),
-    user_name: 'Trần Thị Bích',
-    user_email: 'bich@songchau.vn',
-    action: 'REJECT',
-    table_name: 'workflows',
-    record_id: 'WF-0044',
-    detail: 'Từ chối phê duyệt: Giá vượt ngưỡng cho phép 15%',
-  },
-  {
-    id: '7',
-    timestamp: new Date(Date.now() - 5 * 3600 * 1000).toISOString(),
-    user_name: 'Lê Hoàng Minh',
-    user_email: 'minh@songchau.vn',
-    action: 'CREATE',
-    table_name: 'suppliers',
-    record_id: 'SUP-020',
-    detail: 'Thêm nhà cung cấp mới: Công ty Cổ phần XYZ',
-  },
-  {
-    id: '8',
-    timestamp: new Date(Date.now() - 24 * 3600 * 1000).toISOString(),
-    user_name: 'Phạm Thị Lan',
-    user_email: 'lan@songchau.vn',
-    action: 'LOGOUT',
-    table_name: 'users',
-    record_id: 'USR-007',
-    detail: 'Đăng xuất khỏi hệ thống',
-  },
-  {
-    id: '9',
-    timestamp: new Date(Date.now() - 26 * 3600 * 1000).toISOString(),
-    user_name: 'Nguyễn Văn Admin',
-    user_email: 'admin@songchau.vn',
-    action: 'UPDATE',
-    table_name: 'purchase_orders',
-    record_id: 'PO-2026-000',
-    detail: 'Cập nhật trạng thái: draft → pending_approval',
-  },
-  {
-    id: '10',
-    timestamp: new Date(Date.now() - 48 * 3600 * 1000).toISOString(),
-    user_name: 'Trần Thị Bích',
-    user_email: 'bich@songchau.vn',
-    action: 'APPROVE',
-    table_name: 'workflows',
-    record_id: 'WF-0043',
-    detail: 'Phê duyệt workflow WF-0043 — PO trị giá 120.000.000 VNĐ',
-  },
-];
-
 // ─── Action Badge ─────────────────────────────────────────────────
 
 const ACTION_STYLES: Record<
-  AuditAction,
+  string,
   { label: string; className: string }
 > = {
   CREATE: {
@@ -165,11 +51,20 @@ const ACTION_STYLES: Record<
     label: 'Từ chối',
     className: 'bg-amber-50 text-amber-700 border-amber-200',
   },
+  INSERT: {
+    label: 'Thêm',
+    className: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+  },
+  SELECT: {
+    label: 'Truy vấn',
+    className: 'bg-slate-100 text-slate-600 border-slate-200',
+  },
 };
 
-function ActionBadge({ action }: { action: AuditAction }) {
-  const cfg = ACTION_STYLES[action] ?? {
-    label: action,
+function ActionBadge({ action }: { action: string }) {
+  const upperAction = (action || '').toUpperCase();
+  const cfg = ACTION_STYLES[upperAction] ?? {
+    label: action || 'Khác',
     className: 'bg-slate-100 text-slate-600 border-slate-200',
   };
   return (
@@ -193,28 +88,62 @@ const TABLE_LABELS: Record<string, string> = {
   users: 'Người dùng',
   inventory: 'Kho hàng',
   deliveries: 'Vận chuyển',
+  bqms_records: 'BQMS',
+  bqms_rfq: 'RFQ',
+  audit_log: 'Nhật ký',
 };
 
 // ─── Main Component ───────────────────────────────────────────────
 
 export default function AuditLogPage() {
-  const [filterAction, setFilterAction] = useState<AuditAction | 'ALL'>('ALL');
+  const [filterAction, setFilterAction] = useState<string>('ALL');
   const [search, setSearch] = useState('');
+  const [page, setPage] = useState(1);
 
-  const filtered = useMemo(() => {
-    return MOCK_AUDIT.filter((entry) => {
-      const matchAction =
-        filterAction === 'ALL' || entry.action === filterAction;
-      const searchLower = search.toLowerCase();
-      const matchSearch =
-        !search ||
-        entry.user_name.toLowerCase().includes(searchLower) ||
-        entry.table_name.toLowerCase().includes(searchLower) ||
-        entry.record_id.toLowerCase().includes(searchLower) ||
-        entry.detail.toLowerCase().includes(searchLower);
-      return matchAction && matchSearch;
-    });
-  }, [filterAction, search]);
+  const { data: raw, isLoading, error } = useQuery({
+    queryKey: ['audit', filterAction, page],
+    queryFn: () => {
+      const params = new URLSearchParams();
+      if (filterAction !== 'ALL') params.set('action', filterAction);
+      params.set('page', String(page));
+      params.set('limit', '50');
+      const qs = params.toString();
+      return api.get<any>(`/api/v1/audit${qs ? `?${qs}` : ''}`);
+    },
+    retry: 1,
+  });
+
+  // Extract data from API — no mock fallback
+  const entries: any[] = raw?.data ?? [];
+  const total = raw?.total ?? entries.length;
+
+  // Apply local search filter
+  const filtered = search
+    ? entries.filter((entry: any) => {
+        const searchLower = search.toLowerCase();
+        return (
+          (entry.user_name || entry.user_email || '')
+            .toLowerCase()
+            .includes(searchLower) ||
+          (entry.table_name || '').toLowerCase().includes(searchLower) ||
+          (entry.record_id || '').toLowerCase().includes(searchLower) ||
+          (entry.detail || entry.description || '')
+            .toLowerCase()
+            .includes(searchLower)
+        );
+      })
+    : entries;
+
+  const actionFilters = [
+    'ALL',
+    'CREATE',
+    'UPDATE',
+    'DELETE',
+    'APPROVE',
+    'REJECT',
+    'LOGIN',
+    'LOGOUT',
+  ];
 
   return (
     <div>
@@ -225,15 +154,19 @@ export default function AuditLogPage() {
             Nhật ký hệ thống
           </h2>
           <p className="text-sm text-slate-500 mt-0.5">
-            Theo dõi mọi hoạt động trong hệ thống (dữ liệu mẫu)
+            Theo dõi mọi hoạt động trong hệ thống
           </p>
         </div>
-
-        <div className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-50 border border-amber-200 rounded-lg">
-          <span className="h-2 w-2 rounded-full bg-amber-400" />
-          <span className="text-xs text-amber-700 font-medium">Dữ liệu mẫu — API chưa sẵn sàng</span>
-        </div>
       </div>
+
+      {/* Error State */}
+      {error && !isLoading && (
+        <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-lg">
+          <p className="text-sm text-red-700">
+            Có lỗi xảy ra, thử lại sau
+          </p>
+        </div>
+      )}
 
       {/* Filters */}
       <div className="flex flex-col sm:flex-row gap-3 mb-4">
@@ -253,34 +186,41 @@ export default function AuditLogPage() {
         <div className="flex items-center gap-2">
           <Filter className="h-4 w-4 text-slate-400 flex-shrink-0" />
           <div className="flex flex-wrap gap-1.5">
-            {(['ALL', ...Object.keys(ACTION_STYLES)] as (AuditAction | 'ALL')[]).map(
-              (action) => (
-                <button
-                  key={action}
-                  onClick={() => setFilterAction(action)}
-                  className={cn(
-                    'px-2.5 py-1 text-xs font-medium rounded border transition-colors',
-                    filterAction === action
-                      ? 'bg-indigo-600 text-white border-indigo-600'
-                      : 'bg-white text-slate-600 border-slate-300 hover:border-slate-400'
-                  )}
-                >
-                  {action === 'ALL'
-                    ? 'Tất cả'
-                    : ACTION_STYLES[action as AuditAction].label}
-                </button>
-              )
-            )}
+            {actionFilters.map((action) => (
+              <button
+                key={action}
+                onClick={() => {
+                  setFilterAction(action);
+                  setPage(1);
+                }}
+                className={cn(
+                  'px-2.5 py-1 text-xs font-medium rounded border transition-colors',
+                  filterAction === action
+                    ? 'bg-indigo-600 text-white border-indigo-600'
+                    : 'bg-white text-slate-600 border-slate-300 hover:border-slate-400'
+                )}
+              >
+                {action === 'ALL'
+                  ? 'Tất cả'
+                  : ACTION_STYLES[action]?.label ?? action}
+              </button>
+            ))}
           </div>
         </div>
       </div>
 
       {/* Table */}
       <div className="bg-white rounded-lg shadow-sm border border-slate-200 overflow-hidden">
-        {filtered.length === 0 ? (
+        {isLoading ? (
+          <TableSkeleton />
+        ) : filtered.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-16 text-slate-300">
             <ClipboardList className="h-12 w-12 mb-3" />
-            <p className="text-sm text-slate-400">Không có kết quả nào</p>
+            <p className="text-sm text-slate-400">
+              {entries.length === 0
+                ? 'Chưa có dữ liệu nhật ký'
+                : 'Không có kết quả nào'}
+            </p>
           </div>
         ) : (
           <div className="overflow-x-auto">
@@ -305,23 +245,31 @@ export default function AuditLogPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {filtered.map((entry) => (
+                {filtered.map((entry: any, idx: number) => (
                   <tr
-                    key={entry.id}
+                    key={entry.id ?? idx}
                     className="hover:bg-slate-50/50 transition-colors"
                   >
                     {/* Thời gian */}
                     <td className="px-4 py-3 whitespace-nowrap">
                       <div>
                         <p className="text-xs font-mono text-slate-600">
-                          {formatRelativeTime(entry.timestamp)}
+                          {formatRelativeTime(
+                            entry.timestamp ?? entry.created_at
+                          )}
                         </p>
                         <p className="text-[10px] text-slate-400">
-                          {new Date(entry.timestamp).toLocaleTimeString(
-                            'vi-VN',
-                            { hour: '2-digit', minute: '2-digit', second: '2-digit' }
-                          )}{' '}
-                          {formatDate(entry.timestamp)}
+                          {entry.timestamp || entry.created_at
+                            ? `${new Date(
+                                entry.timestamp ?? entry.created_at
+                              ).toLocaleTimeString('vi-VN', {
+                                hour: '2-digit',
+                                minute: '2-digit',
+                                second: '2-digit',
+                              })} ${formatDate(
+                                entry.timestamp ?? entry.created_at
+                              )}`
+                            : '—'}
                         </p>
                       </div>
                     </td>
@@ -330,10 +278,10 @@ export default function AuditLogPage() {
                     <td className="px-4 py-3 whitespace-nowrap">
                       <div>
                         <p className="text-sm text-slate-800 font-medium">
-                          {entry.user_name}
+                          {entry.user_name ?? entry.user_email ?? '—'}
                         </p>
                         <p className="text-xs text-slate-400">
-                          {entry.user_email}
+                          {entry.user_email ?? ''}
                         </p>
                       </div>
                     </td>
@@ -346,21 +294,26 @@ export default function AuditLogPage() {
                     {/* Bảng */}
                     <td className="px-4 py-3 whitespace-nowrap">
                       <span className="text-xs font-mono bg-slate-100 text-slate-600 px-2 py-0.5 rounded">
-                        {TABLE_LABELS[entry.table_name] ?? entry.table_name}
+                        {TABLE_LABELS[entry.table_name] ??
+                          entry.table_name ??
+                          '—'}
                       </span>
                     </td>
 
                     {/* ID */}
                     <td className="px-4 py-3 whitespace-nowrap">
                       <span className="text-xs font-mono text-indigo-600">
-                        {entry.record_id}
+                        {entry.record_id ?? '—'}
                       </span>
                     </td>
 
                     {/* Chi tiết */}
                     <td className="px-4 py-3 max-w-[300px]">
-                      <p className="text-sm text-slate-600 truncate" title={entry.detail}>
-                        {entry.detail}
+                      <p
+                        className="text-sm text-slate-600 truncate"
+                        title={entry.detail ?? entry.description ?? ''}
+                      >
+                        {entry.detail ?? entry.description ?? '—'}
                       </p>
                     </td>
                   </tr>
@@ -371,10 +324,50 @@ export default function AuditLogPage() {
         )}
       </div>
 
-      {/* Count */}
-      <div className="mt-3 text-xs text-slate-400">
-        Hiển thị {filtered.length} / {MOCK_AUDIT.length} bản ghi
+      {/* Count + Pagination */}
+      <div className="flex items-center justify-between mt-3">
+        <span className="text-xs text-slate-400">
+          Hiển thị {filtered.length} / {total} bản ghi
+        </span>
+        {total > 50 && (
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setPage((p) => Math.max(1, p - 1))}
+              disabled={page <= 1}
+              className="px-3 py-1 text-xs border border-slate-200 rounded bg-white text-slate-600 hover:bg-slate-50 disabled:opacity-40"
+            >
+              Trước
+            </button>
+            <span className="text-xs text-slate-500">Trang {page}</span>
+            <button
+              onClick={() => setPage((p) => p + 1)}
+              disabled={entries.length < 50}
+              className="px-3 py-1 text-xs border border-slate-200 rounded bg-white text-slate-600 hover:bg-slate-50 disabled:opacity-40"
+            >
+              Sau
+            </button>
+          </div>
+        )}
       </div>
+    </div>
+  );
+}
+
+// ─── Table Skeleton ─────────────────────────────────────────────
+
+function TableSkeleton() {
+  return (
+    <div className="p-4 space-y-3">
+      {Array.from({ length: 8 }).map((_, i) => (
+        <div key={i} className="flex items-center gap-4">
+          <div className="h-4 w-24 bg-slate-200 rounded animate-pulse" />
+          <div className="h-4 w-28 bg-slate-200 rounded animate-pulse" />
+          <div className="h-5 w-16 bg-slate-200 rounded-full animate-pulse" />
+          <div className="h-4 w-20 bg-slate-200 rounded animate-pulse" />
+          <div className="h-4 w-16 bg-slate-200 rounded animate-pulse" />
+          <div className="h-4 w-48 bg-slate-200 rounded animate-pulse flex-1" />
+        </div>
+      ))}
     </div>
   );
 }

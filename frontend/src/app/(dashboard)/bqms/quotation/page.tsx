@@ -11,7 +11,6 @@ import {
   Trash2,
   Send,
   AlertCircle,
-  X,
   Loader2,
 } from 'lucide-react';
 import { toast } from 'sonner';
@@ -98,27 +97,23 @@ function StepUpload({
     mutationFn: (file: File) => {
       const formData = new FormData();
       formData.append('file', file);
-      return api.upload<{ items: QuotationItem[] }>(
-        '/api/v1/bqms/rfq/parse',
-        formData
-      );
+      return api.upload<any>('/api/v1/bqms/rfq/parse', formData);
     },
     onSuccess: (data) => {
-      if (data?.items?.length) {
-        onParsed(data.items);
-        toast.success(`Phân tích thành công ${data.items.length} dòng`);
+      const items = data?.items ?? data?.data ?? [];
+      if (items.length > 0) {
+        onParsed(items);
+        toast.success(`Phân tích thành công ${items.length} dòng`);
       } else {
-        // Use mock data as fallback
-        const mockItems = generateMockItems();
-        onParsed(mockItems);
-        toast.success(`Phân tích thành công ${mockItems.length} dòng`);
+        toast.error(
+          'Không thể phân tích nội dung file. Vui lòng kiểm tra định dạng PDF.'
+        );
       }
     },
-    onError: () => {
-      // Fallback to mock data
-      const mockItems = generateMockItems();
-      onParsed(mockItems);
-      toast.success(`Phân tích thành công ${mockItems.length} dòng`);
+    onError: (err: any) => {
+      toast.error(
+        err?.detail ?? 'Không thể phân tích file PDF. Vui lòng thử lại.'
+      );
     },
   });
 
@@ -214,6 +209,15 @@ function StepUpload({
           </div>
         )}
       </div>
+
+      {/* Error state */}
+      {parseMutation.isError && (
+        <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded-lg">
+          <p className="text-sm text-red-700">
+            Có lỗi xảy ra khi phân tích file. Vui lòng thử lại.
+          </p>
+        </div>
+      )}
     </div>
   );
 }
@@ -236,7 +240,11 @@ function StepReview({
     field: string;
   } | null>(null);
 
-  const updateItem = (id: string, field: keyof QuotationItem, value: string | number) => {
+  const updateItem = (
+    id: string,
+    field: keyof QuotationItem,
+    value: string | number
+  ) => {
     const updated = items.map((item) => {
       if (item.id !== id) return item;
       const newItem = { ...item, [field]: value };
@@ -372,7 +380,7 @@ function StepReview({
                       'px-3 py-2.5 text-left text-xs font-mono uppercase tracking-wider text-slate-400',
                       i === 0 && 'w-10',
                       i === 9 && 'w-10',
-                      (i >= 5 && i <= 8) && 'text-right'
+                      i >= 5 && i <= 8 && 'text-right'
                     )}
                   >
                     {h}
@@ -435,7 +443,10 @@ function StepReview({
           </span>
           <span className="text-sm font-bold font-mono text-indigo-700">
             {formatCurrency(
-              items.reduce((sum, item) => sum + item.sell_price * item.quantity, 0)
+              items.reduce(
+                (sum, item) => sum + item.sell_price * item.quantity,
+                0
+              )
             )}
           </span>
         </div>
@@ -474,8 +485,8 @@ function StepSubmit({
       toast.success('Đã gửi báo giá để duyệt!');
       router.push('/bqms');
     },
-    onError: () => {
-      toast.error('Không thể gửi báo giá');
+    onError: (err: any) => {
+      toast.error(err?.detail ?? 'Không thể gửi báo giá');
     },
   });
 
@@ -504,7 +515,10 @@ function StepSubmit({
         </h3>
 
         <div className="grid grid-cols-2 gap-4 mb-6">
-          <SummaryBox label="Tổng dòng sản phẩm" value={totalItems.toString()} />
+          <SummaryBox
+            label="Tổng dòng sản phẩm"
+            value={totalItems.toString()}
+          />
           <SummaryBox
             label="Tổng số lượng"
             value={totalQuantity.toLocaleString('vi-VN')}
@@ -643,68 +657,6 @@ function SummaryBox({
   );
 }
 
-// ─── Mock Data Generator ──────────────────────────────────────
-
-function generateMockItems(): QuotationItem[] {
-  return [
-    {
-      id: 'mock-1',
-      bqms_code: 'BQ-260329-001',
-      product_name: 'MCCB NF250-SEV 3P 200A',
-      maker: 'Mitsubishi',
-      type: 'MCCB',
-      quantity: 50,
-      supplier_price: 4500000,
-      margin_percent: 15,
-      sell_price: 5175000,
-    },
-    {
-      id: 'mock-2',
-      bqms_code: 'BQ-260329-002',
-      product_name: 'Contactor MC-85a 220V',
-      maker: 'LS Electric',
-      type: 'Contactor',
-      quantity: 200,
-      supplier_price: 850000,
-      margin_percent: 20,
-      sell_price: 1020000,
-    },
-    {
-      id: 'mock-3',
-      bqms_code: 'BQ-260329-003',
-      product_name: 'ACB NT06H1 630A 3P',
-      maker: 'Mitsubishi',
-      type: 'ACB',
-      quantity: 5,
-      supplier_price: 45000000,
-      margin_percent: 12,
-      sell_price: 50400000,
-    },
-    {
-      id: 'mock-4',
-      bqms_code: 'BQ-260329-004',
-      product_name: 'VFD FR-E840-0120 5.5kW',
-      maker: 'Mitsubishi',
-      type: 'VFD',
-      quantity: 10,
-      supplier_price: 12500000,
-      margin_percent: 18,
-      sell_price: 14750000,
-    },
-    {
-      id: 'mock-5',
-      bqms_code: 'BQ-260329-005',
-      product_name: 'Relay G3PE-245B DC12-24',
-      maker: 'Omron',
-      type: 'SSR',
-      quantity: 100,
-      supplier_price: 380000,
-      margin_percent: 25,
-      sell_price: 475000,
-    },
-  ];
-}
-
 // ─── Main Page Component ──────────────────────────────────────
 
 export default function QuotationWizardPage() {
@@ -744,10 +696,7 @@ export default function QuotationWizardPage() {
       )}
 
       {currentStep === 3 && (
-        <StepSubmit
-          items={items}
-          onBack={() => setCurrentStep(2)}
-        />
+        <StepSubmit items={items} onBack={() => setCurrentStep(2)} />
       )}
     </div>
   );

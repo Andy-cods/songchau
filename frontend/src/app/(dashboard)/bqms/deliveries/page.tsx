@@ -7,99 +7,7 @@ import { api } from '@/lib/api';
 import { cn, formatCurrency, formatDate } from '@/lib/utils';
 import { StatusBadge } from '@/components/shared/status-badge';
 import { DELIVERY_STATUS_CONFIG } from '@/lib/constants';
-import type { PaginatedResponse, DeliveryStatus } from '@/types/models';
-
-// ─── Types ─────────────────────────────────────────────────────
-
-interface BQMSDelivery {
-  id: string;
-  po_date: string;
-  po_number: string;
-  bqms_code: string;
-  spec: string;
-  quantity: number;
-  unit_price: number;
-  currency: 'VND' | 'USD' | 'RMB';
-  delivery_status: DeliveryStatus;
-  delivery_date: string | null;
-}
-
-// ─── Mock Data ─────────────────────────────────────────────────
-
-const MOCK_DELIVERIES: BQMSDelivery[] = [
-  {
-    id: '1',
-    po_date: '2026-03-15',
-    po_number: 'PO-2026-0142',
-    bqms_code: 'BQ-260315-001',
-    spec: 'MCCB NF250-SEV 3P 200A',
-    quantity: 50,
-    unit_price: 4500000,
-    currency: 'VND',
-    delivery_status: 'in_transit',
-    delivery_date: '2026-04-05',
-  },
-  {
-    id: '2',
-    po_date: '2026-03-12',
-    po_number: 'PO-2026-0139',
-    bqms_code: 'BQ-260312-002',
-    spec: 'Contactor MC-85a 220V',
-    quantity: 200,
-    unit_price: 850000,
-    currency: 'VND',
-    delivery_status: 'delivered',
-    delivery_date: '2026-03-25',
-  },
-  {
-    id: '3',
-    po_date: '2026-03-10',
-    po_number: 'PO-2026-0135',
-    bqms_code: 'BQ-260310-001',
-    spec: 'ACB NT06H1 630A 3P',
-    quantity: 5,
-    unit_price: 45000000,
-    currency: 'VND',
-    delivery_status: 'customs_clearance',
-    delivery_date: '2026-04-10',
-  },
-  {
-    id: '4',
-    po_date: '2026-03-08',
-    po_number: 'PO-2026-0132',
-    bqms_code: 'BQ-260308-003',
-    spec: 'VFD FR-E840-0120 5.5kW',
-    quantity: 10,
-    unit_price: 12500000,
-    currency: 'VND',
-    delivery_status: 'completed',
-    delivery_date: '2026-03-20',
-  },
-  {
-    id: '5',
-    po_date: '2026-03-05',
-    po_number: 'PO-2026-0128',
-    bqms_code: 'BQ-260305-002',
-    spec: 'Relay G3PE-245B DC12-24',
-    quantity: 100,
-    unit_price: 380000,
-    currency: 'VND',
-    delivery_status: 'pending',
-    delivery_date: null,
-  },
-  {
-    id: '6',
-    po_date: '2026-03-02',
-    po_number: 'PO-2026-0125',
-    bqms_code: 'BQ-260302-001',
-    spec: 'MCB iC60N 3P 32A C',
-    quantity: 500,
-    unit_price: 320000,
-    currency: 'VND',
-    delivery_status: 'picked_up',
-    delivery_date: '2026-03-30',
-  },
-];
+import type { DeliveryStatus } from '@/types/models';
 
 // ─── Status filter options ─────────────────────────────────────
 
@@ -118,30 +26,35 @@ const STATUS_FILTERS: { value: DeliveryStatus | 'all'; label: string }[] = [
 export default function BQMSDeliveriesPage() {
   const [statusFilter, setStatusFilter] = useState<DeliveryStatus | 'all'>('all');
   const [searchQuery, setSearchQuery] = useState('');
+  const [page, setPage] = useState(1);
 
-  const { data, isLoading, error } = useQuery<PaginatedResponse<BQMSDelivery>>({
-    queryKey: ['bqms', 'deliveries', statusFilter],
+  const { data: raw, isLoading, error } = useQuery({
+    queryKey: ['bqms', 'deliveries', statusFilter, page],
     queryFn: () => {
-      const params = statusFilter !== 'all' ? `?status=${statusFilter}` : '';
-      return api.get(`/api/v1/bqms/deliveries${params}`);
+      const params = new URLSearchParams();
+      if (statusFilter !== 'all') params.set('status', statusFilter);
+      params.set('page', String(page));
+      params.set('limit', '50');
+      const qs = params.toString();
+      return api.get<any>(`/api/v1/bqms/deliveries${qs ? `?${qs}` : ''}`);
     },
-    retry: false,
+    retry: 1,
   });
 
-  const deliveries = data?.items?.length ? data.items : MOCK_DELIVERIES;
+  // Extract data from API — no mock fallback
+  const deliveries: any[] = raw?.data ?? [];
+  const total = raw?.total ?? deliveries.length;
 
-  // Apply local filters
+  // Apply local search filter
   let filtered = deliveries;
-  if (statusFilter !== 'all') {
-    filtered = filtered.filter((d) => d.delivery_status === statusFilter);
-  }
   if (searchQuery) {
     const q = searchQuery.toLowerCase();
     filtered = filtered.filter(
-      (d) =>
-        d.po_number.toLowerCase().includes(q) ||
-        d.bqms_code.toLowerCase().includes(q) ||
-        d.spec.toLowerCase().includes(q)
+      (d: any) =>
+        (d.po_number || '').toLowerCase().includes(q) ||
+        (d.bqms_code || '').toLowerCase().includes(q) ||
+        (d.spec || d.product_name || '').toLowerCase().includes(q) ||
+        (d.delivery_number || '').toLowerCase().includes(q)
     );
   }
 
@@ -166,7 +79,10 @@ export default function BQMSDeliveriesPage() {
           {STATUS_FILTERS.map((sf) => (
             <button
               key={sf.value}
-              onClick={() => setStatusFilter(sf.value)}
+              onClick={() => {
+                setStatusFilter(sf.value);
+                setPage(1);
+              }}
               className={cn(
                 'px-3 py-1.5 rounded-md text-xs font-medium transition-colors',
                 statusFilter === sf.value
@@ -192,6 +108,13 @@ export default function BQMSDeliveriesPage() {
         </div>
       </div>
 
+      {/* Error State */}
+      {error && !isLoading && (
+        <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-lg">
+          <p className="text-sm text-red-700">Có lỗi xảy ra, thử lại sau</p>
+        </div>
+      )}
+
       {/* Table */}
       <div className="bg-white rounded-lg shadow-sm border border-slate-200 overflow-hidden">
         {isLoading ? (
@@ -200,7 +123,9 @@ export default function BQMSDeliveriesPage() {
           <div className="flex flex-col items-center justify-center py-16 text-slate-300">
             <Truck className="h-12 w-12 mb-3" />
             <p className="text-sm text-slate-400 font-medium">
-              Không tìm thấy đơn giao hàng nào
+              {deliveries.length === 0
+                ? 'Chưa có dữ liệu giao hàng'
+                : 'Không tìm thấy đơn giao hàng nào'}
             </p>
           </div>
         ) : (
@@ -219,43 +144,57 @@ export default function BQMSDeliveriesPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {filtered.map((d) => {
-                  const statusCfg = DELIVERY_STATUS_CONFIG[d.delivery_status];
+                {filtered.map((d: any, idx: number) => {
+                  const status = d.delivery_status || d.status || 'pending';
+                  const statusCfg = (DELIVERY_STATUS_CONFIG as any)[status];
                   return (
                     <tr
-                      key={d.id}
+                      key={d.id ?? idx}
                       className="hover:bg-slate-50/50 transition-colors"
                     >
-                      <TD>{formatDate(d.po_date)}</TD>
+                      <TD>{formatDate(d.po_date ?? d.created_at)}</TD>
                       <TD>
                         <span className="font-mono text-brand-600 font-medium">
-                          {d.po_number}
+                          {d.po_number ?? '—'}
                         </span>
                       </TD>
                       <TD>
-                        <span className="font-mono">{d.bqms_code}</span>
+                        <span className="font-mono">{d.bqms_code ?? '—'}</span>
                       </TD>
-                      <TD>{d.spec}</TD>
+                      <TD>{d.spec ?? d.product_name ?? '—'}</TD>
                       <TD align="right">
                         <span className="font-mono">
-                          {d.quantity.toLocaleString('vi-VN')}
+                          {d.quantity != null
+                            ? Number(d.quantity).toLocaleString('vi-VN')
+                            : '—'}
                         </span>
                       </TD>
                       <TD align="right">
                         <span className="font-mono">
-                          {formatCurrency(d.unit_price, d.currency)}
+                          {d.unit_price != null
+                            ? formatCurrency(
+                                d.unit_price,
+                                d.currency ?? 'VND'
+                              )
+                            : '—'}
                         </span>
                       </TD>
                       <TD>
-                        {statusCfg && (
+                        {statusCfg ? (
                           <StatusBadge
                             label={statusCfg.label}
                             variant={statusCfg.variant}
                             pulse={statusCfg.pulse}
                           />
+                        ) : (
+                          <span className="text-xs text-slate-500">{status}</span>
                         )}
                       </TD>
-                      <TD>{d.delivery_date ? formatDate(d.delivery_date) : '—'}</TD>
+                      <TD>
+                        {d.delivery_date
+                          ? formatDate(d.delivery_date)
+                          : '—'}
+                      </TD>
                     </tr>
                   );
                 })}
@@ -267,7 +206,7 @@ export default function BQMSDeliveriesPage() {
 
       {/* Count */}
       <div className="mt-4 text-sm text-slate-500">
-        Hiển thị {filtered.length} đơn giao hàng
+        Hiển thị {filtered.length} / {total} đơn giao hàng
       </div>
     </div>
   );

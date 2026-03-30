@@ -6,6 +6,7 @@ import {
   ClipboardList,
   RefreshCw,
   Search,
+  Inbox,
 } from 'lucide-react';
 import { api } from '@/lib/api';
 import { cn, formatDate } from '@/lib/utils';
@@ -15,163 +16,6 @@ import { LineAreaChart } from '@/components/charts/line-area-chart';
 import { DonutChart } from '@/components/charts/donut-chart';
 import { ParetoChart } from '@/components/charts/pareto-chart';
 import { HorizontalBarChart } from '@/components/charts/horizontal-bar-chart';
-import type { BQMSKpi, PaginatedResponse } from '@/types/models';
-
-// ─── Types ─────────────────────────────────────────────────────
-
-interface BQMSVolumePoint {
-  month: string;
-  total: number;
-  won: number;
-}
-
-interface BQMSTypeSplit {
-  name: string;
-  value: number;
-}
-
-interface MakerCount {
-  maker: string;
-  count: number;
-}
-
-interface DeadlineUrgency {
-  label: string;
-  count: number;
-}
-
-interface BQMSTableRecord {
-  id: string;
-  date: string;
-  order_number: string;
-  bqms_code: string;
-  product_name: string;
-  type: string;
-  maker: string;
-  quantity: number;
-  deadline: string;
-  status: 'draft' | 'submitted' | 'won' | 'lost' | 'cancelled';
-}
-
-// ─── Mock / Fallback Data ──────────────────────────────────────
-
-const MOCK_KPI: BQMSKpi = {
-  total_bids: 156,
-  total_won: 98,
-  total_lost: 42,
-  win_rate: 62.8,
-  total_value: 18500000000,
-  won_value: 12200000000,
-  period: 'Q1/2026',
-};
-
-const MOCK_VOLUME: BQMSVolumePoint[] = [
-  { month: 'T10/25', total: 18, won: 11 },
-  { month: 'T11/25', total: 22, won: 15 },
-  { month: 'T12/25', total: 20, won: 12 },
-  { month: 'T1/26', total: 25, won: 17 },
-  { month: 'T2/26', total: 19, won: 13 },
-  { month: 'T3/26', total: 28, won: 18 },
-];
-
-const MOCK_TYPE_SPLIT: BQMSTypeSplit[] = [
-  { name: 'Gia công (GC)', value: 94 },
-  { name: 'Thương mại (TM)', value: 62 },
-];
-
-const MOCK_MAKERS: MakerCount[] = [
-  { maker: 'Mitsubishi', count: 35 },
-  { maker: 'Schneider', count: 28 },
-  { maker: 'Siemens', count: 22 },
-  { maker: 'ABB', count: 18 },
-  { maker: 'Omron', count: 15 },
-  { maker: 'Fuji', count: 12 },
-  { maker: 'LS', count: 14 },
-  { maker: 'Chint', count: 12 },
-];
-
-const MOCK_DEADLINE: DeadlineUrgency[] = [
-  { label: 'Quá hạn', count: 5 },
-  { label: 'Hôm nay', count: 3 },
-  { label: '1-3 ngày', count: 8 },
-  { label: '4-7 ngày', count: 12 },
-  { label: '>7 ngày', count: 28 },
-];
-
-const MOCK_TABLE_RECORDS: BQMSTableRecord[] = [
-  {
-    id: '1',
-    date: '2026-03-28',
-    order_number: 'DH-2026-0089',
-    bqms_code: 'BQ-260328-001',
-    product_name: 'MCCB NF250-SEV 3P 200A',
-    type: 'TM',
-    maker: 'Mitsubishi',
-    quantity: 50,
-    deadline: '2026-04-05',
-    status: 'submitted',
-  },
-  {
-    id: '2',
-    date: '2026-03-27',
-    order_number: 'DH-2026-0088',
-    bqms_code: 'BQ-260327-002',
-    product_name: 'Contactor MC-85a 220V',
-    type: 'GC',
-    maker: 'LS Electric',
-    quantity: 200,
-    deadline: '2026-04-02',
-    status: 'won',
-  },
-  {
-    id: '3',
-    date: '2026-03-26',
-    order_number: 'DH-2026-0087',
-    bqms_code: 'BQ-260326-003',
-    product_name: 'ACB NT06H1 630A 3P',
-    type: 'TM',
-    maker: 'Schneider',
-    quantity: 5,
-    deadline: '2026-04-10',
-    status: 'submitted',
-  },
-  {
-    id: '4',
-    date: '2026-03-25',
-    order_number: 'DH-2026-0085',
-    bqms_code: 'BQ-260325-001',
-    product_name: 'VFD FR-E840-0120 5.5kW',
-    type: 'GC',
-    maker: 'Mitsubishi',
-    quantity: 10,
-    deadline: '2026-03-30',
-    status: 'lost',
-  },
-  {
-    id: '5',
-    date: '2026-03-24',
-    order_number: 'DH-2026-0083',
-    bqms_code: 'BQ-260324-002',
-    product_name: 'Relay G3PE-245B DC12-24',
-    type: 'TM',
-    maker: 'Omron',
-    quantity: 100,
-    deadline: '2026-04-01',
-    status: 'won',
-  },
-  {
-    id: '6',
-    date: '2026-03-23',
-    order_number: 'DH-2026-0081',
-    bqms_code: 'BQ-260323-001',
-    product_name: 'MCB iC60N 3P 32A C',
-    type: 'TM',
-    maker: 'Schneider',
-    quantity: 500,
-    deadline: '2026-03-28',
-    status: 'draft',
-  },
-];
 
 // ─── Status Configs for BQMS ───────────────────────────────────
 
@@ -184,6 +28,7 @@ const BQMS_STATUS_MAP: Record<
   won: { label: 'Trúng', variant: 'success' },
   lost: { label: 'Trượt', variant: 'danger' },
   cancelled: { label: 'Hủy', variant: 'neutral' },
+  pending: { label: 'Đang chờ', variant: 'warning' },
 };
 
 // ─── Page Component ────────────────────────────────────────────
@@ -192,48 +37,95 @@ export default function BQMSPage() {
   const [searchQuery, setSearchQuery] = useState('');
 
   // Fetch KPIs
-  const { data: kpi, isLoading: kpiLoading } = useQuery<BQMSKpi>({
+  const { data: kpiRaw, isLoading: kpiLoading } = useQuery({
     queryKey: ['bqms', 'kpi'],
-    queryFn: () => api.get('/api/v1/bqms/kpi'),
-    retry: false,
-  });
-
-  // Fetch volume trend
-  const { data: volumeData } = useQuery<BQMSVolumePoint[]>({
-    queryKey: ['bqms', 'volume-trend'],
-    queryFn: () => api.get('/api/v1/bqms/volume-trend'),
-    retry: false,
+    queryFn: () => api.get<any>('/api/v1/bqms/kpi'),
+    retry: 1,
   });
 
   // Fetch records
-  const { data: recordsData, isLoading: recordsLoading } = useQuery<
-    PaginatedResponse<BQMSTableRecord>
-  >({
+  const { data: recordsRaw, isLoading: recordsLoading } = useQuery({
     queryKey: ['bqms', 'records'],
-    queryFn: () => api.get('/api/v1/bqms/records'),
-    retry: false,
+    queryFn: () => api.get<any>('/api/v1/bqms/records'),
+    retry: 1,
   });
 
-  // Use real data or fallback
-  const kpiData = kpi ?? MOCK_KPI;
-  const volume = volumeData?.length ? volumeData : MOCK_VOLUME;
-  const records = recordsData?.items?.length
-    ? recordsData.items
-    : MOCK_TABLE_RECORDS;
+  // Fetch RFQ data for volume trends
+  const { data: rfqRaw } = useQuery({
+    queryKey: ['bqms', 'rfq-overview'],
+    queryFn: () => api.get<any>('/api/v1/bqms/rfq'),
+    retry: 1,
+  });
+
+  // Fetch Pareto data
+  const { data: paretoRaw } = useQuery({
+    queryKey: ['bqms', 'pareto'],
+    queryFn: () => api.get<any>('/api/v1/bqms/analytics/pareto'),
+    retry: 1,
+  });
+
+  // Fetch BQMS win rate from reports
+  const { data: winRateRaw } = useQuery({
+    queryKey: ['reports', 'bqms-win-rate'],
+    queryFn: () => api.get<any>('/api/v1/reports/bqms-win-rate'),
+    retry: 1,
+  });
+
+  // Extract data from API responses
+  const kpiData = kpiRaw?.data ?? kpiRaw ?? {};
+  const records: any[] = recordsRaw?.data ?? [];
+  const rfqList: any[] = rfqRaw?.data ?? [];
+  const paretoData: any[] = paretoRaw?.data ?? [];
+  const winRateData: any[] = winRateRaw?.data ?? [];
+
+  // KPI values
+  const totalItems = kpiData?.total_items ?? kpiData?.total_bids ?? 0;
+  const processed = kpiData?.processed ?? kpiData?.total_won ?? 0;
+  const makerCount = kpiData?.maker_count ?? 0;
+  const winRate = Number(kpiData?.win_rate ?? 0);
+  const lastSynced = kpiData?.last_synced ?? null;
+
+  // Compute type split from records if available
+  const typeSplitMap: Record<string, number> = {};
+  records.forEach((r: any) => {
+    const t = r.type || r.record_type || 'Khác';
+    typeSplitMap[t] = (typeSplitMap[t] || 0) + 1;
+  });
+  const typeSplitData = Object.entries(typeSplitMap).map(([name, value]) => ({
+    name,
+    value,
+  }));
+
+  // Build deadline urgency from records with deadlines
+  const today = new Date();
+  const deadlineBuckets = { 'Quá hạn': 0, 'Hôm nay': 0, '1-3 ngày': 0, '4-7 ngày': 0, '>7 ngày': 0 };
+  records.forEach((r: any) => {
+    const dl = r.deadline || r.submitted_at;
+    if (!dl) return;
+    const d = new Date(dl);
+    const diff = Math.floor((d.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+    if (diff < 0) deadlineBuckets['Quá hạn']++;
+    else if (diff === 0) deadlineBuckets['Hôm nay']++;
+    else if (diff <= 3) deadlineBuckets['1-3 ngày']++;
+    else if (diff <= 7) deadlineBuckets['4-7 ngày']++;
+    else deadlineBuckets['>7 ngày']++;
+  });
+  const deadlineData = Object.entries(deadlineBuckets)
+    .map(([label, count]) => ({ label, count }))
+    .filter((d) => d.count > 0);
 
   // Filter records by search
   const filteredRecords = searchQuery
-    ? records.filter(
-        (r) =>
-          r.bqms_code.toLowerCase().includes(searchQuery.toLowerCase()) ||
-          r.product_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-          r.maker.toLowerCase().includes(searchQuery.toLowerCase()) ||
-          r.order_number.toLowerCase().includes(searchQuery.toLowerCase())
-      )
+    ? records.filter((r: any) => {
+        const q = searchQuery.toLowerCase();
+        return (
+          (r.bqms_code || r.reference_number || '').toLowerCase().includes(q) ||
+          (r.product_name || r.project_name || '').toLowerCase().includes(q) ||
+          (r.maker || r.client_name || '').toLowerCase().includes(q) ||
+          (r.order_number || '').toLowerCase().includes(q)
+        );
+      })
     : records;
-
-  const processedCount = kpiData.total_won + kpiData.total_lost;
-  const pendingCount = kpiData.total_bids - processedCount;
 
   return (
     <div>
@@ -249,7 +141,10 @@ export default function BQMSPage() {
         </div>
         <div className="flex items-center gap-2 text-xs text-slate-400">
           <RefreshCw className="h-3.5 w-3.5" />
-          <span>Cập nhật lần cuối: {formatDate(new Date())}</span>
+          <span>
+            Cập nhật lần cuối:{' '}
+            {lastSynced ? formatDate(lastSynced) : formatDate(new Date())}
+          </span>
         </div>
       </div>
 
@@ -257,83 +152,103 @@ export default function BQMSPage() {
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
         <KPICard
           label="Tổng BQMS"
-          value={kpiData.total_bids}
+          value={totalItems}
           accentColor="border-brand-500"
           loading={kpiLoading}
-          trend={{ direction: 'up', value: kpiData.period }}
         />
         <KPICard
           label="Đã xử lý"
-          value={processedCount}
+          value={processed}
           accentColor="border-emerald-500"
           loading={kpiLoading}
-          trend={{
-            direction: 'up',
-            value: `${(kpiData?.win_rate ?? 0).toFixed(1)}% win`,
-          }}
+          trend={
+            winRate > 0
+              ? { direction: 'up', value: `${winRate.toFixed(1)}% win` }
+              : undefined
+          }
         />
         <KPICard
           label="Makers"
-          value={MOCK_MAKERS.length}
+          value={makerCount}
           accentColor="border-cyan-500"
           loading={kpiLoading}
         />
         <KPICard
           label="Đang chờ"
-          value={pendingCount > 0 ? pendingCount : 16}
+          value={totalItems - processed > 0 ? totalItems - processed : 0}
           accentColor="border-amber-500"
           loading={kpiLoading}
-          trend={{ direction: 'up', value: 'cần xử lý' }}
+          trend={
+            totalItems - processed > 0
+              ? { direction: 'up', value: 'cần xử lý' }
+              : undefined
+          }
         />
       </div>
 
       {/* ── Charts Row 1 ──────────────────────────────────────── */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 mb-6">
         <div className="lg:col-span-7 bg-white rounded-lg shadow-sm p-4">
-          <LineAreaChart
-            data={volume}
-            xKey="month"
-            yKeys={['total', 'won']}
-            colors={['#6366f1', '#10b981']}
-            title="Xu hướng BQMS theo tháng"
-            height={300}
-          />
+          {winRateData.length > 0 ? (
+            <LineAreaChart
+              data={winRateData}
+              xKey="month"
+              yKeys={['total', 'won']}
+              colors={['#6366f1', '#10b981']}
+              title="Xu hướng BQMS theo tháng"
+              height={300}
+            />
+          ) : (
+            <NoChartData title="Xu hướng BQMS theo tháng" />
+          )}
         </div>
 
         <div className="lg:col-span-5 bg-white rounded-lg shadow-sm p-4">
-          <DonutChart
-            data={MOCK_TYPE_SPLIT}
-            nameKey="name"
-            valueKey="value"
-            colors={['#6366f1', '#06b6d4']}
-            title="Phân bổ GC / TM"
-            height={300}
-          />
+          {typeSplitData.length > 0 ? (
+            <DonutChart
+              data={typeSplitData}
+              nameKey="name"
+              valueKey="value"
+              colors={['#6366f1', '#06b6d4', '#10b981', '#f59e0b']}
+              title="Phân bổ theo loại"
+              height={300}
+            />
+          ) : (
+            <NoChartData title="Phân bổ theo loại" />
+          )}
         </div>
       </div>
 
       {/* ── Charts Row 2 ──────────────────────────────────────── */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 mb-6">
         <div className="lg:col-span-6 bg-white rounded-lg shadow-sm p-4">
-          <ParetoChart
-            data={MOCK_MAKERS}
-            nameKey="maker"
-            valueKey="count"
-            barColor="#6366f1"
-            lineColor="#f59e0b"
-            title="Top Makers (Pareto)"
-            height={320}
-          />
+          {paretoData.length > 0 ? (
+            <ParetoChart
+              data={paretoData}
+              nameKey="maker"
+              valueKey="count"
+              barColor="#6366f1"
+              lineColor="#f59e0b"
+              title="Top Makers (Pareto)"
+              height={320}
+            />
+          ) : (
+            <NoChartData title="Top Makers (Pareto)" />
+          )}
         </div>
 
         <div className="lg:col-span-6 bg-white rounded-lg shadow-sm p-4">
-          <HorizontalBarChart
-            data={MOCK_DEADLINE}
-            nameKey="label"
-            valueKey="count"
-            color="#ef4444"
-            title="Deadline khẩn cấp"
-          />
+          {deadlineData.length > 0 ? (
+            <HorizontalBarChart
+              data={deadlineData}
+              nameKey="label"
+              valueKey="count"
+              color="#ef4444"
+              title="Deadline khẩn cấp"
+            />
+          ) : (
+            <NoChartData title="Deadline khẩn cấp" />
+          )}
         </div>
       </div>
 
@@ -344,7 +259,7 @@ export default function BQMSPage() {
           <div className="flex items-center gap-2">
             <ClipboardList className="h-4 w-4 text-brand-500" />
             <h3 className="text-sm font-semibold text-slate-700">
-              Danh sách BQMS
+              Danh sách BQMS ({records.length} bản ghi)
             </h3>
           </div>
           <div className="flex items-center gap-3">
@@ -377,60 +292,76 @@ export default function BQMSPage() {
               <thead>
                 <tr className="border-b border-slate-100 bg-slate-50/50">
                   <TH>Ngày</TH>
-                  <TH>Đơn hàng</TH>
-                  <TH>Mã BQMS</TH>
+                  <TH>Mã</TH>
                   <TH>Tên hàng</TH>
-                  <TH>GC/TM</TH>
+                  <TH>Loại</TH>
                   <TH>Maker</TH>
                   <TH align="right">SL</TH>
-                  <TH>Deadline</TH>
                   <TH>Trạng thái</TH>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {filteredRecords.map((record) => {
-                  const statusCfg = BQMS_STATUS_MAP[record.status];
+                {filteredRecords.slice(0, 50).map((record: any, idx: number) => {
+                  const status = record.status || 'draft';
+                  const statusCfg = BQMS_STATUS_MAP[status] ?? {
+                    label: status,
+                    variant: 'neutral' as const,
+                  };
                   return (
                     <tr
-                      key={record.id}
+                      key={record.id ?? idx}
                       className="hover:bg-slate-50/50 transition-colors"
                     >
-                      <TD>{formatDate(record.date)}</TD>
+                      <TD>
+                        {formatDate(
+                          record.date ??
+                            record.created_at ??
+                            record.submitted_at
+                        )}
+                      </TD>
                       <TD>
                         <span className="font-mono text-brand-600">
-                          {record.order_number}
+                          {record.bqms_code ??
+                            record.reference_number ??
+                            record.order_number ??
+                            '—'}
                         </span>
                       </TD>
                       <TD>
-                        <span className="font-mono">{record.bqms_code}</span>
+                        {record.product_name ??
+                          record.project_name ??
+                          record.client_name ??
+                          '—'}
                       </TD>
-                      <TD>{record.product_name}</TD>
                       <TD>
-                        <span
-                          className={cn(
-                            'inline-flex px-1.5 py-0.5 rounded text-xs font-medium',
-                            record.type === 'GC'
-                              ? 'bg-indigo-50 text-indigo-700'
-                              : 'bg-cyan-50 text-cyan-700'
-                          )}
-                        >
-                          {record.type}
-                        </span>
+                        {record.type || record.record_type ? (
+                          <span
+                            className={cn(
+                              'inline-flex px-1.5 py-0.5 rounded text-xs font-medium',
+                              (record.type || record.record_type) === 'GC'
+                                ? 'bg-indigo-50 text-indigo-700'
+                                : 'bg-cyan-50 text-cyan-700'
+                            )}
+                          >
+                            {record.type || record.record_type}
+                          </span>
+                        ) : (
+                          '—'
+                        )}
                       </TD>
-                      <TD>{record.maker}</TD>
+                      <TD>{record.maker ?? '—'}</TD>
                       <TD align="right">
                         <span className="font-mono">
-                          {record.quantity.toLocaleString('vi-VN')}
+                          {record.quantity != null
+                            ? Number(record.quantity).toLocaleString('vi-VN')
+                            : '—'}
                         </span>
                       </TD>
-                      <TD>{formatDate(record.deadline)}</TD>
                       <TD>
-                        {statusCfg && (
-                          <StatusBadge
-                            label={statusCfg.label}
-                            variant={statusCfg.variant}
-                          />
-                        )}
+                        <StatusBadge
+                          label={statusCfg.label}
+                          variant={statusCfg.variant}
+                        />
                       </TD>
                     </tr>
                   );
@@ -439,6 +370,20 @@ export default function BQMSPage() {
             </table>
           </div>
         )}
+      </div>
+    </div>
+  );
+}
+
+// ─── No Chart Data ──────────────────────────────────────────────
+
+function NoChartData({ title }: { title: string }) {
+  return (
+    <div>
+      <h3 className="text-sm font-semibold text-slate-700 mb-3">{title}</h3>
+      <div className="flex flex-col items-center justify-center h-[300px] text-slate-300">
+        <Inbox className="h-12 w-12 mb-3" />
+        <p className="text-sm text-slate-400">Chưa có dữ liệu biểu đồ</p>
       </div>
     </div>
   );
@@ -491,12 +436,10 @@ function TableSkeleton() {
         <div key={i} className="flex items-center gap-4">
           <div className="h-4 w-20 bg-slate-200 rounded animate-pulse" />
           <div className="h-4 w-24 bg-slate-200 rounded animate-pulse" />
-          <div className="h-4 w-28 bg-slate-200 rounded animate-pulse" />
           <div className="h-4 w-36 bg-slate-200 rounded animate-pulse flex-1" />
           <div className="h-4 w-12 bg-slate-200 rounded animate-pulse" />
           <div className="h-4 w-20 bg-slate-200 rounded animate-pulse" />
           <div className="h-4 w-12 bg-slate-200 rounded animate-pulse" />
-          <div className="h-4 w-20 bg-slate-200 rounded animate-pulse" />
           <div className="h-5 w-16 bg-slate-200 rounded-full animate-pulse" />
         </div>
       ))}
