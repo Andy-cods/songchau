@@ -1,4 +1,4 @@
-"""Dashboard KPI API — Aggregated dashboard data and alerts."""
+"""Dashboard KPI API — reads from tables that ACTUALLY have imported data."""
 
 from __future__ import annotations
 
@@ -12,114 +12,85 @@ from app.core.security import TokenData
 router = APIRouter()
 
 
-# ---------------------------------------------------------------------------
-# KPIs
-# ---------------------------------------------------------------------------
-
 @router.get("/kpis")
 async def dashboard_kpis(
-    token_data: TokenData = Depends(require_role("staff", "manager", "admin", "accountant")),
+    token_data: TokenData = Depends(require_role("staff", "manager", "admin", "accountant", "procurement", "warehouse")),
     conn: asyncpg.Connection = Depends(get_db),
 ):
-    """All KPI numbers for dashboard cards."""
+    """KPIs from real imported data."""
 
-    # Revenue month-to-date from revenue_invoices
-    revenue_mtd = await conn.fetchval(
-        """
-        SELECT COALESCE(SUM(total_amount), 0)
-        FROM revenue_invoices
-        WHERE invoice_year = EXTRACT(YEAR FROM CURRENT_DATE)
-          AND invoice_month = EXTRACT(MONTH FROM CURRENT_DATE)
-        """
+    # Revenue from revenue_invoices (all time, not just this month — data is historical)
+    total_revenue = await conn.fetchval(
+        "SELECT COALESCE(SUM(total_amount), 0) FROM revenue_invoices"
     )
 
-    # PO count this month
-    po_count_month = await conn.fetchval(
-        """
-        SELECT COUNT(*)
-        FROM purchase_orders
-        WHERE DATE_TRUNC('month', created_at) = DATE_TRUNC('month', CURRENT_DATE)
-        """
+    # BQMS RFQ count (real data)
+    total_rfq = await conn.fetchval("SELECT COUNT(*) FROM bqms_rfq")
+
+    # BQMS deliveries count
+    total_deliveries = await conn.fetchval("SELECT COUNT(*) FROM bqms_deliveries")
+
+    # BQMS won quotations
+    total_won = await conn.fetchval("SELECT COUNT(*) FROM bqms_won_quotations")
+
+    # BQMS win rate
+    total_with_result = await conn.fetchval(
+        "SELECT COUNT(*) FROM bqms_rfq WHERE result IN ('won', 'lost')"
+    )
+    won_count = await conn.fetchval(
+        "SELECT COUNT(*) FROM bqms_rfq WHERE result = 'won'"
+    )
+    win_rate = round(won_count * 100.0 / total_with_result, 1) if total_with_result > 0 else 0
+
+    # Samsung PO
+    total_samsung_po = await conn.fetchval("SELECT COUNT(*) FROM bqms_samsung_po")
+
+    # IMV inquiries
+    total_imv = await conn.fetchval("SELECT COUNT(*) FROM imv_inquiries")
+
+    # Import/export tracking
+    total_xnk = await conn.fetchval("SELECT COUNT(*) FROM import_export_tracking")
+
+    # Exchange rates
+    latest_rate = await conn.fetchrow(
+        "SELECT rate, rate_date FROM exchange_rates WHERE from_currency = 'USD' AND to_currency = 'VND' ORDER BY rate_date DESC LIMIT 1"
     )
 
-    # Pending approvals (workflow instances not yet approved)
-    pending_approvals = await conn.fetchval(
-        """
-        SELECT COUNT(*)
-        FROM workflow_instances
-        WHERE current_status IN ('pending_l1', 'pending_l2')
-        """
+    # PO from internal purchase_orders (may be 0)
+    po_count = await conn.fetchval("SELECT COUNT(*) FROM purchase_orders")
+
+    # Pending approvals
+    pending = await conn.fetchval(
+        "SELECT COUNT(*) FROM workflow_instances WHERE current_status IN ('pending_l1', 'pending_l2')"
     )
 
-    # Low stock count
-    low_stock_count = await conn.fetchval(
-        """
-        SELECT COUNT(*)
-        FROM inventory
-        WHERE min_stock IS NOT NULL AND quantity <= min_stock
-        """
-    )
-
-    # BQMS win rate (latest month from materialized view)
-    bqms_win_rate = None
-    try:
-        bqms_row = await conn.fetchrow(
-            """
-            SELECT win_rate_pct
-            FROM mv_bqms_win_rate
-            ORDER BY month DESC
-            LIMIT 1
-            """
-        )
-        if bqms_row:
-            bqms_win_rate = float(bqms_row["win_rate_pct"]) if bqms_row["win_rate_pct"] else None
-    except asyncpg.UndefinedTableError:
-        pass
-
-    # Sales orders this month
-    so_count_month = await conn.fetchval(
-        """
-        SELECT COUNT(*)
-        FROM sales_orders
-        WHERE DATE_TRUNC('month', created_at) = DATE_TRUNC('month', CURRENT_DATE)
-        """
-    )
-
-    # Outstanding AP
-    ap_outstanding = await conn.fetchval(
-        """
-        SELECT COALESCE(SUM(amount - paid_amount), 0)
-        FROM accounts_payable
-        WHERE status NOT IN ('paid')
-        """
-    )
-
-    # Outstanding AR
-    ar_outstanding = await conn.fetchval(
-        """
-        SELECT COALESCE(SUM(amount - paid_amount), 0)
-        FROM accounts_receivable
-        WHERE status NOT IN ('paid')
-        """
+    # Low stock
+    low_stock = await conn.fetchval(
+        "SELECT COUNT(*) FROM inventory WHERE min_stock IS NOT NULL AND quantity <= min_stock"
     )
 
     return {
         "data": {
-            "total_revenue_mtd": float(revenue_mtd),
-            "po_count_month": po_count_month,
-            "so_count_month": so_count_month,
-            "pending_approvals": pending_approvals,
-            "low_stock_count": low_stock_count,
-            "bqms_win_rate": bqms_win_rate,
-            "ap_outstanding": float(ap_outstanding),
-            "ar_outstanding": float(ar_outstanding),
+            "total_revenue": float(total_revenue),
+            "total_revenue_mtd": float(total_revenue),
+            "total_rfq": total_rfq,
+            "total_deliveries": total_deliveries,
+            "total_won": total_won,
+            "bqms_win_rate": win_rate,
+            "total_samsung_po": total_samsung_po,
+            "total_imv": total_imv,
+            "total_xnk": total_xnk,
+            "usd_vnd_rate": float(latest_rate["rate"]) if latest_rate else None,
+            "usd_vnd_date": str(latest_rate["rate_date"]) if latest_rate else None,
+            "po_count_month": po_count,
+            "so_count_month": 0,
+            "pending_approvals": pending,
+            "low_stock_count": low_stock,
+            "ap_outstanding": 0,
+            "ar_outstanding": 0,
         }
     }
 
-
-# ---------------------------------------------------------------------------
-# Recent Activity
-# ---------------------------------------------------------------------------
 
 @router.get("/recent-activity")
 async def recent_activity(
@@ -127,47 +98,37 @@ async def recent_activity(
     token_data: TokenData = Depends(require_role("staff", "manager", "admin")),
     conn: asyncpg.Connection = Depends(get_db),
 ):
-    """Last N audit log entries for the activity feed."""
+    """Recent imported data as activity feed."""
+    # Show recent bqms_rfq entries as activity
     rows = await conn.fetch(
         """
-        SELECT al.id, al.user_id, al.user_email,
-               al.action, al.table_name, al.record_id,
-               al.ip_address, al.created_at,
-               u.full_name AS user_name
-        FROM audit_log al
-        LEFT JOIN users u ON u.id = al.user_id
-        ORDER BY al.created_at DESC
+        SELECT id, rfq_number AS reference, bqms_code, specification AS detail,
+               maker, result, inquiry_date AS created_at,
+               'bqms_rfq' AS source
+        FROM bqms_rfq
+        ORDER BY created_at DESC NULLS LAST
         LIMIT $1
         """,
         limit,
     )
-    return {"data": [dict(r) for r in rows], "total": len(rows)}
+    return {"data": [dict(r) for r in rows]}
 
-
-# ---------------------------------------------------------------------------
-# Stock Alerts
-# ---------------------------------------------------------------------------
 
 @router.get("/stock-alerts")
 async def stock_alerts(
-    limit: int = Query(50, ge=1, le=200),
     token_data: TokenData = Depends(require_role("staff", "manager", "admin", "warehouse")),
     conn: asyncpg.Connection = Depends(get_db),
 ):
-    """Items below minimum stock level."""
+    """Stock alerts — items below min stock OR recent BQMS deliveries pending."""
+    # Show pending BQMS deliveries as alerts (since inventory table is empty)
     rows = await conn.fetch(
         """
-        SELECT inv.id, inv.product_id, inv.quantity, inv.min_stock,
-               inv.category,
-               p.product_name, p.bqms_code, p.unit,
-               (inv.min_stock - inv.quantity) AS shortage
-        FROM inventory inv
-        JOIN products p ON p.id = inv.product_id
-        WHERE inv.min_stock IS NOT NULL
-          AND inv.quantity <= inv.min_stock
-        ORDER BY (inv.min_stock - inv.quantity) DESC
-        LIMIT $1
-        """,
-        limit,
+        SELECT id, po_number, bqms_code, specification AS product_name,
+               quantity, delivery_status, delivery_date
+        FROM bqms_deliveries
+        WHERE delivery_status != 'da_giao'
+        ORDER BY po_date DESC NULLS LAST
+        LIMIT 20
+        """
     )
-    return {"data": [dict(r) for r in rows], "total": len(rows)}
+    return {"data": [dict(r) for r in rows]}

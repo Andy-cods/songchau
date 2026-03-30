@@ -78,11 +78,11 @@ export default function DashboardPage() {
   const kpis = kpisRaw?.data ?? kpisRaw ?? {};
   const bqmsKpi = bqmsRaw?.data ?? bqmsRaw ?? {};
 
-  const revenueValue = kpis?.total_revenue_mtd ?? 0;
-  const totalPO = kpis?.po_count_month ?? 0;
+  const revenueValue = kpis?.total_revenue ?? kpis?.total_revenue_mtd ?? 0;
+  const totalRFQ = kpis?.total_rfq ?? bqmsKpi?.total_rfqs ?? 0;
+  const totalDeliveries = kpis?.total_deliveries ?? bqmsKpi?.total_deliveries ?? 0;
   const pendingCount = kpis?.pending_approvals ?? 0;
-  const lowStockCount = kpis?.low_stock_count ?? 0;
-  const winRate = Number(kpis?.bqms_win_rate ?? bqmsKpi?.win_rate ?? 0);
+  const winRate = Number(kpis?.bqms_win_rate ?? bqmsKpi?.win_rate_pct ?? 0);
 
   // Revenue chart data from real API
   const revenueData: any[] = revenueRaw?.data ?? [];
@@ -124,8 +124,8 @@ export default function DashboardPage() {
         />
 
         <KPICardWithSparkline
-          label="Tổng PO"
-          value={totalPO}
+          label="BQMS RFQ"
+          value={totalRFQ}
           accentColor="border-cyan-500"
           loading={isLoading}
           sparkData={poTrend}
@@ -147,13 +147,13 @@ export default function DashboardPage() {
         />
 
         <KPICardWithSparkline
-          label="Tồn kho thấp"
-          value={lowStockCount}
+          label="Giao hàng"
+          value={totalDeliveries}
           accentColor="border-red-500"
           loading={isLoading}
           trend={
-            lowStockCount > 0
-              ? { direction: 'up' as const, value: `${lowStockCount} sản phẩm` }
+            totalDeliveries > 0
+              ? { direction: 'up' as const, value: `${totalDeliveries} đơn` }
               : undefined
           }
           sparkData={stockTrend}

@@ -232,16 +232,28 @@ async def kpi_summary(
     token_data: TokenData = Depends(require_role("staff", "manager", "admin")),
     conn: asyncpg.Connection = Depends(get_db),
 ):
-    """KPI summary from materialized view (bqms_kpi)."""
-    row = await conn.fetchrow("SELECT * FROM bqms_kpi")
-    if row:
-        return {"data": dict(row)}
+    """KPI summary computed from real bqms_rfq data."""
+    total = await conn.fetchval("SELECT COUNT(*) FROM bqms_rfq")
+    won = await conn.fetchval("SELECT COUNT(*) FROM bqms_rfq WHERE result = 'won'")
+    lost = await conn.fetchval("SELECT COUNT(*) FROM bqms_rfq WHERE result = 'lost'")
+    pending = await conn.fetchval("SELECT COUNT(*) FROM bqms_rfq WHERE result = 'pending' OR result IS NULL")
+    makers = await conn.fetchval("SELECT COUNT(DISTINCT maker) FROM bqms_rfq WHERE maker IS NOT NULL")
+    deliveries = await conn.fetchval("SELECT COUNT(*) FROM bqms_deliveries")
+    samsung_po = await conn.fetchval("SELECT COUNT(*) FROM bqms_samsung_po")
+    decided = won + lost
+    win_rate = round(won * 100.0 / decided, 1) if decided > 0 else 0
     return {
         "data": {
-            "total_items": 0,
-            "processed": 0,
-            "maker_count": 0,
-            "last_synced": None,
+            "total_rfqs": total,
+            "won_count": won,
+            "lost_count": lost,
+            "pending_count": pending,
+            "win_rate_pct": win_rate,
+            "maker_count": makers,
+            "total_deliveries": deliveries,
+            "total_samsung_po": samsung_po,
+            "total_items": total,
+            "processed": won + lost,
         }
     }
 
