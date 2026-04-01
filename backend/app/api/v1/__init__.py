@@ -7,7 +7,8 @@ Mỗi router tương ứng với 1 file trong app/api/v1/:
   bqms, files, notifications, sales_orders, finance, xnk,
   customs, reports, dashboard, audit, etl,
   [Phase 1] quotation_templates, price_analytics, smart_classify, scheduled_reports,
-  [Phase 2] supplier_quotes, shipment_tracking, invoice_management, deal_chain, exchange_rates_api
+  [Phase 2] supplier_quotes, shipment_tracking, invoice_management, deal_chain, exchange_rates_api,
+  [Phase 3] smart_inventory, smart_notifications, profit_analysis, task_assignments
 """
 
 from fastapi import APIRouter
@@ -88,3 +89,14 @@ v1_router.include_router(exchange_rates_router, prefix="/exchange-rates", tags=[
 # ── Revenue Chain Tasks (manual triggers) ──
 from app.api.v1.revenue_tasks import router as revenue_tasks_router
 v1_router.include_router(revenue_tasks_router, prefix="/revenue-tasks", tags=["revenue-tasks"])
+
+# ── Phase 3: Operations Intelligence ──
+from app.api.v1.smart_inventory import router as smart_inventory_router
+from app.api.v1.smart_notifications import router as smart_notifications_router
+from app.api.v1.profit_analysis import router as profit_analysis_router
+from app.api.v1.task_assignments import router as task_assignments_router
+
+v1_router.include_router(smart_inventory_router, prefix="/smart-inventory", tags=["smart-inventory"])
+v1_router.include_router(smart_notifications_router, prefix="/smart-notifications", tags=["smart-notifications"])
+v1_router.include_router(profit_analysis_router, prefix="/profit-analysis", tags=["profit-analysis"])
+v1_router.include_router(task_assignments_router, prefix="/task-assignments", tags=["task-assignments"])

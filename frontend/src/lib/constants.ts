@@ -18,6 +18,9 @@ import {
   Ship,
   Receipt,
   Link2,
+  ListTodo,
+  DollarSign,
+  Bell,
   type LucideIcon,
 } from 'lucide-react';
 import type { UserRole, POStatus, DeliveryStatus, WorkflowStatus } from '@/types/models';
@@ -99,6 +102,14 @@ const NAV_ANALYTICS: SidebarItem[] = [
   { key: 'win-loss', label: 'Win/Loss', href: '/analytics/win-loss', icon: Trophy },
   { key: 'scheduled-reports', label: 'Báo cáo tự động', href: '/reports/scheduled', icon: Calendar },
   { key: 'chains', label: 'Chuỗi doanh thu', href: '/chains', icon: Link2 },
+  { key: 'profit', label: 'Lợi nhuận', href: '/analytics/profit', icon: DollarSign },
+];
+
+const NAV_OPERATIONS: SidebarItem[] = [
+  { key: 'inventory-forecast', label: 'Kho thông minh', href: '/inventory/forecast', icon: Package },
+  { key: 'tasks', label: 'Công việc', href: '/tasks', icon: ListTodo },
+  { key: 'workload', label: 'Phân công', href: '/tasks/workload', icon: Users },
+  { key: 'notification-settings', label: 'Thông báo', href: '/notifications/settings', icon: Bell },
 ];
 
 const NAV_SUPPLY_CHAIN: SidebarItem[] = [
@@ -128,6 +139,7 @@ export function getSidebarConfig(role: UserRole): SidebarSection[] {
         { title: 'Chuỗi cung ứng', items: NAV_SUPPLY_CHAIN },
         { title: 'Tài chính', items: NAV_FINANCE },
         { title: 'Phân tích', items: NAV_ANALYTICS },
+        { title: 'Vận hành', items: NAV_OPERATIONS },
         { title: 'Hệ thống', items: NAV_ADMIN },
       ];
 
@@ -139,6 +151,7 @@ export function getSidebarConfig(role: UserRole): SidebarSection[] {
         { title: 'Chuỗi cung ứng', items: NAV_SUPPLY_CHAIN },
         { title: 'Tài chính', items: NAV_FINANCE },
         { title: 'Phân tích', items: NAV_ANALYTICS },
+        { title: 'Vận hành', items: NAV_OPERATIONS },
         {
           title: 'Hệ thống',
           items: [
@@ -170,6 +183,14 @@ export function getSidebarConfig(role: UserRole): SidebarSection[] {
             { key: 'inventory', label: 'Kho hàng', href: '/inventory', icon: Package },
           ],
         },
+        {
+          title: 'Vận hành',
+          items: [
+            { key: 'inventory-forecast', label: 'Kho thông minh', href: '/inventory/forecast', icon: Package },
+            { key: 'tasks', label: 'Công việc', href: '/tasks', icon: ListTodo },
+            { key: 'notification-settings', label: 'Thông báo', href: '/notifications/settings', icon: Bell },
+          ],
+        },
       ];
 
     case 'sales':
@@ -188,6 +209,13 @@ export function getSidebarConfig(role: UserRole): SidebarSection[] {
           title: 'Phân tích',
           items: [
             { key: 'price-trends', label: 'Xu hướng giá', href: '/analytics/price-trends', icon: TrendingUp },
+          ],
+        },
+        {
+          title: 'Vận hành',
+          items: [
+            { key: 'tasks', label: 'Công việc', href: '/tasks', icon: ListTodo },
+            { key: 'notification-settings', label: 'Thông báo', href: '/notifications/settings', icon: Bell },
           ],
         },
       ];
