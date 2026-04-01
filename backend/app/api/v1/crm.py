@@ -296,7 +296,7 @@ async def create_customer(
         INSERT INTO customers (
             customer_code, company_name, short_name, tax_code,
             address, business_system, customer_type, is_active
-        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+        ) VALUES ($1,$2,$3,$4,$5,$6::text::business_system,$7,$8)
         RETURNING *
         """,
         body.customer_code, body.company_name, body.short_name, body.tax_code,
@@ -325,6 +325,9 @@ async def update_customer(
     params: list = []
     idx = 1
 
+    # Fields that need special casting
+    enum_fields = {"business_system"}
+
     field_map = {
         "company_name": body.company_name,
         "short_name": body.short_name,
@@ -337,7 +340,10 @@ async def update_customer(
 
     for field, value in field_map.items():
         if value is not None:
-            updates.append(f"{field} = ${idx}")
+            if field in enum_fields:
+                updates.append(f"{field} = ${idx}::text::{field}")
+            else:
+                updates.append(f"{field} = ${idx}")
             params.append(value)
             idx += 1
 

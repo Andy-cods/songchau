@@ -239,9 +239,12 @@ export default function ApprovalsPage() {
     retry: false,
   });
 
-  const pendingItems = pendingData?.items ?? [];
-  const historyItems = (historyData?.items ?? []).filter(
-    (w) => w.status === 'approved' || w.status === 'rejected'
+  // Handle both {items:[]} and {data:{items:[]}} response shapes
+  const pendingRaw = pendingData?.items ?? (pendingData as any)?.data?.items ?? (pendingData as any)?.data ?? [];
+  const pendingItems = Array.isArray(pendingRaw) ? pendingRaw : [];
+  const historyRaw = historyData?.items ?? (historyData as any)?.data?.items ?? (historyData as any)?.data ?? [];
+  const historyItems = (Array.isArray(historyRaw) ? historyRaw : []).filter(
+    (w: any) => w.status === 'approved' || w.status === 'rejected'
   );
 
   return (

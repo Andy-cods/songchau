@@ -311,9 +311,12 @@ export default function CashBookPage() {
     retry: 1,
   });
 
-  const entries = cashBookData?.data?.items ?? [];
-  const total = cashBookData?.data?.total ?? 0;
-  const chartData = cashFlowData?.data ?? [];
+  // Handle both {data:{items:[]}} and {items:[]} response shapes
+  const entriesRaw = cashBookData?.data?.items ?? (cashBookData as any)?.items ?? [];
+  const entries = Array.isArray(entriesRaw) ? entriesRaw : [];
+  const total = cashBookData?.data?.total ?? (cashBookData as any)?.total ?? 0;
+  const chartRaw = cashFlowData?.data ?? (cashFlowData as any)?.items ?? [];
+  const chartData = Array.isArray(chartRaw) ? chartRaw : [];
 
   return (
     <div>

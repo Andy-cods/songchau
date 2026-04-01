@@ -103,7 +103,8 @@ function CreateTaskModal({
     },
   });
 
-  const users = usersData?.items ?? [];
+  const usersModalRaw = usersData?.items ?? (usersData as any)?.data?.items ?? (usersData as any)?.data ?? [];
+  const users = Array.isArray(usersModalRaw) ? usersModalRaw : [];
 
   const handleChange = (
     e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>
@@ -280,9 +281,12 @@ export default function TasksPage() {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['task-assignments'] }),
   });
 
-  const tasks = data?.data?.items ?? [];
-  const total = data?.data?.total ?? 0;
-  const users = usersData?.items ?? [];
+  // Handle both {data:{items:[]}} and {items:[]} response shapes
+  const tasksRaw = data?.data?.items ?? (data as any)?.items ?? (data as any)?.data ?? [];
+  const tasks = Array.isArray(tasksRaw) ? tasksRaw : [];
+  const total = data?.data?.total ?? (data as any)?.total ?? 0;
+  const usersRaw = usersData?.items ?? (usersData as any)?.data?.items ?? (usersData as any)?.data ?? [];
+  const users = Array.isArray(usersRaw) ? usersRaw : [];
 
   const taskTypeLabel = (type: string) =>
     TASK_TYPES.find((t) => t.value === type)?.label ?? type;

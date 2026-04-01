@@ -42,7 +42,6 @@ class CashBookCreateRequest(BaseModel):
     amount: float = Field(..., gt=0)
     currency: str = Field("VND", max_length=10)
     exchange_rate: float = Field(1.0, gt=0)
-    amount: float = Field(..., gt=0)
     notes: str | None = None
     bank_ref: str | None = None
     ref_type: str | None = None  # 'ap','ar','po','invoice'
@@ -123,7 +122,7 @@ async def list_cash_book(
         idx += 1
 
     if category:
-        conditions.append(f"cb.category = ${idx}")
+        conditions.append(f"cb.category_id = ${idx}")
         params.append(category)
         idx += 1
 
@@ -139,10 +138,10 @@ async def list_cash_book(
     rows = await conn.fetch(
         f"""
         SELECT
-            cb.id, cb.entry_date, cb.direction, cb.category,
-            cb.description, cb.amount,  
-            cb.amount, cb.balance_after, cb.notes,
-            cb.bank_ref, cb.ref_type, cb.ref_id,
+            cb.id, cb.entry_date, cb.direction, cb.category_id,
+            cb.counterparty, cb.description, cb.amount,
+            cb.balance_after, cb.notes,
+            cb.document_number,
             cb.created_at, u.full_name AS created_by_name
         FROM cash_book cb
         LEFT JOIN users u ON u.id = cb.created_by
@@ -157,8 +156,8 @@ async def list_cash_book(
     totals = await conn.fetchrow(
         f"""
         SELECT
-            COALESCE(SUM(CASE WHEN direction = 'in'   THEN amount ELSE 0 END), 0) AS total_income,
-            COALESCE(SUM(CASE WHEN direction = 'out'  THEN amount ELSE 0 END), 0) AS total_expense,
+            COALESCE(SUM(CASE WHEN direction = 'income'   THEN amount ELSE 0 END), 0) AS total_income,
+            COALESCE(SUM(CASE WHEN direction = 'expense'  THEN amount ELSE 0 END), 0) AS total_expense,
             COALESCE(SUM(CASE WHEN direction = 'transfer' THEN amount ELSE 0 END), 0) AS total_transfer
         FROM cash_book cb
         WHERE {where_clause}
@@ -213,17 +212,14 @@ async def create_cash_book_entry(
     row = await conn.fetchrow(
         """
         INSERT INTO cash_book (
-            entry_date, direction, category, description,
-            amount, currency, exchange_rate, amount,
-            balance_after, notes, bank_ref,
-            ref_type, ref_id, created_by
-        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
+            entry_date, direction, description,
+            amount, balance_after, notes, created_by
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7::uuid)
         RETURNING *
         """,
-        body.entry_date, body.direction, body.category, body.description,
-        body.amount, body.currency, body.exchange_rate, body.amount,
-        new_balance, body.notes, body.bank_ref,
-        body.ref_type, body.ref_id, token_data.user_id,
+        body.entry_date, body.direction, body.description,
+        body.amount, new_balance, body.notes or "",
+        token_data.user_id,
     )
 
     logger.info("cash_book entry %s created by %s", row["id"], token_data.user_id)
@@ -245,10 +241,10 @@ async def cash_flow_summary(
         """
         SELECT
             DATE_TRUNC('month', entry_date)::DATE AS month,
-            COALESCE(SUM(CASE WHEN direction = 'in'  THEN amount ELSE 0 END), 0) AS income_vnd,
-            COALESCE(SUM(CASE WHEN direction = 'out' THEN amount ELSE 0 END), 0) AS expense_vnd,
-            COALESCE(SUM(CASE WHEN direction = 'in'  THEN amount ELSE 0 END), 0)
-                - COALESCE(SUM(CASE WHEN direction = 'out' THEN amount ELSE 0 END), 0) AS net_vnd,
+            COALESCE(SUM(CASE WHEN direction = 'income'  THEN amount ELSE 0 END), 0) AS income_vnd,
+            COALESCE(SUM(CASE WHEN direction = 'expense' THEN amount ELSE 0 END), 0) AS expense_vnd,
+            COALESCE(SUM(CASE WHEN direction = 'income'  THEN amount ELSE 0 END), 0)
+                - COALESCE(SUM(CASE WHEN direction = 'expense' THEN amount ELSE 0 END), 0) AS net_vnd,
             COUNT(*) AS entry_count
         FROM cash_book
         WHERE entry_date >= DATE_TRUNC('month', NOW()) - ($1 - 1) * INTERVAL '1 month'
@@ -261,12 +257,12 @@ async def cash_flow_summary(
     category_breakdown = await conn.fetch(
         """
         SELECT
-            category,
+            category_id,
             direction,
             COALESCE(SUM(amount), 0) AS total_vnd
         FROM cash_book
         WHERE entry_date >= DATE_TRUNC('month', NOW()) - ($1 - 1) * INTERVAL '1 month'
-        GROUP BY category, direction
+        GROUP BY category_id, direction
         ORDER BY total_vnd DESC
         """,
         months,
@@ -484,19 +480,16 @@ async def record_ap_payment(
         cb_row = await conn.fetchrow(
             """
             INSERT INTO cash_book (
-                entry_date, direction, category, description,
-                amount, currency, exchange_rate, balance_after,
-                bank_ref, notes, ref_type, ref_id, created_by
-            ) VALUES ($1, 'expense', 'supplier_payment', $2, $3, 'VND', 1.0, $4, $5, $6, 'ap', $7, $8)
+                entry_date, direction, description,
+                amount, balance_after, notes, created_by
+            ) VALUES ($1, 'out', $2, $3, $4, $5, $6::uuid)
             RETURNING id
             """,
             body.payment_date,
-            f"Thanh toán NCC — Hóa đơn {ap['invoice_number'] or ap['id']}",
+            f"Thanh toan NCC — Hoa don {ap['invoice_number'] or ap['id']}",
             body.amount,
             new_balance,
-            body.bank_ref,
-            body.notes,
-            body.ap_id,
+            body.notes or "",
             token_data.user_id,
         )
 
@@ -571,19 +564,16 @@ async def record_ar_receipt(
         cb_row = await conn.fetchrow(
             """
             INSERT INTO cash_book (
-                entry_date, direction, category, description,
-                amount, currency, exchange_rate, balance_after,
-                bank_ref, notes, ref_type, ref_id, created_by
-            ) VALUES ($1, 'income', 'customer_receipt', $2, $3, 'VND', 1.0, $4, $5, $6, 'ar', $7, $8)
+                entry_date, direction, description,
+                amount, balance_after, notes, created_by
+            ) VALUES ($1, 'in', $2, $3, $4, $5, $6::uuid)
             RETURNING id
             """,
             body.payment_date,
-            f"Thu tiền KH — Hóa đơn {ar['invoice_number'] or ar['id']}",
+            f"Thu tien KH — Hoa don {ar['invoice_number'] or ar['id']}",
             body.amount,
             new_balance,
-            body.bank_ref,
-            body.notes,
-            body.ar_id,
+            body.notes or "",
             token_data.user_id,
         )
 
@@ -618,7 +608,7 @@ async def get_budget(
     rows = await conn.fetch(
         """
         SELECT
-            bt.id, bt.year, bt.month, bt.category,
+            bt.id, bt.year, bt.month, bt.category_id,
             bt.budget_amount, bt.notes,
             COALESCE(SUM(cb.amount), 0) AS actual_amount,
             bt.budget_amount - COALESCE(SUM(cb.amount), 0) AS variance,
@@ -626,13 +616,13 @@ async def get_budget(
                  THEN ROUND(COALESCE(SUM(cb.amount), 0) / bt.budget_amount * 100, 2)
                  ELSE 0 END AS utilization_pct
         FROM budget_targets bt
-        LEFT JOIN cash_book cb ON cb.category = bt.category
+        LEFT JOIN cash_book cb ON cb.category_id = bt.category_id
             AND EXTRACT(YEAR  FROM cb.entry_date) = bt.year
             AND EXTRACT(MONTH FROM cb.entry_date) = bt.month
-            AND cb.direction = 'out'
+            AND cb.direction = 'expense'
         WHERE bt.year = $1 AND bt.month = $2
-        GROUP BY bt.id, bt.year, bt.month, bt.category, bt.budget_amount, bt.notes
-        ORDER BY bt.category
+        GROUP BY bt.id, bt.year, bt.month, bt.category_id, bt.budget_amount, bt.notes
+        ORDER BY bt.category_id
         """,
         year, month,
     )
@@ -667,14 +657,14 @@ async def set_budget(
     """Thiết lập mục tiêu ngân sách cho danh mục/tháng/năm (upsert)."""
     row = await conn.fetchrow(
         """
-        INSERT INTO budget_targets (year, month, category, budget_amount, notes, created_by)
+        INSERT INTO budget_targets (year, month, category_id, budget_amount, notes, created_by)
         VALUES ($1, $2, $3, $4, $5, $6)
         ON CONFLICT (year, month, category) DO UPDATE
             SET budget_amount = EXCLUDED.budget_amount,
                 notes         = EXCLUDED.notes
         RETURNING *
         """,
-        body.year, body.month, body.category, body.budget_amount,
+        body.year, body.month, body.category_id, body.budget_amount,
         body.notes, token_data.user_id,
     )
 
@@ -757,8 +747,8 @@ async def finance_dashboard(
         """
         SELECT
             entry_date,
-            COALESCE(SUM(CASE WHEN direction = 'in'  THEN amount ELSE 0 END), 0) AS income_vnd,
-            COALESCE(SUM(CASE WHEN direction = 'out' THEN amount ELSE 0 END), 0) AS expense_vnd
+            COALESCE(SUM(CASE WHEN direction = 'income'  THEN amount ELSE 0 END), 0) AS income_vnd,
+            COALESCE(SUM(CASE WHEN direction = 'expense' THEN amount ELSE 0 END), 0) AS expense_vnd
         FROM cash_book
         WHERE entry_date >= CURRENT_DATE - INTERVAL '6 days'
         GROUP BY entry_date

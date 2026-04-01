@@ -17,7 +17,8 @@ import { Button } from '@/components/ui/button';
 const createCustomerSchema = z.object({
   company_name: z.string().min(1, 'Vui lòng nhập tên công ty'),
   short_name: z.string().optional(),
-  customer_code: z.string().optional(),
+  // customer_code is required by the backend (min_length=1)
+  customer_code: z.string().min(1, 'Vui lòng nhập mã khách hàng'),
   tax_code: z.string().optional(),
   address: z.string().optional(),
   phone: z.string().optional(),
@@ -38,12 +39,10 @@ const CUSTOMER_TYPE_OPTIONS = [
   { value: 'other', label: 'Khác' },
 ];
 
+// DB enum: business_system — only 'bqms' and 'imv' are valid values
 const BUSINESS_SYSTEM_OPTIONS = [
-  { value: 'samsung', label: 'Samsung' },
-  { value: 'lg', label: 'LG' },
-  { value: 'panasonic', label: 'Panasonic' },
-  { value: 'general', label: 'Tổng hợp' },
-  { value: 'other', label: 'Khác' },
+  { value: 'bqms', label: 'BQMS (Samsung SEV/SEVT)' },
+  { value: 'imv', label: 'iMarket Vietnam (IMV)' },
 ];
 
 // ─── Page Component ───────────────────────────────────────────
@@ -161,13 +160,21 @@ export default function NewCustomerPage() {
             {/* Customer Code */}
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-1">
-                Mã khách hàng
+                Mã khách hàng <span className="text-red-500">*</span>
               </label>
               <input
                 {...register('customer_code')}
                 placeholder="VD: KH-001"
-                className="w-full h-9 px-3 text-sm border border-slate-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                className={cn(
+                  'w-full h-9 px-3 text-sm border rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent',
+                  errors.customer_code ? 'border-red-400' : 'border-slate-200'
+                )}
               />
+              {errors.customer_code && (
+                <p className="text-xs text-red-500 mt-1">
+                  {errors.customer_code.message}
+                </p>
+              )}
             </div>
 
             {/* Tax Code */}

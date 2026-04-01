@@ -231,7 +231,9 @@ export default function ShipmentsPage() {
     retry: false,
   });
 
-  const shipments = data?.items ?? [];
+  // Handle both {items:[]} and {data:{items:[]}} response shapes
+  const shipmentsRaw = data?.items ?? (data as any)?.data?.items ?? (data as any)?.data ?? [];
+  const shipments = Array.isArray(shipmentsRaw) ? shipmentsRaw : [];
 
   const handleCardClick = (id: number) => router.push(`/shipments/${id}`);
 
@@ -291,8 +293,8 @@ export default function ShipmentsPage() {
         <TableView shipments={shipments} onRowClick={handleCardClick} />
       )}
 
-      {data && data.total > 0 && (
-        <p className="mt-4 text-sm text-slate-400 text-right">Tổng: {data.total} lô hàng</p>
+      {data && (data.total ?? (data as any)?.data?.total ?? 0) > 0 && (
+        <p className="mt-4 text-sm text-slate-400 text-right">Tổng: {data.total ?? (data as any)?.data?.total} lô hàng</p>
       )}
     </div>
   );

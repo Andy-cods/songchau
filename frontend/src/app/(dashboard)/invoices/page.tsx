@@ -58,7 +58,8 @@ function isOverdue(invoice: Invoice): boolean {
   return new Date(invoice.due_date) < new Date();
 }
 
-function formatVND(amount: number): string {
+function formatVND(amount: number | null | undefined): string {
+  if (amount == null) return '—';
   return amount.toLocaleString('vi-VN') + '₫';
 }
 
@@ -74,7 +75,7 @@ function StatsCards({ stats }: { stats?: InvoiceStats }) {
     },
     {
       label: 'Hóa đơn quá hạn',
-      value: stats ? stats.overdue_count.toString() : '—',
+      value: stats ? (stats.overdue_count ?? 0).toString() : '—',
       icon: AlertTriangle,
       color: 'text-red-600 bg-red-50',
       suffix: ' hóa đơn',
@@ -139,7 +140,9 @@ export default function InvoicesPage() {
     retry: false,
   });
 
-  const invoices = (data?.items ?? []).filter((inv) => {
+  // Handle both {items:[]} and {data:{items:[]}} response shapes
+  const invoicesRaw = data?.items ?? (data as any)?.data?.items ?? (data as any)?.data ?? [];
+  const invoices = (Array.isArray(invoicesRaw) ? invoicesRaw : []).filter((inv: Invoice) => {
     if (!search) return true;
     const s = search.toLowerCase();
     return (
@@ -166,7 +169,7 @@ export default function InvoicesPage() {
       </div>
 
       {/* Stats */}
-      <StatsCards stats={data?.stats} />
+      <StatsCards stats={data?.stats ?? (data as any)?.data?.stats} />
 
       {/* Filters */}
       <div className="flex items-center gap-3 mb-4 flex-wrap">
@@ -276,10 +279,10 @@ export default function InvoicesPage() {
         )}
       </div>
 
-      {data && data.total > 0 && (
+      {data && (data.total ?? (data as any)?.data?.total ?? 0) > 0 && (
         <div className="flex items-center justify-between mt-4 text-sm text-slate-500">
-          <span>Hiển thị {invoices.length} / {data.total} hóa đơn</span>
-          <span>Trang {data.page} / {data.total_pages}</span>
+          <span>Hiển thị {invoices.length} / {data.total ?? (data as any)?.data?.total ?? 0} hóa đơn</span>
+          <span>Trang {data.page ?? 1} / {data.total_pages ?? 1}</span>
         </div>
       )}
     </div>

@@ -162,7 +162,7 @@ async def list_workflows(
     # manager sees own + pending_l1; admin sees everything
 
     if status:
-        conditions.append(f"wi.current_status = ${idx}")
+        conditions.append(f"wi.current_status::text = ${idx}")
         params.append(status)
         idx += 1
 

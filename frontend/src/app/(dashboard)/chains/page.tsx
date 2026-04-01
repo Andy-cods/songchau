@@ -140,7 +140,9 @@ export default function ChainListPage() {
     retry: false,
   });
 
-  const chains = (data?.items ?? []).filter((c) => {
+  // Handle both {items:[]} and {data:{items:[]}} response shapes
+  const chainsRaw = data?.items ?? (data as any)?.data?.items ?? (data as any)?.data ?? [];
+  const chains = (Array.isArray(chainsRaw) ? chainsRaw : []).filter((c: RevenueChain) => {
     if (!search) return true;
     const s = search.toLowerCase();
     return (
@@ -277,10 +279,10 @@ export default function ChainListPage() {
         )}
       </div>
 
-      {data && data.total > 0 && (
+      {data && ((data.total ?? (data as any)?.data?.total) > 0) && (
         <div className="flex items-center justify-between mt-4 text-sm text-slate-500">
-          <span>Hiển thị {chains.length} / {data.total} chuỗi</span>
-          <span>Trang {data.page} / {data.total_pages}</span>
+          <span>Hiển thị {chains.length} / {data.total ?? (data as any)?.data?.total ?? 0} chuỗi</span>
+          <span>Trang {data.page ?? 1} / {data.total_pages ?? 1}</span>
         </div>
       )}
     </div>

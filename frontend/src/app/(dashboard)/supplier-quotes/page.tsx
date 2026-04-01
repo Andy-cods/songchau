@@ -101,7 +101,9 @@ export default function SupplierQuotesPage() {
     retry: false,
   });
 
-  const quotes = (data?.items ?? []).filter((q) => {
+  // Handle both {items:[]} and {data:{items:[]}} response shapes
+  const quotesRaw = data?.items ?? (data as any)?.data?.items ?? (data as any)?.data ?? [];
+  const quotes = (Array.isArray(quotesRaw) ? quotesRaw : []).filter((q: SupplierQuote) => {
     if (!search) return true;
     const s = search.toLowerCase();
     return (
@@ -240,10 +242,10 @@ export default function SupplierQuotesPage() {
         )}
       </div>
 
-      {data && data.total > 0 && (
+      {data && (data.total ?? (data as any)?.data?.total ?? 0) > 0 && (
         <div className="flex items-center justify-between mt-4 text-sm text-slate-500">
-          <span>Hiển thị {quotes.length} / {data.total} báo giá</span>
-          <span>Trang {data.page} / {data.total_pages}</span>
+          <span>Hiển thị {quotes.length} / {data.total ?? (data as any)?.data?.total ?? 0} báo giá</span>
+          <span>Trang {data.page ?? 1} / {data.total_pages ?? 1}</span>
         </div>
       )}
     </div>

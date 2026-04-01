@@ -16,6 +16,7 @@ from __future__ import annotations
 import logging
 from datetime import date, timedelta
 from calendar import monthrange
+from typing import Optional
 
 from fastapi import APIRouter, Depends, Query
 import asyncpg
@@ -63,15 +64,22 @@ def _prev_month(year: int, month: int) -> tuple[int, int]:
 
 @router.get("/profit-loss")
 async def profit_loss_statement(
-    year: int = Query(..., ge=2020, le=2099),
-    month: int = Query(..., ge=1, le=12),
+    year: Optional[int] = Query(None, ge=2020, le=2099),
+    month: Optional[int] = Query(None, ge=1, le=12),
+    months: Optional[int] = Query(None, ge=1, le=36, description="Số tháng nhìn lại (dùng thay cho year+month)"),
     token_data: TokenData = Depends(require_role("manager", "admin")),
     conn: asyncpg.Connection = Depends(get_db),
 ):
     """
     Báo cáo lãi/lỗ cho kỳ (tháng/năm):
     Doanh thu, COGS, lợi nhuận gộp, chi phí vận hành, lợi nhuận thuần.
+    Có thể truyền year+month hoặc chỉ months (lấy tháng hiện tại).
     """
+    today = date.today()
+    if year is None or month is None:
+        # When months param is provided or no params at all, use current month
+        year = today.year
+        month = today.month
     period_start, period_end = _period_dates(year, month)
 
     # Revenue & COGS from deal_margins (linked via sales_orders)
@@ -97,13 +105,13 @@ async def profit_loss_statement(
     operating_expenses = await conn.fetch(
         """
         SELECT
-            category,
+            category_id,
             COALESCE(SUM(amount), 0) AS amount
         FROM cash_book
-        WHERE direction = 'out'
-          AND category NOT IN ('supplier_payment')
+        WHERE direction = 'expense'
+          
           AND entry_date BETWEEN $1 AND $2
-        GROUP BY category
+        GROUP BY category_id
         ORDER BY amount DESC
         """,
         period_start, period_end,
@@ -286,12 +294,12 @@ async def cash_flow_statement(
         """
         SELECT
             direction,
-            category,
+            category_id,
             COALESCE(SUM(amount), 0) AS amount,
             COUNT(*) AS entry_count
         FROM cash_book
         WHERE entry_date BETWEEN $1 AND $2
-        GROUP BY direction, category
+        GROUP BY direction, category_id
         ORDER BY direction, amount DESC
         """,
         period_start, period_end,
@@ -572,7 +580,7 @@ async def monthly_comparison(
             DATE_TRUNC('month', entry_date)::DATE       AS month,
             COALESCE(SUM(amount), 0)               AS total_expense_vnd
         FROM cash_book
-        WHERE direction = 'out'
+        WHERE direction = 'expense'
           AND entry_date >= DATE_TRUNC('month', NOW()) - ($1 - 1) * INTERVAL '1 month'
         GROUP BY 1
         ORDER BY 1
@@ -587,7 +595,7 @@ async def monthly_comparison(
             DATE_TRUNC('month', entry_date)::DATE       AS month,
             COALESCE(SUM(amount), 0)               AS total_income_vnd
         FROM cash_book
-        WHERE direction = 'in'
+        WHERE direction = 'income'
           AND entry_date >= DATE_TRUNC('month', NOW()) - ($1 - 1) * INTERVAL '1 month'
         GROUP BY 1
         ORDER BY 1

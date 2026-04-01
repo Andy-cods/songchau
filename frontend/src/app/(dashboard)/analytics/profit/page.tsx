@@ -171,11 +171,15 @@ export default function ProfitAnalysisPage() {
     retry: false,
   });
 
-  const overview = overviewData?.data;
-  const deals = dealData?.data ?? [];
-  const makers = makerData?.data ?? [];
-  const suppliers = supplierData?.data ?? [];
-  const periods = periodData?.data ?? [];
+  const overview = overviewData?.data ?? (overviewData as any)?.items ?? overviewData;
+  const dealsRaw = dealData?.data ?? (dealData as any)?.items ?? [];
+  const deals = Array.isArray(dealsRaw) ? dealsRaw : [];
+  const makersRaw = makerData?.data ?? (makerData as any)?.items ?? [];
+  const makers = Array.isArray(makersRaw) ? makersRaw : [];
+  const suppliersRaw = supplierData?.data ?? (supplierData as any)?.items ?? [];
+  const suppliers = Array.isArray(suppliersRaw) ? suppliersRaw : [];
+  const periodsRaw = periodData?.data ?? (periodData as any)?.items ?? [];
+  const periods = Array.isArray(periodsRaw) ? periodsRaw : [];
 
   return (
     <div>
@@ -225,10 +229,10 @@ export default function ProfitAnalysisPage() {
         />
         <KpiCard
           label="Margin TB"
-          value={overview ? `${overview.avg_margin_pct.toFixed(1)}%` : '—'}
+          value={overview && overview.avg_margin_pct != null ? `${overview.avg_margin_pct.toFixed(1)}%` : '—'}
           icon={BarChart2}
           colorClass={
-            overview
+            overview && overview.avg_margin_pct != null
               ? overview.avg_margin_pct >= 15
                 ? 'bg-green-50 text-green-600'
                 : overview.avg_margin_pct >= 5

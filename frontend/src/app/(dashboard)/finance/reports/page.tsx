@@ -144,9 +144,11 @@ export default function FinanceReportsPage() {
     retry: 1,
   });
 
-  const pl = plData?.data;
-  const monthly = monthlyData?.data ?? [];
-  const topCustomers = topCustData?.data ?? [];
+  const pl = plData?.data ?? (plData as any)?.items ?? plData;
+  const monthlyRaw = monthlyData?.data ?? (monthlyData as any)?.items ?? [];
+  const monthly = Array.isArray(monthlyRaw) ? monthlyRaw : [];
+  const topCustRaw = topCustData?.data ?? (topCustData as any)?.items ?? [];
+  const topCustomers = Array.isArray(topCustRaw) ? topCustRaw : [];
 
   return (
     <div>
@@ -215,7 +217,7 @@ export default function FinanceReportsPage() {
             />
             <PLCard
               label="Biên lợi nhuận"
-              value={pl ? `${pl.margin_pct.toFixed(1)}%` : '—'}
+              value={pl && pl.margin_pct != null ? `${pl.margin_pct.toFixed(1)}%` : '—'}
               color="text-brand-600 bg-brand-50"
               icon={PieChart}
             />

@@ -51,7 +51,7 @@ async def list_workflows_endpoint(
         conn, role=token_data.role, user_id=token_data.user_id,
         status=status, limit=limit, offset=offset,
     )
-    return {"data": data, "total": total}
+    return {"data": {"items": data or [], "total": total}}
 
 
 @router.post("", status_code=201)
@@ -82,7 +82,7 @@ async def pending_for_me(
         conn, role=token_data.role, user_id=token_data.user_id,
         limit=limit, offset=offset,
     )
-    return {"data": data, "total": total}
+    return {"data": {"items": data or [], "total": total}}
 
 
 @router.get("/{workflow_id}")
