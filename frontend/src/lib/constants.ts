@@ -28,6 +28,10 @@ import {
   Server,
   HardDrive,
   ShieldCheck,
+  FolderOpen,
+  Shield,
+  Eye,
+  HelpCircle,
   type LucideIcon,
 } from 'lucide-react';
 import type { UserRole, POStatus, DeliveryStatus, WorkflowStatus } from '@/types/models';
@@ -95,6 +99,8 @@ const NAV_MAIN: SidebarItem[] = [
   { key: 'deliveries', label: 'Vận chuyển', href: '/deliveries', icon: Truck },
   { key: 'approvals', label: 'Phê duyệt', href: '/approvals', icon: FileCheck },
   { key: 'inventory', label: 'Kho hàng', href: '/inventory', icon: Package },
+  { key: 'documents', label: 'Tài liệu', href: '/documents', icon: FolderOpen },
+  { key: 'help', label: 'Hướng dẫn', href: '/help', icon: HelpCircle },
 ];
 
 const NAV_BQMS: SidebarItem[] = [
@@ -139,6 +145,8 @@ const NAV_ADMIN: SidebarItem[] = [
   { key: 'containers', label: 'Containers', href: '/admin/containers', icon: Server },
   { key: 'backups', label: 'Backup', href: '/admin/backups', icon: HardDrive },
   { key: 'data-quality', label: 'Chất lượng DL', href: '/admin/data-quality', icon: ShieldCheck },
+  { key: 'security-log', label: 'Bảo mật', href: '/admin/security-log', icon: Shield },
+  { key: 'user-activity', label: 'Hoạt động', href: '/admin/user-activity', icon: Eye },
 ];
 
 /**
@@ -182,6 +190,8 @@ export function getSidebarConfig(role: UserRole): SidebarSection[] {
             { key: 'dashboard', label: 'Tổng quan', href: '/dashboard', icon: LayoutDashboard },
             { key: 'purchase-orders', label: 'Đơn mua hàng', href: '/purchase-orders', icon: ShoppingCart },
             { key: 'approvals', label: 'Phê duyệt', href: '/approvals', icon: FileCheck },
+            { key: 'documents', label: 'Tài liệu', href: '/documents', icon: FolderOpen },
+            { key: 'help', label: 'Hướng dẫn', href: '/help', icon: HelpCircle },
           ],
         },
         { title: 'Quản lý', items: [{ key: 'reports', label: 'Báo cáo', href: '/reports', icon: BarChart3 }] },
@@ -195,6 +205,8 @@ export function getSidebarConfig(role: UserRole): SidebarSection[] {
             { key: 'dashboard', label: 'Tổng quan', href: '/dashboard', icon: LayoutDashboard },
             { key: 'deliveries', label: 'Vận chuyển', href: '/deliveries', icon: Truck },
             { key: 'inventory', label: 'Kho hàng', href: '/inventory', icon: Package },
+            { key: 'documents', label: 'Tài liệu', href: '/documents', icon: FolderOpen },
+            { key: 'help', label: 'Hướng dẫn', href: '/help', icon: HelpCircle },
           ],
         },
         {
@@ -217,6 +229,8 @@ export function getSidebarConfig(role: UserRole): SidebarSection[] {
             { key: 'bqms', label: 'BQMS', href: '/bqms', icon: ClipboardList },
             { key: 'quotation-new', label: 'Tạo báo giá', href: '/bqms/quotation/new', icon: FileSpreadsheet },
             { key: 'classify', label: 'Lọc đơn AI', href: '/bqms/classify', icon: Brain },
+            { key: 'documents', label: 'Tài liệu', href: '/documents', icon: FolderOpen },
+            { key: 'help', label: 'Hướng dẫn', href: '/help', icon: HelpCircle },
           ],
         },
         {
@@ -242,6 +256,8 @@ export function getSidebarConfig(role: UserRole): SidebarSection[] {
           items: [
             { key: 'dashboard', label: 'Tổng quan', href: '/dashboard', icon: LayoutDashboard },
             { key: 'reports', label: 'Báo cáo', href: '/reports', icon: BarChart3 },
+            { key: 'documents', label: 'Tài liệu', href: '/documents', icon: FolderOpen },
+            { key: 'help', label: 'Hướng dẫn', href: '/help', icon: HelpCircle },
           ],
         },
       ];

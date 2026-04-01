@@ -9,7 +9,9 @@ Mỗi router tương ứng với 1 file trong app/api/v1/:
   [Phase 1] quotation_templates, price_analytics, smart_classify, scheduled_reports,
   [Phase 2] supplier_quotes, shipment_tracking, invoice_management, deal_chain, exchange_rates_api,
   [Phase 3] smart_inventory, smart_notifications, profit_analysis, task_assignments,
-  [Phase 4] system_health, data_migration, retry_queue_api, container_history
+  [Phase 4] system_health, data_migration, retry_queue_api, container_history,
+  [Phase 5] document_management, security_log_api, excel_export, batch_operations,
+            user_guide, user_activity
 """
 
 from fastapi import APIRouter
@@ -112,3 +114,18 @@ v1_router.include_router(system_health_router, prefix="/system-health", tags=["s
 v1_router.include_router(data_migration_router, prefix="/data-migration", tags=["data-migration"])
 v1_router.include_router(retry_queue_router, prefix="/retry-queue", tags=["retry-queue"])
 v1_router.include_router(container_history_router, prefix="/containers", tags=["containers"])
+
+# ── Phase 5: UX & Productivity ──
+from app.api.v1.document_management import router as document_mgmt_router
+from app.api.v1.security_log_api import router as security_log_router
+from app.api.v1.excel_export import router as excel_export_router
+from app.api.v1.batch_operations import router as batch_ops_router
+from app.api.v1.user_guide import router as user_guide_router
+from app.api.v1.user_activity import router as user_activity_router
+
+v1_router.include_router(document_mgmt_router, prefix="/documents", tags=["documents"])
+v1_router.include_router(security_log_router, prefix="/security-log", tags=["security-log"])
+v1_router.include_router(excel_export_router, prefix="/excel-export", tags=["excel-export"])
+v1_router.include_router(batch_ops_router, prefix="/batch", tags=["batch"])
+v1_router.include_router(user_guide_router, prefix="/help", tags=["help"])
+v1_router.include_router(user_activity_router, prefix="/user-activity", tags=["user-activity"])
