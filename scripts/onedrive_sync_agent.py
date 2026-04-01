@@ -168,6 +168,9 @@ def upload_files(files: list[Path]) -> tuple[int, int]:
         remote_dir = os.path.dirname(remote_path)
 
         try:
+            # Fix: convert Windows backslashes to Linux forward slashes
+            remote_path = remote_path.replace("\\", "/")
+            remote_dir = os.path.dirname(remote_path)
             # Ensure remote directory exists
             _ensure_remote_dir(sftp, remote_dir)
             sftp.put(str(f), remote_path)
