@@ -9,6 +9,15 @@ import {
   Settings,
   Building2,
   ClipboardList,
+  FileSpreadsheet,
+  Brain,
+  TrendingUp,
+  Trophy,
+  Calendar,
+  FileText,
+  Ship,
+  Receipt,
+  Link2,
   type LucideIcon,
 } from 'lucide-react';
 import type { UserRole, POStatus, DeliveryStatus, WorkflowStatus } from '@/types/models';
@@ -80,7 +89,25 @@ const NAV_MAIN: SidebarItem[] = [
 
 const NAV_BQMS: SidebarItem[] = [
   { key: 'bqms', label: 'BQMS', href: '/bqms', icon: ClipboardList },
+  { key: 'quotation-new', label: 'Tạo báo giá', href: '/bqms/quotation/new', icon: FileSpreadsheet },
+  { key: 'classify', label: 'Lọc đơn AI', href: '/bqms/classify', icon: Brain },
   { key: 'reports', label: 'Báo cáo', href: '/reports', icon: BarChart3 },
+];
+
+const NAV_ANALYTICS: SidebarItem[] = [
+  { key: 'price-trends', label: 'Xu hướng giá', href: '/analytics/price-trends', icon: TrendingUp },
+  { key: 'win-loss', label: 'Win/Loss', href: '/analytics/win-loss', icon: Trophy },
+  { key: 'scheduled-reports', label: 'Báo cáo tự động', href: '/reports/scheduled', icon: Calendar },
+  { key: 'chains', label: 'Chuỗi doanh thu', href: '/chains', icon: Link2 },
+];
+
+const NAV_SUPPLY_CHAIN: SidebarItem[] = [
+  { key: 'supplier-quotes', label: 'Báo giá NCC', href: '/supplier-quotes', icon: FileText },
+  { key: 'shipments', label: 'Vận chuyển', href: '/shipments', icon: Ship },
+];
+
+const NAV_FINANCE: SidebarItem[] = [
+  { key: 'invoices', label: 'Hóa đơn', href: '/invoices', icon: Receipt },
 ];
 
 const NAV_ADMIN: SidebarItem[] = [
@@ -97,7 +124,10 @@ export function getSidebarConfig(role: UserRole): SidebarSection[] {
     case 'admin':
       return [
         { title: 'Chính', items: NAV_MAIN },
-        { title: 'Quản lý', items: NAV_BQMS },
+        { title: 'BQMS Samsung', items: NAV_BQMS },
+        { title: 'Chuỗi cung ứng', items: NAV_SUPPLY_CHAIN },
+        { title: 'Tài chính', items: NAV_FINANCE },
+        { title: 'Phân tích', items: NAV_ANALYTICS },
         { title: 'Hệ thống', items: NAV_ADMIN },
       ];
 
@@ -105,7 +135,10 @@ export function getSidebarConfig(role: UserRole): SidebarSection[] {
     case 'manager':
       return [
         { title: 'Chính', items: NAV_MAIN },
-        { title: 'Quản lý', items: NAV_BQMS },
+        { title: 'BQMS Samsung', items: NAV_BQMS },
+        { title: 'Chuỗi cung ứng', items: NAV_SUPPLY_CHAIN },
+        { title: 'Tài chính', items: NAV_FINANCE },
+        { title: 'Phân tích', items: NAV_ANALYTICS },
         {
           title: 'Hệ thống',
           items: [
@@ -147,6 +180,14 @@ export function getSidebarConfig(role: UserRole): SidebarSection[] {
             { key: 'dashboard', label: 'Tổng quan', href: '/dashboard', icon: LayoutDashboard },
             { key: 'purchase-orders', label: 'Đơn mua hàng', href: '/purchase-orders', icon: ShoppingCart },
             { key: 'bqms', label: 'BQMS', href: '/bqms', icon: ClipboardList },
+            { key: 'quotation-new', label: 'Tạo báo giá', href: '/bqms/quotation/new', icon: FileSpreadsheet },
+            { key: 'classify', label: 'Lọc đơn AI', href: '/bqms/classify', icon: Brain },
+          ],
+        },
+        {
+          title: 'Phân tích',
+          items: [
+            { key: 'price-trends', label: 'Xu hướng giá', href: '/analytics/price-trends', icon: TrendingUp },
           ],
         },
       ];

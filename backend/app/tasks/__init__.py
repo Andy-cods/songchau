@@ -15,3 +15,5 @@ from app.tasks import bqms_sync       # noqa: F401 — registers bqms_nightly_sy
 from app.tasks import reports         # noqa: F401 — registers generate_daily_reports
 from app.tasks import notifications   # noqa: F401 — registers send_email_notification, check_deadline_reminders
 from app.tasks import onedrive_sync   # noqa: F401 — registers onedrive_delta_sync (mỗi 4 giờ)
+from app.tasks import report_generation  # noqa: F401 — registers generate_scheduled_reports (daily 07:00)
+from app.tasks import smart_classify     # noqa: F401 — registers batch_classify_rfq

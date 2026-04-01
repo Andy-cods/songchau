@@ -1,11 +1,13 @@
 """
 Song Châu ERP — API v1 Router Registry
 
-Tất cả 17 module routers được đăng ký tại đây.
+Tất cả routers được đăng ký tại đây.
 Mỗi router tương ứng với 1 file trong app/api/v1/:
   auth, users, workflows, suppliers, purchase_orders, inventory,
   bqms, files, notifications, sales_orders, finance, xnk,
-  customs, reports, dashboard, audit, etl
+  customs, reports, dashboard, audit, etl,
+  [Phase 1] quotation_templates, price_analytics, smart_classify, scheduled_reports,
+  [Phase 2] supplier_quotes, shipment_tracking, invoice_management, deal_chain, exchange_rates_api
 """
 
 from fastapi import APIRouter
@@ -27,6 +29,17 @@ from app.api.v1.reports import router as reports_router
 from app.api.v1.dashboard import router as dashboard_router
 from app.api.v1.audit import router as audit_router
 from app.api.v1.etl import router as etl_router
+from app.api.v1.quotation_templates import router as quotation_templates_router
+from app.api.v1.price_analytics import router as price_analytics_router
+from app.api.v1.smart_classify import router as smart_classify_router
+from app.api.v1.scheduled_reports import router as scheduled_reports_router
+
+# Phase 2 — Revenue Chain
+from app.api.v1.supplier_quotes import router as supplier_quotes_router
+from app.api.v1.shipment_tracking import router as shipment_tracking_router
+from app.api.v1.invoice_management import router as invoice_management_router
+from app.api.v1.deal_chain import router as deal_chain_router
+from app.api.v1.exchange_rates_api import router as exchange_rates_router
 
 v1_router = APIRouter()
 
@@ -56,5 +69,22 @@ v1_router.include_router(customs_router, prefix="/customs", tags=["customs"])
 # ── Báo cáo ──
 v1_router.include_router(reports_router, prefix="/reports", tags=["reports"])
 
+# ── Phase 1: Business Intelligence ──
+v1_router.include_router(quotation_templates_router, prefix="/quotations", tags=["quotations"])
+v1_router.include_router(price_analytics_router, prefix="/price-analytics", tags=["price-analytics"])
+v1_router.include_router(smart_classify_router, prefix="/smart-classify", tags=["smart-classify"])
+v1_router.include_router(scheduled_reports_router, prefix="/scheduled-reports", tags=["scheduled-reports"])
+
 # ── ETL — Đồng bộ dữ liệu ──
 v1_router.include_router(etl_router, prefix="/etl", tags=["etl"])
+
+# ── Phase 2: Revenue Chain ──
+v1_router.include_router(supplier_quotes_router, prefix="/supplier-quotes", tags=["supplier-quotes"])
+v1_router.include_router(shipment_tracking_router, prefix="/shipments", tags=["shipments"])
+v1_router.include_router(invoice_management_router, prefix="/invoices", tags=["invoices"])
+v1_router.include_router(deal_chain_router, prefix="/chains", tags=["chains"])
+v1_router.include_router(exchange_rates_router, prefix="/exchange-rates", tags=["exchange-rates"])
+
+# ── Revenue Chain Tasks (manual triggers) ──
+from app.api.v1.revenue_tasks import router as revenue_tasks_router
+v1_router.include_router(revenue_tasks_router, prefix="/revenue-tasks", tags=["revenue-tasks"])
