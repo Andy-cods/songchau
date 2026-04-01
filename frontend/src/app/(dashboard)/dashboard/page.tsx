@@ -85,19 +85,24 @@ export default function DashboardPage() {
   const winRate = Number(kpis?.bqms_win_rate ?? bqmsKpi?.win_rate_pct ?? 0);
 
   // Revenue chart data from real API
-  const revenueData: any[] = revenueRaw?.data ?? [];
+  const _rev = revenueRaw?.data;
+  const revenueData: any[] = Array.isArray(_rev) ? _rev : Array.isArray(_rev?.items) ? _rev.items : [];
 
   // Supplier performance data from real API
-  const suppliersData: any[] = (suppliersRaw?.data ?? []).slice(0, 8);
+  const _sup = suppliersRaw?.data;
+  const suppliersData: any[] = (Array.isArray(_sup) ? _sup : Array.isArray(_sup?.items) ? _sup.items : []).slice(0, 8);
 
   // Pending approvals from real API
-  const pendingWorkflows: any[] = (workflowsRaw?.data ?? []).slice(0, 5);
+  const _wf = workflowsRaw?.data;
+  const pendingWorkflows: any[] = (Array.isArray(_wf) ? _wf : Array.isArray(_wf?.items) ? _wf.items : []).slice(0, 5);
 
   // Recent activity from real API
-  const activityItems: any[] = (activityRaw?.data ?? []).slice(0, 8);
+  const _act = activityRaw?.data;
+  const activityItems: any[] = (Array.isArray(_act) ? _act : Array.isArray(_act?.items) ? _act.items : []).slice(0, 8);
 
   // Stock alerts from real API
-  const stockAlerts: any[] = (alertsRaw?.data ?? []).slice(0, 6);
+  const _alr = alertsRaw?.data;
+  const stockAlerts: any[] = (Array.isArray(_alr) ? _alr : Array.isArray(_alr?.items) ? _alr.items : []).slice(0, 6);
 
   // Sparkline data from KPIs (if available from API) or empty
   const revenueTrend = kpis?.revenue_trend ?? [];
