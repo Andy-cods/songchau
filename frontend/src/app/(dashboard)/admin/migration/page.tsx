@@ -6,7 +6,7 @@ import {
   RefreshCw, Loader2, CheckCircle2, XCircle, AlertTriangle,
   Clock, PlayCircle, ShieldCheck, Database, ChevronDown, ChevronUp,
   FolderOpen, FolderClosed, FileSpreadsheet, ChevronRight, Search,
-  Files, CloudOff, CloudCheck, FileClock,
+  Files, CloudOff, CloudCheck, FileClock, Eye, Download, SkipForward,
 } from 'lucide-react';
 import { api } from '@/lib/api';
 
@@ -89,6 +89,31 @@ interface FileTreeResponse {
     tree: TreeNode[];
   };
   message: string;
+}
+
+interface FilePreviewData {
+  file_path: string;
+  file_name: string;
+  size_bytes: number;
+  sheets: string[];
+  active_sheet: string;
+  total_rows: number;
+  headers: string[];
+  rows: string[][];
+  target_table: string | null;
+  target_table_count: number;
+  recognized: boolean;
+}
+
+interface ImportResult {
+  log_id: number;
+  file_path: string;
+  status: string;
+  inserted: number;
+  updated: number;
+  skipped: number;
+  errors: number;
+  output: string;
 }
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
@@ -297,13 +322,36 @@ function FileTreeNode({
   );
 }
 
+// ─── Helper: find a FileNode by path in tree ────────────────────────────────
+
+function findFileNode(nodes: TreeNode[], path: string): FileNode | null {
+  for (const node of nodes) {
+    if (node.type === 'file' && node.path === path) return node;
+    if (node.type === 'folder') {
+      const found = findFileNode(node.children ?? [], path);
+      if (found) return found;
+    }
+  }
+  return null;
+}
+
 // ─── OneDrive File Explorer ─────────────────────────────────────────────────
 
 function OneDriveFileExplorer() {
+  const queryClient = useQueryClient();
   const [search, setSearch] = useState('');
   const [activeTab, setActiveTab] = useState<'all' | 'synced' | 'modified' | 'not_imported'>('all');
   const [expandedPaths, setExpandedPaths] = useState<Set<string>>(new Set());
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
+
+  // Preview / Import / Skip state
+  const [preview, setPreview] = useState<FilePreviewData | null>(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const [previewError, setPreviewError] = useState<string | null>(null);
+  const [importResult, setImportResult] = useState<ImportResult | null>(null);
+  const [importLoading, setImportLoading] = useState(false);
+  const [skipLoading, setSkipLoading] = useState(false);
+  const [actionMessage, setActionMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
   const { data: raw, isLoading, isError, refetch, isFetching } = useQuery({
     queryKey: ['migration-file-tree'],
@@ -321,6 +369,77 @@ function OneDriveFileExplorer() {
     const byStatus = filterTreeByStatus(rawTree, activeTab);
     return filterTree(byStatus, search);
   }, [rawTree, activeTab, search]);
+
+  // Resolve the full FileNode for the selected path
+  const selectedFileNode = useMemo(
+    () => (selectedFile ? findFileNode(rawTree, selectedFile) : null),
+    [rawTree, selectedFile],
+  );
+
+  // Clear action state when file changes
+  function handleSelectFile(path: string | null) {
+    setSelectedFile(path);
+    setPreview(null);
+    setPreviewError(null);
+    setImportResult(null);
+    setActionMessage(null);
+  }
+
+  async function handlePreview() {
+    if (!selectedFile) return;
+    setPreviewLoading(true);
+    setPreviewError(null);
+    setPreview(null);
+    try {
+      const res = await api.get<{ data: FilePreviewData }>(
+        `/api/v1/data-migration/file-preview?path=${encodeURIComponent(selectedFile)}`
+      );
+      setPreview(res?.data ?? null);
+    } catch (err: any) {
+      setPreviewError(err?.message ?? 'Không thể xem trước file');
+    } finally {
+      setPreviewLoading(false);
+    }
+  }
+
+  async function handleImport() {
+    if (!selectedFile) return;
+    setImportLoading(true);
+    setActionMessage(null);
+    setImportResult(null);
+    try {
+      const res = await api.post<{ data: ImportResult; message: string }>(
+        '/api/v1/data-migration/file-import',
+        { path: selectedFile }
+      );
+      setImportResult(res?.data ?? null);
+      setActionMessage({ type: 'success', text: res?.message ?? 'Import hoàn tất' });
+      queryClient.invalidateQueries({ queryKey: ['migration-file-tree'] });
+      queryClient.invalidateQueries({ queryKey: ['migration-sync-history'] });
+    } catch (err: any) {
+      setActionMessage({ type: 'error', text: err?.message ?? 'Import thất bại' });
+    } finally {
+      setImportLoading(false);
+    }
+  }
+
+  async function handleSkip() {
+    if (!selectedFile) return;
+    setSkipLoading(true);
+    setActionMessage(null);
+    try {
+      await api.post('/api/v1/data-migration/file-skip', {
+        path: selectedFile,
+        reason: 'Bỏ qua',
+      });
+      setActionMessage({ type: 'success', text: 'Đã đánh dấu bỏ qua file' });
+      queryClient.invalidateQueries({ queryKey: ['migration-file-tree'] });
+    } catch (err: any) {
+      setActionMessage({ type: 'error', text: err?.message ?? 'Không thể bỏ qua file' });
+    } finally {
+      setSkipLoading(false);
+    }
+  }
 
   function toggleFolder(path: string) {
     setExpandedPaths(prev => {
@@ -479,11 +598,161 @@ function OneDriveFileExplorer() {
               expandedPaths={expandedPaths}
               onToggleFolder={toggleFolder}
               selectedFile={selectedFile}
-              onSelectFile={setSelectedFile}
+              onSelectFile={handleSelectFile}
             />
           ))
         )}
       </div>
+
+      {/* ── Action panel: shown when a file is selected ── */}
+      {selectedFileNode && (
+        <div className="border-t border-slate-100 p-4 space-y-4">
+          {/* Header row: file name + action buttons */}
+          <div className="flex items-center justify-between flex-wrap gap-2">
+            <div className="flex items-center gap-2 min-w-0">
+              <FileSpreadsheet className="h-4 w-4 text-green-600 flex-shrink-0" />
+              <h3 className="text-sm font-semibold text-slate-700 truncate">{selectedFileNode.name}</h3>
+              <span className="text-xs text-slate-400 hidden sm:inline">{humanSize(selectedFileNode.size_bytes)}</span>
+            </div>
+            <div className="flex items-center gap-2 flex-shrink-0">
+              <button
+                onClick={handlePreview}
+                disabled={previewLoading || importLoading || skipLoading}
+                className="flex items-center gap-1.5 px-3 py-1.5 text-xs border border-slate-200 rounded-lg hover:bg-slate-50 text-slate-600 disabled:opacity-50 transition-colors"
+              >
+                {previewLoading
+                  ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  : <Eye className="h-3.5 w-3.5" />}
+                Xem trước
+              </button>
+              <button
+                onClick={handleImport}
+                disabled={importLoading || previewLoading || skipLoading}
+                className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 transition-colors font-medium"
+              >
+                {importLoading
+                  ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  : <Download className="h-3.5 w-3.5" />}
+                Import file này
+              </button>
+              <button
+                onClick={handleSkip}
+                disabled={skipLoading || importLoading || previewLoading}
+                className="flex items-center gap-1.5 px-3 py-1.5 text-xs border border-slate-200 rounded-lg hover:bg-slate-50 text-slate-500 disabled:opacity-50 transition-colors"
+              >
+                {skipLoading
+                  ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  : <SkipForward className="h-3.5 w-3.5" />}
+                Bỏ qua
+              </button>
+            </div>
+          </div>
+
+          {/* Action feedback message */}
+          {actionMessage && (
+            <div className={`flex items-center gap-2 text-xs px-3 py-2 rounded-lg ${
+              actionMessage.type === 'success'
+                ? 'bg-emerald-50 text-emerald-700 border border-emerald-100'
+                : 'bg-red-50 text-red-600 border border-red-100'
+            }`}>
+              {actionMessage.type === 'success'
+                ? <CheckCircle2 className="h-3.5 w-3.5 flex-shrink-0" />
+                : <XCircle className="h-3.5 w-3.5 flex-shrink-0" />}
+              {actionMessage.text}
+            </div>
+          )}
+
+          {/* Preview error */}
+          {previewError && (
+            <div className="flex items-center gap-2 text-xs px-3 py-2 rounded-lg bg-red-50 text-red-600 border border-red-100">
+              <XCircle className="h-3.5 w-3.5 flex-shrink-0" />
+              {previewError}
+            </div>
+          )}
+
+          {/* Preview table */}
+          {preview && (
+            <div className="space-y-2">
+              <div className="flex items-center justify-between text-xs text-slate-500 flex-wrap gap-2">
+                <span>
+                  Hiển thị <strong>{preview.rows.length}</strong> / <strong>{preview.total_rows}</strong> hàng
+                  &nbsp;·&nbsp; Sheet: <span className="font-mono">{preview.active_sheet}</span>
+                  {preview.sheets.length > 1 && (
+                    <span className="text-slate-400"> ({preview.sheets.length} sheets)</span>
+                  )}
+                </span>
+                {preview.target_table && (
+                  <span className={`px-2 py-0.5 rounded font-medium ${
+                    preview.recognized
+                      ? 'bg-blue-50 text-blue-700'
+                      : 'bg-slate-100 text-slate-500'
+                  }`}>
+                    Bảng đích: <span className="font-mono">{preview.target_table}</span>
+                    {' '}({(preview.target_table_count ?? 0).toLocaleString('vi-VN')} rows hiện tại)
+                  </span>
+                )}
+              </div>
+              <div className="overflow-x-auto max-h-80 border border-slate-200 rounded-lg">
+                <table className="w-full text-xs border-collapse">
+                  <thead className="sticky top-0 bg-slate-50 z-10">
+                    <tr>
+                      {(preview.headers ?? []).map((h, i) => (
+                        <th
+                          key={i}
+                          className="text-left px-3 py-2 font-medium text-slate-600 border-b border-slate-200 whitespace-nowrap"
+                        >
+                          {h || `Col${i}`}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {(preview.rows ?? []).map((row, ri) => (
+                      <tr key={ri} className="hover:bg-slate-50/70">
+                        {row.map((cell, ci) => (
+                          <td
+                            key={ci}
+                            className="px-3 py-1.5 text-slate-600 max-w-[200px] truncate"
+                            title={cell}
+                          >
+                            {cell}
+                          </td>
+                        ))}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {/* Import result */}
+          {importResult && (
+            <div className={`p-3 rounded-lg border text-xs space-y-1 ${
+              importResult.status === 'success'
+                ? 'bg-emerald-50 border-emerald-100 text-emerald-800'
+                : 'bg-red-50 border-red-100 text-red-700'
+            }`}>
+              <p className="font-semibold">
+                Kết quả import — Log #{importResult.log_id}
+              </p>
+              <div className="flex flex-wrap gap-4">
+                <span><strong>{(importResult.inserted ?? 0).toLocaleString()}</strong> mới</span>
+                <span><strong>{(importResult.updated ?? 0).toLocaleString()}</strong> cập nhật</span>
+                <span><strong>{(importResult.skipped ?? 0).toLocaleString()}</strong> bỏ qua</span>
+                {(importResult.errors ?? 0) > 0 && (
+                  <span className="text-red-600"><strong>{importResult.errors}</strong> lỗi</span>
+                )}
+              </div>
+              {importResult.output && (
+                <pre className="mt-2 p-2 bg-white/60 rounded text-[10px] font-mono text-slate-600 overflow-x-auto whitespace-pre-wrap max-h-32">
+                  {importResult.output}
+                </pre>
+              )}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }

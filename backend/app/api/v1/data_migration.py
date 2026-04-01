@@ -13,6 +13,7 @@ Endpoints:
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 from datetime import datetime, timezone
@@ -666,3 +667,192 @@ async def file_tree(
 
     return {"data": {"summary": summary, "tree": to_list(tree_dict)},
             "message": f"{summary['total_files']} files"}
+
+
+# ---------------------------------------------------------------------------
+# GET /file-preview — Read Excel header + first N rows from staging
+# ---------------------------------------------------------------------------
+
+@router.get("/file-preview")
+async def file_preview(
+    path: str = Query(..., description="Relative path in staging dir"),
+    sheet: str | None = Query(None, description="Sheet name, default=first"),
+    rows: int = Query(20, ge=1, le=100),
+    token_data: TokenData = Depends(require_role("admin")),
+    conn: asyncpg.Connection = Depends(get_db),
+):
+    import python_calamine
+    from python_calamine import CalamineWorkbook
+
+    full_path = STAGING_DIR / path
+    if not full_path.exists() or not full_path.is_file():
+        raise HTTPException(404, f"File không tồn tại: {path}")
+
+    wb = CalamineWorkbook.from_path(str(full_path))
+    sheets = wb.sheet_names
+    active = sheet if sheet and sheet in sheets else sheets[0]
+
+    all_rows = wb.get_sheet_by_name(active).to_python()
+
+    # Find header row (first row with >3 non-empty cells)
+    header_idx = 0
+    for i, row in enumerate(all_rows[:10]):
+        non_empty = sum(1 for c in row if c is not None and str(c).strip())
+        if non_empty >= 3:
+            header_idx = i
+            break
+
+    headers = [str(c) if c else f"Col{j}" for j, c in enumerate(all_rows[header_idx])] if header_idx < len(all_rows) else []
+    data_rows = all_rows[header_idx + 1: header_idx + 1 + rows]
+
+    # Convert all values to strings for JSON
+    clean_rows = []
+    for row in data_rows:
+        clean_rows.append([str(c) if c is not None else "" for c in row])
+
+    # Check if this file has a known import mapping
+    # Simple: check filename against known patterns
+    fname_lower = full_path.name.lower()
+    target_table = None
+    known_files = {
+        "thong ke hoi hang bqms": "bqms_rfq",
+        "thong ke dat hang": "bqms_orders",
+        "thong ke giao hang": "bqms_deliveries",
+        "tt xnk bqms": "import_export_tracking",
+        "thong ke hoi hang - update": "imv_inquiries",
+        "po imv": "imv_purchase_orders",
+        "gia cong": "bqms_orders",
+        "ama trading": "bqms_material_pricing",
+    }
+    for pattern, table in known_files.items():
+        if pattern in fname_lower:
+            target_table = table
+            break
+
+    current_count = 0
+    if target_table:
+        try:
+            current_count = await conn.fetchval(f"SELECT COUNT(*) FROM {target_table}")
+        except Exception:
+            pass
+
+    stat = full_path.stat()
+    return {"data": {
+        "file_path": path,
+        "file_name": full_path.name,
+        "size_bytes": stat.st_size,
+        "sheets": sheets,
+        "active_sheet": active,
+        "total_rows": len(all_rows),
+        "headers": headers,
+        "rows": clean_rows,
+        "target_table": target_table,
+        "target_table_count": current_count,
+        "recognized": target_table is not None,
+    }}
+
+
+# ---------------------------------------------------------------------------
+# POST /file-import — Import a single staging file via import_precise.py
+# ---------------------------------------------------------------------------
+
+@router.post("/file-import")
+async def file_import(
+    body: dict,  # {"path": "Puplic/BQMS/Thong ke hoi hang BQMS.xlsx"}
+    token_data: TokenData = Depends(require_role("admin")),
+    conn: asyncpg.Connection = Depends(get_db),
+):
+    file_path = body.get("path", "")
+    full_path = STAGING_DIR / file_path
+    if not full_path.exists():
+        raise HTTPException(404, f"File không tồn tại: {file_path}")
+
+    import threading
+
+    # Create sync log
+    log_id = await conn.fetchval(
+        "INSERT INTO etl_sync_log (sync_type, status, started_at, source_file) VALUES ('file_import', 'running', NOW(), $1) RETURNING id",
+        file_path,
+    )
+
+    # Run import in background thread (import_precise is sync code)
+    result_holder: list = [None]
+
+    def _run():
+        import subprocess
+        try:
+            # Run import_precise.py with --source pointing to staging dir
+            proc = subprocess.run(
+                ["python", "scripts/import_precise.py", "--source", str(STAGING_DIR)],
+                capture_output=True, text=True, timeout=300, cwd="/app"
+            )
+            result_holder[0] = {
+                "stdout": proc.stdout[-2000:] if proc.stdout else "",
+                "stderr": proc.stderr[-1000:] if proc.stderr else "",
+                "returncode": proc.returncode,
+            }
+        except Exception as exc:
+            result_holder[0] = {"error": str(exc)}
+
+    t = threading.Thread(target=_run, daemon=True)
+    t.start()
+    t.join(timeout=120)  # Wait max 2 min
+
+    result = result_holder[0] or {"error": "Timeout"}
+
+    # Parse result from stdout
+    inserted = 0
+    updated = 0
+    skipped = 0
+    errors = 0
+
+    if result.get("stdout"):
+        for line in result["stdout"].split("\n"):
+            ll = line.lower()
+            if "insert" in ll:
+                try:
+                    n = int(''.join(c for c in line.split("insert")[0].split()[-1] if c.isdigit()) or '0')
+                    inserted += n
+                except Exception:
+                    pass
+
+    # Update sync log
+    status = "success" if not result.get("error") and errors == 0 else "error"
+    await conn.execute(
+        "UPDATE etl_sync_log SET status=$1, completed_at=NOW(), rows_inserted=$2, rows_skipped=$3, error_message=$4 WHERE id=$5",
+        status, inserted, skipped, result.get("stderr", "")[:500] or result.get("error", ""), log_id,
+    )
+
+    # Update file review status
+    await conn.execute(
+        """INSERT INTO file_review_status (file_path, status, reviewed_by, reviewed_at, last_import_result)
+           VALUES ($1, $2, $3::uuid, NOW(), $4::jsonb)
+           ON CONFLICT (file_path) DO UPDATE SET status=EXCLUDED.status, reviewed_by=EXCLUDED.reviewed_by, reviewed_at=NOW(), last_import_result=EXCLUDED.last_import_result, updated_at=NOW()""",
+        file_path, "imported" if status == "success" else "error", token_data.user_id,
+        json.dumps({"inserted": inserted, "updated": updated, "skipped": skipped, "errors": errors, "log_id": log_id}),
+    )
+
+    return {"data": {
+        "log_id": log_id, "file_path": file_path, "status": status,
+        "inserted": inserted, "updated": updated, "skipped": skipped, "errors": errors,
+        "output": result.get("stdout", "")[-500:],
+    }, "message": f"Import {'hoàn tất' if status == 'success' else 'có lỗi'}: {inserted} inserted, {skipped} skipped"}
+
+
+# ---------------------------------------------------------------------------
+# POST /file-skip — Mark a staging file as intentionally skipped
+# ---------------------------------------------------------------------------
+
+@router.post("/file-skip")
+async def file_skip(
+    body: dict,  # {"path": "...", "reason": "Du lieu cu"}
+    token_data: TokenData = Depends(require_role("admin")),
+    conn: asyncpg.Connection = Depends(get_db),
+):
+    await conn.execute(
+        """INSERT INTO file_review_status (file_path, status, reviewed_by, reviewed_at, reason)
+           VALUES ($1, 'skipped', $2::uuid, NOW(), $3)
+           ON CONFLICT (file_path) DO UPDATE SET status='skipped', reviewed_by=EXCLUDED.reviewed_by, reviewed_at=NOW(), reason=EXCLUDED.reason, updated_at=NOW()""",
+        body.get("path", ""), token_data.user_id, body.get("reason", ""),
+    )
+    return {"message": "Đã bỏ qua file"}
