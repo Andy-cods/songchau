@@ -21,6 +21,13 @@ import {
   ListTodo,
   DollarSign,
   Bell,
+  Activity,
+  AlertTriangle,
+  RefreshCw,
+  RotateCcw,
+  Server,
+  HardDrive,
+  ShieldCheck,
   type LucideIcon,
 } from 'lucide-react';
 import type { UserRole, POStatus, DeliveryStatus, WorkflowStatus } from '@/types/models';
@@ -125,6 +132,13 @@ const NAV_ADMIN: SidebarItem[] = [
   { key: 'suppliers', label: 'Nhà cung cấp', href: '/suppliers', icon: Building2 },
   { key: 'users', label: 'Người dùng', href: '/users', icon: Users },
   { key: 'settings', label: 'Cài đặt', href: '/settings', icon: Settings },
+  { key: 'performance', label: 'Hiệu suất', href: '/admin/performance', icon: Activity },
+  { key: 'errors', label: 'Lỗi hệ thống', href: '/admin/errors', icon: AlertTriangle },
+  { key: 'migration', label: 'Đồng bộ dữ liệu', href: '/admin/migration', icon: RefreshCw },
+  { key: 'retry-queue', label: 'Hàng đợi', href: '/admin/retry-queue', icon: RotateCcw },
+  { key: 'containers', label: 'Containers', href: '/admin/containers', icon: Server },
+  { key: 'backups', label: 'Backup', href: '/admin/backups', icon: HardDrive },
+  { key: 'data-quality', label: 'Chất lượng DL', href: '/admin/data-quality', icon: ShieldCheck },
 ];
 
 /**

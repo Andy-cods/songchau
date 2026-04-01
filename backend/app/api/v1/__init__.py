@@ -8,7 +8,8 @@ Mỗi router tương ứng với 1 file trong app/api/v1/:
   customs, reports, dashboard, audit, etl,
   [Phase 1] quotation_templates, price_analytics, smart_classify, scheduled_reports,
   [Phase 2] supplier_quotes, shipment_tracking, invoice_management, deal_chain, exchange_rates_api,
-  [Phase 3] smart_inventory, smart_notifications, profit_analysis, task_assignments
+  [Phase 3] smart_inventory, smart_notifications, profit_analysis, task_assignments,
+  [Phase 4] system_health, data_migration, retry_queue_api, container_history
 """
 
 from fastapi import APIRouter
@@ -100,3 +101,14 @@ v1_router.include_router(smart_inventory_router, prefix="/smart-inventory", tags
 v1_router.include_router(smart_notifications_router, prefix="/smart-notifications", tags=["smart-notifications"])
 v1_router.include_router(profit_analysis_router, prefix="/profit-analysis", tags=["profit-analysis"])
 v1_router.include_router(task_assignments_router, prefix="/task-assignments", tags=["task-assignments"])
+
+# ── Phase 4: System Health & Admin ──
+from app.api.v1.system_health import router as system_health_router
+from app.api.v1.data_migration import router as data_migration_router
+from app.api.v1.retry_queue_api import router as retry_queue_router
+from app.api.v1.container_history import router as container_history_router
+
+v1_router.include_router(system_health_router, prefix="/system-health", tags=["system-health"])
+v1_router.include_router(data_migration_router, prefix="/data-migration", tags=["data-migration"])
+v1_router.include_router(retry_queue_router, prefix="/retry-queue", tags=["retry-queue"])
+v1_router.include_router(container_history_router, prefix="/containers", tags=["containers"])
