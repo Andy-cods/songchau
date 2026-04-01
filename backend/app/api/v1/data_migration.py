@@ -14,6 +14,9 @@ Endpoints:
 from __future__ import annotations
 
 import logging
+import os
+from datetime import datetime, timezone
+from pathlib import Path
 from typing import Optional
 
 import asyncpg
@@ -572,3 +575,94 @@ async def run_data_quality(
         "message": f"Hoàn thành {len(checks_run)} kiểm tra chất lượng dữ liệu. "
                    f"Kết quả: {pass_count} pass, {warning_count} warning, {fail_count} fail.",
     }
+
+
+# ---------------------------------------------------------------------------
+# GET /file-tree — Scan OneDrive staging folder and return tree with sync status
+# ---------------------------------------------------------------------------
+
+STAGING_DIR = Path("/data/onedrive-staging")
+EXCEL_EXTS = {".xlsx", ".xls", ".xlsm"}
+
+
+@router.get("/file-tree")
+async def file_tree(
+    token_data: TokenData = Depends(require_role("admin")),
+    conn: asyncpg.Connection = Depends(get_db),
+):
+    """Scan /data/onedrive-staging/ and return folder tree with sync status."""
+    if not STAGING_DIR.exists():
+        return {"data": {"summary": {"total_files": 0, "total_size_bytes": 0, "synced": 0, "modified": 0, "not_imported": 0, "error": 0}, "tree": []}}
+
+    # Scan filesystem
+    files = []
+    for root, dirs, fnames in os.walk(STAGING_DIR):
+        for fname in fnames:
+            fpath = Path(root) / fname
+            if fpath.suffix.lower() in EXCEL_EXTS and not fname.startswith("~$"):
+                try:
+                    stat = fpath.stat()
+                    rel = str(fpath.relative_to(STAGING_DIR)).replace("\\", "/")
+                    files.append({
+                        "name": fname, "path": rel,
+                        "extension": fpath.suffix.lstrip(".").lower(),
+                        "size_bytes": stat.st_size,
+                        "last_modified": datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc).isoformat(),
+                        "mtime": stat.st_mtime,
+                    })
+                except Exception:
+                    pass
+
+    # Get last successful import timestamp
+    last_import = await conn.fetchrow(
+        "SELECT completed_at FROM etl_sync_log WHERE status='success' ORDER BY completed_at DESC LIMIT 1"
+    )
+    last_import_ts = last_import["completed_at"].timestamp() if last_import and last_import["completed_at"] else 0
+
+    # Build tree
+    tree_dict = {}
+    summary = {"total_files": 0, "total_size_bytes": 0, "synced": 0, "modified": 0, "not_imported": 0, "error": 0}
+
+    for f in files:
+        # Determine sync status
+        if last_import_ts == 0:
+            status = "not_imported"
+        elif f["mtime"] > last_import_ts:
+            status = "modified"
+        else:
+            status = "synced"
+
+        summary["total_files"] += 1
+        summary["total_size_bytes"] += f["size_bytes"]
+        summary[status] += 1
+
+        parts = f["path"].split("/")
+        current = tree_dict
+        for p in parts[:-1]:
+            if p not in current:
+                current[p] = {"_children": {}, "_path": "/".join(parts[:parts.index(p)+1])}
+            current = current[p]["_children"]
+        current[parts[-1]] = {
+            "name": f["name"], "path": f["path"], "type": "file",
+            "extension": f["extension"], "size_bytes": f["size_bytes"],
+            "last_modified": f["last_modified"], "sync_status": status,
+        }
+
+    def to_list(d, parent=""):
+        result = []
+        for key, val in sorted(d.items()):
+            if key.startswith("_"): continue
+            if val.get("type") == "file":
+                result.append(val)
+            else:
+                path = val.get("_path", f"{parent}/{key}" if parent else key)
+                children = to_list(val.get("_children", {}), path)
+                file_count = sum(1 for c in children if c.get("type") == "file") + sum(
+                    c.get("file_count", 0) for c in children if c.get("type") == "folder"
+                )
+                result.append({"name": key, "path": path, "type": "folder", "children": children, "file_count": file_count})
+        result.sort(key=lambda x: (0 if x.get("type") == "folder" else 1, x["name"].lower()))
+        return result
+
+    return {"data": {"summary": summary, "tree": to_list(tree_dict)},
+            "message": f"{summary['total_files']} files"}

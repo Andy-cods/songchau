@@ -91,6 +91,7 @@ services:
       REDIS_URL: redis://redis:6379/0
     volumes:
       - ./data/files:/data/files
+      - /data/onedrive-staging:/data/onedrive-staging:ro
     networks: [internal]
     depends_on:
       postgres:

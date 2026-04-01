@@ -1,14 +1,16 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   RefreshCw, Loader2, CheckCircle2, XCircle, AlertTriangle,
   Clock, PlayCircle, ShieldCheck, Database, ChevronDown, ChevronUp,
+  FolderOpen, FolderClosed, FileSpreadsheet, ChevronRight, Search,
+  Files, CloudOff, CloudCheck, FileClock,
 } from 'lucide-react';
 import { api } from '@/lib/api';
 
-// ─── Types (match ACTUAL backend responses) ─────────────────
+// ─── Types ─────────────────────────────────────────────────────────────────
 
 interface SyncStatusItem {
   sync_type: string;
@@ -50,7 +52,46 @@ interface DataQualityItem {
   created_at: string;
 }
 
-// ─── Helpers ────────────────────────────────────────────────
+type SyncStatus = 'synced' | 'modified' | 'not_imported' | 'error';
+
+interface FileNode {
+  name: string;
+  path: string;
+  type: 'file';
+  extension: string;
+  size_bytes: number;
+  last_modified: string;
+  sync_status: SyncStatus;
+}
+
+interface FolderNode {
+  name: string;
+  path: string;
+  type: 'folder';
+  file_count: number;
+  children: TreeNode[];
+}
+
+type TreeNode = FileNode | FolderNode;
+
+interface FileTreeSummary {
+  total_files: number;
+  total_size_bytes: number;
+  synced: number;
+  modified: number;
+  not_imported: number;
+  error: number;
+}
+
+interface FileTreeResponse {
+  data: {
+    summary: FileTreeSummary;
+    tree: TreeNode[];
+  };
+  message: string;
+}
+
+// ─── Helpers ────────────────────────────────────────────────────────────────
 
 function timeAgo(dateStr: string | null): string {
   if (!dateStr) return 'Chưa đồng bộ';
@@ -61,6 +102,12 @@ function timeAgo(dateStr: string | null): string {
   if (diff < 3600) return `${Math.floor(diff / 60)} phút trước`;
   if (diff < 86400) return `${Math.floor(diff / 3600)} giờ trước`;
   return `${Math.floor(diff / 86400)} ngày trước`;
+}
+
+function humanSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 function statusBadge(status: string) {
@@ -96,21 +143,366 @@ function qualityLabel(status: string) {
   return status;
 }
 
-// ─── Page ───────────────────────────────────────────────────
+function syncStatusStyle(status: SyncStatus): { badge: string; dot: string; label: string } {
+  switch (status) {
+    case 'synced':
+      return { badge: 'bg-emerald-100 text-emerald-700', dot: 'bg-emerald-500', label: 'Đã đồng bộ' };
+    case 'modified':
+      return { badge: 'bg-amber-100 text-amber-700', dot: 'bg-amber-500', label: 'Cần cập nhật' };
+    case 'not_imported':
+      return { badge: 'bg-slate-100 text-slate-500', dot: 'bg-slate-400', label: 'Chưa import' };
+    case 'error':
+      return { badge: 'bg-red-100 text-red-700', dot: 'bg-red-500', label: 'Lỗi' };
+    default:
+      return { badge: 'bg-slate-100 text-slate-500', dot: 'bg-slate-400', label: status };
+  }
+}
+
+// Filter tree nodes by search query (client-side)
+function filterTree(nodes: TreeNode[], query: string): TreeNode[] {
+  if (!query.trim()) return nodes;
+  const q = query.toLowerCase();
+  const result: TreeNode[] = [];
+  for (const node of nodes) {
+    if (node.type === 'file') {
+      if (node.name.toLowerCase().includes(q)) result.push(node);
+    } else {
+      const filteredChildren = filterTree(node.children ?? [], q);
+      if (filteredChildren.length > 0) {
+        result.push({ ...node, children: filteredChildren });
+      }
+    }
+  }
+  return result;
+}
+
+// Filter tree by sync_status tab
+function filterTreeByStatus(nodes: TreeNode[], tab: string): TreeNode[] {
+  if (tab === 'all') return nodes;
+  const result: TreeNode[] = [];
+  for (const node of nodes) {
+    if (node.type === 'file') {
+      if (node.sync_status === tab) result.push(node);
+    } else {
+      const filteredChildren = filterTreeByStatus(node.children ?? [], tab);
+      if (filteredChildren.length > 0) {
+        result.push({ ...node, children: filteredChildren });
+      }
+    }
+  }
+  return result;
+}
+
+// ─── FileTreeNode component ─────────────────────────────────────────────────
+
+function FileTreeNode({
+  node,
+  depth,
+  expandedPaths,
+  onToggleFolder,
+  selectedFile,
+  onSelectFile,
+}: {
+  node: TreeNode;
+  depth: number;
+  expandedPaths: Set<string>;
+  onToggleFolder: (path: string) => void;
+  selectedFile: string | null;
+  onSelectFile: (path: string | null) => void;
+}) {
+  const indent = depth * 16;
+
+  if (node.type === 'folder') {
+    const isOpen = expandedPaths.has(node.path);
+    return (
+      <div>
+        <button
+          onClick={() => onToggleFolder(node.path)}
+          className="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-slate-50 rounded text-left group"
+          style={{ paddingLeft: `${indent + 12}px` }}
+        >
+          {isOpen
+            ? <ChevronDown className="h-3.5 w-3.5 text-slate-400 flex-shrink-0" />
+            : <ChevronRight className="h-3.5 w-3.5 text-slate-400 flex-shrink-0" />}
+          {isOpen
+            ? <FolderOpen className="h-4 w-4 text-amber-500 flex-shrink-0" />
+            : <FolderClosed className="h-4 w-4 text-amber-400 flex-shrink-0" />}
+          <span className="text-sm font-medium text-slate-700 truncate">{node.name}</span>
+          <span className="ml-auto text-xs text-slate-400 flex-shrink-0">{node.file_count} files</span>
+        </button>
+        {isOpen && (
+          <div>
+            {(node.children ?? []).map((child) => (
+              <FileTreeNode
+                key={child.path}
+                node={child}
+                depth={depth + 1}
+                expandedPaths={expandedPaths}
+                onToggleFolder={onToggleFolder}
+                selectedFile={selectedFile}
+                onSelectFile={onSelectFile}
+              />
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // File node
+  const { badge, dot, label } = syncStatusStyle(node.sync_status);
+  const isSelected = selectedFile === node.path;
+
+  return (
+    <div>
+      <button
+        onClick={() => onSelectFile(isSelected ? null : node.path)}
+        className={`w-full flex items-center gap-2 px-3 py-1.5 rounded text-left group transition-colors ${
+          isSelected ? 'bg-blue-50 border-l-2 border-blue-400' : 'hover:bg-slate-50'
+        }`}
+        style={{ paddingLeft: `${indent + 12}px` }}
+      >
+        <FileSpreadsheet className="h-4 w-4 text-green-600 flex-shrink-0" />
+        <span className="text-sm text-slate-700 truncate flex-1">{node.name}</span>
+        <span className="text-xs text-slate-400 flex-shrink-0 hidden group-hover:inline sm:inline">
+          {humanSize(node.size_bytes)}
+        </span>
+        <span className="text-xs text-slate-400 flex-shrink-0 hidden lg:inline">
+          {timeAgo(node.last_modified)}
+        </span>
+        <span className={`text-xs px-1.5 py-0.5 rounded font-medium flex-shrink-0 flex items-center gap-1 ${badge}`}>
+          <span className={`inline-block w-1.5 h-1.5 rounded-full ${dot}`} />
+          {label}
+        </span>
+      </button>
+
+      {/* Inline detail panel */}
+      {isSelected && (
+        <div
+          className="mx-3 mb-2 p-3 bg-blue-50 border border-blue-100 rounded-lg text-xs text-slate-600 grid grid-cols-2 gap-x-6 gap-y-1.5"
+          style={{ marginLeft: `${indent + 28}px` }}
+        >
+          <div><span className="text-slate-400">Tên file:</span> <span className="font-medium">{node.name}</span></div>
+          <div><span className="text-slate-400">Định dạng:</span> <span className="font-mono uppercase">{node.extension}</span></div>
+          <div><span className="text-slate-400">Kích thước:</span> {humanSize(node.size_bytes)}</div>
+          <div><span className="text-slate-400">Cập nhật lần cuối:</span> {node.last_modified ? new Date(node.last_modified).toLocaleString('vi-VN') : '—'}</div>
+          <div><span className="text-slate-400">Đường dẫn:</span> <span className="font-mono text-slate-500 break-all">{node.path}</span></div>
+          <div>
+            <span className="text-slate-400">Trạng thái: </span>
+            <span className={`px-1.5 py-0.5 rounded font-medium ${badge}`}>{label}</span>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── OneDrive File Explorer ─────────────────────────────────────────────────
+
+function OneDriveFileExplorer() {
+  const [search, setSearch] = useState('');
+  const [activeTab, setActiveTab] = useState<'all' | 'synced' | 'modified' | 'not_imported'>('all');
+  const [expandedPaths, setExpandedPaths] = useState<Set<string>>(new Set());
+  const [selectedFile, setSelectedFile] = useState<string | null>(null);
+
+  const { data: raw, isLoading, isError, refetch, isFetching } = useQuery({
+    queryKey: ['migration-file-tree'],
+    queryFn: () => api.get<FileTreeResponse>('/api/v1/data-migration/file-tree'),
+    refetchInterval: 30_000,
+  });
+
+  const summary: FileTreeSummary = raw?.data?.summary ?? {
+    total_files: 0, total_size_bytes: 0, synced: 0, modified: 0, not_imported: 0, error: 0,
+  };
+  const rawTree: TreeNode[] = Array.isArray(raw?.data?.tree) ? raw.data.tree : [];
+
+  // Apply tab filter then search filter
+  const filteredTree = useMemo(() => {
+    const byStatus = filterTreeByStatus(rawTree, activeTab);
+    return filterTree(byStatus, search);
+  }, [rawTree, activeTab, search]);
+
+  function toggleFolder(path: string) {
+    setExpandedPaths(prev => {
+      const next = new Set(prev);
+      if (next.has(path)) next.delete(path);
+      else next.add(path);
+      return next;
+    });
+  }
+
+  function expandAll() {
+    const allFolderPaths: string[] = [];
+    function collect(nodes: TreeNode[]) {
+      for (const n of nodes) {
+        if (n.type === 'folder') {
+          allFolderPaths.push(n.path);
+          collect(n.children ?? []);
+        }
+      }
+    }
+    collect(filteredTree);
+    setExpandedPaths(new Set(allFolderPaths));
+  }
+
+  function collapseAll() {
+    setExpandedPaths(new Set());
+  }
+
+  const tabs: { key: 'all' | 'synced' | 'modified' | 'not_imported'; label: string; count: number | null }[] = [
+    { key: 'all', label: 'Tất cả', count: summary.total_files },
+    { key: 'synced', label: 'Đã đồng bộ', count: summary.synced },
+    { key: 'modified', label: 'Cần cập nhật', count: summary.modified },
+    { key: 'not_imported', label: 'Chưa import', count: summary.not_imported },
+  ];
+
+  return (
+    <div className="bg-white rounded-lg shadow-sm border border-slate-100 overflow-hidden">
+      {/* Header */}
+      <div className="flex items-center justify-between p-4 border-b border-slate-100">
+        <div className="flex items-center gap-2">
+          <FolderOpen className="h-4 w-4 text-amber-500" />
+          <h3 className="text-sm font-semibold text-slate-700">File OneDrive (Staging)</h3>
+          {isFetching && <Loader2 className="h-3.5 w-3.5 animate-spin text-slate-400" />}
+        </div>
+        <button
+          onClick={() => refetch()}
+          className="flex items-center gap-1.5 px-2.5 py-1 text-xs text-slate-500 hover:text-slate-700 border rounded hover:bg-slate-50 transition-colors"
+        >
+          <RefreshCw className="h-3.5 w-3.5" />
+          Làm mới
+        </button>
+      </div>
+
+      {/* Summary cards */}
+      <div className="grid grid-cols-4 divide-x divide-slate-100 border-b border-slate-100">
+        <div className="px-4 py-3 text-center">
+          <p className="text-xl font-bold text-slate-800">{summary.total_files}</p>
+          <p className="text-xs text-slate-400 mt-0.5">Tổng file</p>
+          <p className="text-xs text-slate-300 mt-0.5">{humanSize(summary.total_size_bytes)}</p>
+        </div>
+        <div className="px-4 py-3 text-center">
+          <p className="text-xl font-bold text-emerald-600">{summary.synced}</p>
+          <p className="text-xs text-slate-400 mt-0.5">Đã đồng bộ</p>
+          <div className="mt-1 flex justify-center">
+            <span className="inline-block w-2 h-2 rounded-full bg-emerald-500" />
+          </div>
+        </div>
+        <div className="px-4 py-3 text-center">
+          <p className="text-xl font-bold text-amber-500">{summary.modified}</p>
+          <p className="text-xs text-slate-400 mt-0.5">Cần cập nhật</p>
+          <div className="mt-1 flex justify-center">
+            <span className="inline-block w-2 h-2 rounded-full bg-amber-500" />
+          </div>
+        </div>
+        <div className="px-4 py-3 text-center">
+          <p className="text-xl font-bold text-slate-500">{summary.not_imported}</p>
+          <p className="text-xs text-slate-400 mt-0.5">Chưa import</p>
+          <div className="mt-1 flex justify-center">
+            <span className="inline-block w-2 h-2 rounded-full bg-slate-400" />
+          </div>
+        </div>
+      </div>
+
+      {/* Search & Tabs */}
+      <div className="p-3 border-b border-slate-100 space-y-2">
+        <div className="relative">
+          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400 pointer-events-none" />
+          <input
+            type="text"
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            placeholder="Tìm kiếm tên file..."
+            className="w-full pl-8 pr-3 py-1.5 text-sm border border-slate-200 rounded-lg focus:outline-none focus:border-blue-400 focus:ring-1 focus:ring-blue-100"
+          />
+        </div>
+        <div className="flex items-center justify-between">
+          <div className="flex gap-1">
+            {tabs.map(t => (
+              <button
+                key={t.key}
+                onClick={() => setActiveTab(t.key)}
+                className={`px-3 py-1 text-xs rounded-full font-medium transition-colors ${
+                  activeTab === t.key
+                    ? 'bg-blue-600 text-white'
+                    : 'text-slate-500 hover:text-slate-700 hover:bg-slate-100'
+                }`}
+              >
+                {t.label}
+                {t.count !== null && t.count > 0 && (
+                  <span className={`ml-1 ${activeTab === t.key ? 'opacity-80' : 'text-slate-400'}`}>
+                    ({t.count})
+                  </span>
+                )}
+              </button>
+            ))}
+          </div>
+          <div className="flex gap-1">
+            <button onClick={expandAll} className="text-xs text-slate-400 hover:text-slate-600 px-2 py-0.5">
+              Mở tất cả
+            </button>
+            <span className="text-slate-200">|</span>
+            <button onClick={collapseAll} className="text-xs text-slate-400 hover:text-slate-600 px-2 py-0.5">
+              Thu gọn
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* Tree */}
+      <div className="max-h-[520px] overflow-y-auto py-1">
+        {isLoading ? (
+          <div className="py-12 flex flex-col items-center gap-3 text-slate-400">
+            <Loader2 className="h-6 w-6 animate-spin" />
+            <p className="text-sm">Đang quét thư mục staging...</p>
+          </div>
+        ) : isError ? (
+          <div className="py-12 flex flex-col items-center gap-3 text-red-400">
+            <XCircle className="h-6 w-6" />
+            <p className="text-sm">Không thể tải danh sách file</p>
+          </div>
+        ) : filteredTree.length === 0 ? (
+          <div className="py-12 flex flex-col items-center gap-3 text-slate-400">
+            <Files className="h-8 w-8 opacity-40" />
+            <p className="text-sm">
+              {search || activeTab !== 'all'
+                ? 'Không tìm thấy file phù hợp'
+                : 'Thư mục staging trống hoặc chưa mount'}
+            </p>
+          </div>
+        ) : (
+          filteredTree.map(node => (
+            <FileTreeNode
+              key={node.path}
+              node={node}
+              depth={0}
+              expandedPaths={expandedPaths}
+              onToggleFolder={toggleFolder}
+              selectedFile={selectedFile}
+              onSelectFile={setSelectedFile}
+            />
+          ))
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─── Main Page ───────────────────────────────────────────────────────────────
 
 export default function MigrationPage() {
   const queryClient = useQueryClient();
   const [expandedRow, setExpandedRow] = useState<number | null>(null);
   const [historyPage, setHistoryPage] = useState(1);
 
-  // API: sync-status returns array of SyncStatusItem[]
+  // API: sync-status
   const { data: statusRaw, isLoading: statusLoading } = useQuery({
     queryKey: ['migration-sync-status'],
     queryFn: () => api.get<{ data: SyncStatusItem[] }>('/api/v1/data-migration/sync-status'),
     refetchInterval: 10_000,
   });
 
-  // API: sync-history returns {items, total, page}
+  // API: sync-history
   const { data: historyRaw, isLoading: historyLoading } = useQuery({
     queryKey: ['migration-sync-history', historyPage],
     queryFn: () => api.get<{ data: { items: SyncHistoryItem[]; total: number } }>(
@@ -118,13 +510,13 @@ export default function MigrationPage() {
     ),
   });
 
-  // API: import-stats returns array
+  // API: import-stats
   const { data: importRaw } = useQuery({
     queryKey: ['migration-import-stats'],
     queryFn: () => api.get<{ data: ImportStatItem[] }>('/api/v1/data-migration/import-stats'),
   });
 
-  // API: data-quality returns {items, total}
+  // API: data-quality
   const { data: qualityRaw, isLoading: qualityLoading } = useQuery({
     queryKey: ['migration-data-quality'],
     queryFn: () => api.get<{ data: { items: DataQualityItem[]; total: number } }>(
@@ -163,16 +555,21 @@ export default function MigrationPage() {
   const history: SyncHistoryItem[] = Array.isArray(historyRaw?.data?.items)
     ? historyRaw.data.items
     : Array.isArray(historyRaw?.data)
-      ? historyRaw.data : [];
+      ? (historyRaw.data as any)
+      : [];
   const historyTotal = (historyRaw?.data as any)?.total ?? history.length;
 
   const importStats: ImportStatItem[] = Array.isArray(importRaw?.data)
-    ? importRaw.data : [];
+    ? importRaw.data
+    : Array.isArray((importRaw?.data as any)?.table_stats)
+      ? (importRaw?.data as any).table_stats
+      : [];
 
   const qualityItems: DataQualityItem[] = Array.isArray(qualityRaw?.data?.items)
     ? qualityRaw.data.items
     : Array.isArray(qualityRaw?.data)
-      ? qualityRaw.data : [];
+      ? (qualityRaw.data as any)
+      : [];
 
   const passCount = qualityItems.filter(q => q.status === 'pass').length;
   const warnCount = qualityItems.filter(q => q.status === 'warning').length;
@@ -189,7 +586,10 @@ export default function MigrationPage() {
         <p className="text-sm text-slate-500 mt-0.5">Quản lý đồng bộ BQMS Samsung và OneDrive Song Châu</p>
       </div>
 
-      {/* ═══ Section 1: Sync Status Cards ═══ */}
+      {/* ═══ Section 1: OneDrive File Explorer ═══ */}
+      <OneDriveFileExplorer />
+
+      {/* ═══ Section 2: Sync Status Cards ═══ */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <div className="bg-white rounded-lg shadow-sm border border-slate-100 p-4">
           <div className="flex items-center gap-2 mb-2">
@@ -262,7 +662,7 @@ export default function MigrationPage() {
         )}
       </div>
 
-      {/* ═══ Section 2: Sync History ═══ */}
+      {/* ═══ Section 3: Sync History ═══ */}
       <div className="bg-white rounded-lg shadow-sm border border-slate-100 overflow-hidden">
         <div className="flex items-center gap-2 p-4 border-b border-slate-100">
           <RefreshCw className="h-4 w-4 text-blue-600" />
@@ -344,7 +744,7 @@ export default function MigrationPage() {
         )}
       </div>
 
-      {/* ═══ Section 3: Import Stats ═══ */}
+      {/* ═══ Section 4: Import Stats ═══ */}
       {importStats.length > 0 && (
         <div className="bg-white rounded-lg shadow-sm border border-slate-100 overflow-hidden">
           <div className="flex items-center gap-2 p-4 border-b border-slate-100">
@@ -372,7 +772,7 @@ export default function MigrationPage() {
         </div>
       )}
 
-      {/* ═══ Section 4: Data Quality ═══ */}
+      {/* ═══ Section 5: Data Quality ═══ */}
       <div className="bg-white rounded-lg shadow-sm border border-slate-100 overflow-hidden">
         <div className="flex items-center justify-between p-4 border-b border-slate-100">
           <div className="flex items-center gap-2">
