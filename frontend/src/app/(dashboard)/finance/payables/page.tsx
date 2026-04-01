@@ -1,6 +1,7 @@
 'use client';
 
-import { useQuery } from '@tanstack/react-query';
+import { useState } from 'react';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 import { formatDate } from '@/lib/utils';
 import {
@@ -8,11 +9,14 @@ import {
   AlertTriangle,
   Building2,
   Inbox,
+  X,
+  CheckCircle,
 } from 'lucide-react';
 
 // ─── Types ──────────────────────────────────────────────────────
 
 interface APSupplierItem {
+  ap_id?: number;
   supplier_name: string;
   invoice_number?: string;
   amount: number;
@@ -28,6 +32,13 @@ interface APSummaryResponse {
     overdue: number;
     by_supplier: APSupplierItem[];
   };
+}
+
+interface PaymentFormState {
+  payment_date: string;
+  amount: string;
+  bank_ref: string;
+  notes: string;
 }
 
 // ─── Helpers ────────────────────────────────────────────────────
@@ -104,9 +115,129 @@ function SummaryCard({
   );
 }
 
+// ─── Payment Form (inline) ────────────────────────────────────────
+
+function PaymentForm({
+  item,
+  onClose,
+  onSuccess,
+}: {
+  item: APSupplierItem;
+  onClose: () => void;
+  onSuccess: () => void;
+}) {
+  const [form, setForm] = useState<PaymentFormState>({
+    payment_date: new Date().toISOString().slice(0, 10),
+    amount: item.amount != null ? String(item.amount - (item.paid_amount ?? 0)) : '',
+    bank_ref: '',
+    notes: '',
+  });
+  const [error, setError] = useState('');
+
+  const mutation = useMutation({
+    mutationFn: (payload: Record<string, unknown>) =>
+      api.post('/api/v1/finance-management/record-payment', payload),
+    onSuccess: () => {
+      onSuccess();
+      onClose();
+    },
+    onError: (err: unknown) => {
+      const msg = (err as { message?: string })?.message ?? 'Lỗi ghi nhận thanh toán';
+      setError(msg);
+    },
+  });
+
+  function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    const amt = parseFloat(form.amount);
+    if (isNaN(amt) || amt <= 0) {
+      setError('Số tiền phải lớn hơn 0');
+      return;
+    }
+    mutation.mutate({
+      ap_id: item.ap_id,
+      amount: amt,
+      payment_date: form.payment_date,
+      bank_ref: form.bank_ref || undefined,
+      notes: form.notes || undefined,
+    });
+  }
+
+  return (
+    <td colSpan={7} className="px-4 py-3 bg-blue-50/60 border-t border-blue-100">
+      <form onSubmit={handleSubmit} className="flex flex-wrap items-end gap-3">
+        <div className="flex flex-col gap-1">
+          <label className="text-xs text-slate-500">Ngày thanh toán</label>
+          <input
+            type="date"
+            value={form.payment_date}
+            onChange={e => setForm(f => ({ ...f, payment_date: e.target.value }))}
+            className="border border-slate-300 rounded px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+            required
+          />
+        </div>
+        <div className="flex flex-col gap-1">
+          <label className="text-xs text-slate-500">Số tiền (VNĐ)</label>
+          <input
+            type="number"
+            value={form.amount}
+            onChange={e => setForm(f => ({ ...f, amount: e.target.value }))}
+            placeholder="0"
+            min="1"
+            className="border border-slate-300 rounded px-2 py-1 text-sm w-36 focus:outline-none focus:ring-2 focus:ring-blue-400"
+            required
+          />
+        </div>
+        <div className="flex flex-col gap-1">
+          <label className="text-xs text-slate-500">Mã ngân hàng</label>
+          <input
+            type="text"
+            value={form.bank_ref}
+            onChange={e => setForm(f => ({ ...f, bank_ref: e.target.value }))}
+            placeholder="Tuỳ chọn"
+            className="border border-slate-300 rounded px-2 py-1 text-sm w-36 focus:outline-none focus:ring-2 focus:ring-blue-400"
+          />
+        </div>
+        <div className="flex flex-col gap-1">
+          <label className="text-xs text-slate-500">Ghi chú</label>
+          <input
+            type="text"
+            value={form.notes}
+            onChange={e => setForm(f => ({ ...f, notes: e.target.value }))}
+            placeholder="Tuỳ chọn"
+            className="border border-slate-300 rounded px-2 py-1 text-sm w-44 focus:outline-none focus:ring-2 focus:ring-blue-400"
+          />
+        </div>
+        <div className="flex items-end gap-2 mb-0.5">
+          <button
+            type="submit"
+            disabled={mutation.isPending}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 disabled:opacity-60 transition-colors"
+          >
+            <CheckCircle className="h-4 w-4" />
+            {mutation.isPending ? 'Đang lưu...' : 'Xác nhận'}
+          </button>
+          <button
+            type="button"
+            onClick={onClose}
+            className="inline-flex items-center gap-1 px-3 py-1.5 rounded border border-slate-300 text-sm text-slate-600 hover:bg-slate-100 transition-colors"
+          >
+            <X className="h-4 w-4" />
+            Huỷ
+          </button>
+        </div>
+        {error && <p className="w-full text-xs text-red-600 mt-1">{error}</p>}
+      </form>
+    </td>
+  );
+}
+
 // ─── Main Page ───────────────────────────────────────────────────
 
 export default function PayablesPage() {
+  const queryClient = useQueryClient();
+  const [openFormIdx, setOpenFormIdx] = useState<number | null>(null);
+
   const { data, isLoading } = useQuery<APSummaryResponse>({
     queryKey: ['ap-summary'],
     queryFn: () => api.get('/api/v1/finance-management/ap-summary'),
@@ -115,6 +246,10 @@ export default function PayablesPage() {
 
   const summary = data?.data;
   const suppliers = summary?.by_supplier ?? [];
+
+  function handlePaymentSuccess() {
+    queryClient.invalidateQueries({ queryKey: ['ap-summary'] });
+  }
 
   return (
     <div>
@@ -169,42 +304,66 @@ export default function PayablesPage() {
                   <th className="text-left text-xs font-mono uppercase tracking-wider text-slate-400 px-4 py-3">Hạn thanh toán</th>
                   <th className="text-right text-xs font-mono uppercase tracking-wider text-slate-400 px-4 py-3">Đã thanh toán</th>
                   <th className="text-left text-xs font-mono uppercase tracking-wider text-slate-400 px-4 py-3">Trạng thái</th>
+                  <th className="text-left text-xs font-mono uppercase tracking-wider text-slate-400 px-4 py-3">Hành động</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {suppliers.map((item, idx) => {
                   const isOverdue = (item.days_overdue ?? 0) > 0;
+                  const isPaid = item.status?.toLowerCase() === 'paid';
+                  const isOpen = openFormIdx === idx;
                   return (
-                    <tr
-                      key={idx}
-                      className={`hover:bg-slate-50/50 transition-colors ${isOverdue ? 'bg-red-50/30' : ''}`}
-                    >
-                      <td className="px-4 py-3">
-                        <div className="flex items-center gap-2">
-                          {isOverdue && <AlertTriangle className="h-3.5 w-3.5 text-red-500 flex-shrink-0" />}
-                          <span className="text-sm font-medium text-slate-800">{item.supplier_name}</span>
-                        </div>
-                      </td>
-                      <td className="px-4 py-3">
-                        <span className="text-sm font-mono text-slate-500">{item.invoice_number ?? '—'}</span>
-                      </td>
-                      <td className="px-4 py-3 text-right">
-                        <span className="text-sm font-mono font-medium text-slate-900">{fmtVnd(item.amount)}</span>
-                      </td>
-                      <td className="px-4 py-3">
-                        <span className={`text-sm ${isOverdue ? 'text-red-600 font-medium' : 'text-slate-500'}`}>
-                          {formatDate(item.due_date)}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3 text-right">
-                        <span className="text-sm font-mono text-slate-600">
-                          {item.paid_amount != null ? fmtVnd(item.paid_amount) : '—'}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3">
-                        <StatusBadge status={item.status} daysOverdue={item.days_overdue} />
-                      </td>
-                    </tr>
+                    <>
+                      <tr
+                        key={idx}
+                        className={`hover:bg-slate-50/50 transition-colors ${isOverdue ? 'bg-red-50/30' : ''}`}
+                      >
+                        <td className="px-4 py-3">
+                          <div className="flex items-center gap-2">
+                            {isOverdue && <AlertTriangle className="h-3.5 w-3.5 text-red-500 flex-shrink-0" />}
+                            <span className="text-sm font-medium text-slate-800">{item.supplier_name}</span>
+                          </div>
+                        </td>
+                        <td className="px-4 py-3">
+                          <span className="text-sm font-mono text-slate-500">{item.invoice_number ?? '—'}</span>
+                        </td>
+                        <td className="px-4 py-3 text-right">
+                          <span className="text-sm font-mono font-medium text-slate-900">{fmtVnd(item.amount)}</span>
+                        </td>
+                        <td className="px-4 py-3">
+                          <span className={`text-sm ${isOverdue ? 'text-red-600 font-medium' : 'text-slate-500'}`}>
+                            {formatDate(item.due_date)}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3 text-right">
+                          <span className="text-sm font-mono text-slate-600">
+                            {item.paid_amount != null ? fmtVnd(item.paid_amount) : '—'}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3">
+                          <StatusBadge status={item.status} daysOverdue={item.days_overdue} />
+                        </td>
+                        <td className="px-4 py-3">
+                          {!isPaid && (
+                            <button
+                              onClick={() => setOpenFormIdx(isOpen ? null : idx)}
+                              className="inline-flex items-center gap-1 px-2.5 py-1 rounded text-xs font-medium bg-blue-50 text-blue-700 hover:bg-blue-100 border border-blue-200 transition-colors"
+                            >
+                              {isOpen ? 'Đóng' : 'Ghi nhận thanh toán'}
+                            </button>
+                          )}
+                        </td>
+                      </tr>
+                      {isOpen && (
+                        <tr key={`form-${idx}`} className="border-b border-blue-100">
+                          <PaymentForm
+                            item={item}
+                            onClose={() => setOpenFormIdx(null)}
+                            onSuccess={handlePaymentSuccess}
+                          />
+                        </tr>
+                      )}
+                    </>
                   );
                 })}
               </tbody>

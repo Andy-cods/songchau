@@ -18,8 +18,11 @@ import {
   ArrowLeft,
   Inbox,
   TrendingUp,
+  Edit2,
+  Save,
 } from 'lucide-react';
 import Link from 'next/link';
+import { toast } from 'sonner';
 
 // ─── Types ──────────────────────────────────────────────────────
 
@@ -593,9 +596,185 @@ function TimelineTab({ customerId }: { customerId: string }) {
   );
 }
 
+// ─── Edit Tab ────────────────────────────────────────────────────
+
+interface EditCustomerForm {
+  company_name: string;
+  short_name: string;
+  tax_code: string;
+  address: string;
+  phone: string;
+  email: string;
+}
+
+function EditTab({
+  customer,
+  customerId,
+}: {
+  customer: CustomerDetail;
+  customerId: string;
+}) {
+  const queryClient = useQueryClient();
+  const [form, setForm] = useState<EditCustomerForm>({
+    company_name: customer.company_name ?? '',
+    short_name: customer.short_name ?? '',
+    tax_code: customer.tax_code ?? '',
+    address: customer.address ?? '',
+    phone: customer.phone ?? '',
+    email: customer.email ?? '',
+  });
+
+  const mutation = useMutation({
+    mutationFn: (data: EditCustomerForm) =>
+      api.put(`/api/v1/crm/customers/${customerId}`, data),
+    onSuccess: () => {
+      toast.success('Cập nhật thông tin thành công!');
+      queryClient.invalidateQueries({ queryKey: ['crm-customer', customerId] });
+      queryClient.invalidateQueries({ queryKey: ['crm-customers'] });
+    },
+    onError: () => {
+      toast.error('Không thể cập nhật thông tin');
+    },
+  });
+
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+    const { name, value } = e.target;
+    setForm((prev) => ({ ...prev, [name]: value }));
+  };
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    mutation.mutate(form);
+  };
+
+  return (
+    <form onSubmit={handleSubmit} className="max-w-xl space-y-4">
+      <div className="bg-white rounded-lg border border-slate-200 p-5">
+        <h3 className="text-sm font-semibold text-slate-700 mb-4">
+          Chỉnh sửa thông tin
+        </h3>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {/* Company Name */}
+          <div className="md:col-span-2">
+            <label className="block text-sm font-medium text-slate-700 mb-1">
+              Tên công ty <span className="text-red-500">*</span>
+            </label>
+            <input
+              type="text"
+              name="company_name"
+              value={form.company_name}
+              onChange={handleChange}
+              required
+              className="w-full h-9 px-3 text-sm border border-slate-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-brand-300"
+            />
+          </div>
+
+          {/* Short Name */}
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1">
+              Tên viết tắt
+            </label>
+            <input
+              type="text"
+              name="short_name"
+              value={form.short_name}
+              onChange={handleChange}
+              className="w-full h-9 px-3 text-sm border border-slate-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-brand-300"
+            />
+          </div>
+
+          {/* Tax Code */}
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1">
+              Mã số thuế
+            </label>
+            <input
+              type="text"
+              name="tax_code"
+              value={form.tax_code}
+              onChange={handleChange}
+              className="w-full h-9 px-3 text-sm border border-slate-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-brand-300"
+            />
+          </div>
+
+          {/* Phone */}
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1">
+              Số điện thoại
+            </label>
+            <input
+              type="tel"
+              name="phone"
+              value={form.phone}
+              onChange={handleChange}
+              className="w-full h-9 px-3 text-sm border border-slate-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-brand-300"
+            />
+          </div>
+
+          {/* Email */}
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1">
+              Email
+            </label>
+            <input
+              type="email"
+              name="email"
+              value={form.email}
+              onChange={handleChange}
+              className="w-full h-9 px-3 text-sm border border-slate-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-brand-300"
+            />
+          </div>
+
+          {/* Address */}
+          <div className="md:col-span-2">
+            <label className="block text-sm font-medium text-slate-700 mb-1">
+              Địa chỉ
+            </label>
+            <textarea
+              name="address"
+              value={form.address}
+              onChange={handleChange}
+              rows={2}
+              className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-brand-300 resize-none"
+            />
+          </div>
+        </div>
+
+        {mutation.isError && (
+          <p className="mt-3 text-sm text-red-600 bg-red-50 px-3 py-2 rounded-lg">
+            Có lỗi xảy ra. Vui lòng thử lại.
+          </p>
+        )}
+
+        {mutation.isSuccess && (
+          <p className="mt-3 text-sm text-emerald-600 bg-emerald-50 px-3 py-2 rounded-lg">
+            Đã cập nhật thành công!
+          </p>
+        )}
+      </div>
+
+      <div className="flex items-center gap-3">
+        <button
+          type="submit"
+          disabled={mutation.isPending}
+          className="flex items-center gap-2 px-4 py-2 bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium rounded-lg transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+        >
+          {mutation.isPending ? (
+            <Loader2 className="h-4 w-4 animate-spin" />
+          ) : (
+            <Save className="h-4 w-4" />
+          )}
+          Lưu thay đổi
+        </button>
+      </div>
+    </form>
+  );
+}
+
 // ─── Main Page ───────────────────────────────────────────────────
 
-type Tab = 'contacts' | 'history' | 'timeline';
+type Tab = 'contacts' | 'history' | 'timeline' | 'edit';
 
 export default function CustomerDetailPage() {
   const params = useParams();
@@ -616,6 +795,7 @@ export default function CustomerDetailPage() {
     { key: 'contacts', label: `Liên hệ (${contacts.length})` },
     { key: 'history', label: `Lịch sử (${interactions.length})` },
     { key: 'timeline', label: 'Timeline' },
+    { key: 'edit', label: 'Chỉnh sửa' },
   ];
 
   return (
@@ -736,6 +916,9 @@ export default function CustomerDetailPage() {
           )}
           {activeTab === 'timeline' && (
             <TimelineTab customerId={customerId} />
+          )}
+          {activeTab === 'edit' && (
+            <EditTab customer={customer} customerId={customerId} />
           )}
         </>
       )}

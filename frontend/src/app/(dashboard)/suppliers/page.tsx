@@ -2,6 +2,8 @@
 
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
+import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 import { createColumnHelper } from '@tanstack/react-table';
 import { Building2, Plus, Star } from 'lucide-react';
 import { getSuppliers } from '@/services/suppliers';
@@ -79,6 +81,7 @@ const columns = [
 // ─── Page Component ────────────────────────────────────────────
 
 export default function SuppliersPage() {
+  const router = useRouter();
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState('');
 
@@ -101,10 +104,12 @@ export default function SuppliersPage() {
             Quản lý danh sách nhà cung cấp
           </p>
         </div>
-        <Button>
-          <Plus className="h-4 w-4" />
-          Thêm NCC
-        </Button>
+        <Link href="/suppliers/new">
+          <Button>
+            <Plus className="h-4 w-4" />
+            Thêm NCC
+          </Button>
+        </Link>
       </div>
 
       {/* Data Table */}
@@ -126,13 +131,14 @@ export default function SuppliersPage() {
             : undefined
         }
         onPageChange={setPage}
+        onRowClick={(row) => router.push(`/suppliers/${row.id}`)}
         emptyState={
           <EmptyState
             icon={Building2}
             heading="Chưa có nhà cung cấp nào"
             description="Thêm nhà cung cấp để bắt đầu quản lý đơn hàng"
             actionLabel="Thêm NCC"
-            onAction={() => {}}
+            onAction={() => router.push('/suppliers/new')}
           />
         }
       />

@@ -1,5 +1,6 @@
 'use client';
 
+import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useParams } from 'next/navigation';
 import {
@@ -15,6 +16,8 @@ import {
   Clock,
   User,
   Inbox,
+  Edit2,
+  Save,
 } from 'lucide-react';
 import Link from 'next/link';
 import { api } from '@/lib/api';
@@ -32,6 +35,9 @@ export default function PurchaseOrderDetailPage() {
   const params = useParams();
   const queryClient = useQueryClient();
   const poId = params.id as string;
+  const [isEditingNotes, setIsEditingNotes] = useState(false);
+  const [editNotes, setEditNotes] = useState('');
+  const [editExpectedDate, setEditExpectedDate] = useState('');
 
   // Fetch PO detail
   const { data: poRaw, isLoading: poLoading, error: poError } = useQuery({
@@ -85,6 +91,18 @@ export default function PurchaseOrderDetailPage() {
       queryClient.invalidateQueries({ queryKey: ['purchase-orders', poId] });
     },
     onError: () => toast.error('Không thể từ chối đơn hàng'),
+  });
+
+  const updateMutation = useMutation({
+    mutationFn: (data: { notes?: string; expected_delivery?: string }) =>
+      api.put(`/api/v1/purchase-orders/${poId}`, data),
+    onSuccess: () => {
+      toast.success('Đã cập nhật đơn hàng');
+      queryClient.invalidateQueries({ queryKey: ['purchase-orders', poId] });
+      queryClient.invalidateQueries({ queryKey: ['purchase-orders'] });
+      setIsEditingNotes(false);
+    },
+    onError: () => toast.error('Không thể cập nhật đơn hàng'),
   });
 
   if (poLoading) {
@@ -404,35 +422,107 @@ export default function PurchaseOrderDetailPage() {
 
           {/* Details */}
           <div className="bg-white rounded-lg shadow-sm p-5">
-            <h3 className="text-sm font-semibold text-slate-700 mb-3">
-              Chi tiết
-            </h3>
-            <dl className="space-y-3">
-              <DetailRow
-                label="Điều khoản thanh toán"
-                value={poData.payment_terms ?? '—'}
-              />
-              <DetailRow
-                label="Ngày giao dự kiến"
-                value={
-                  poData.expected_delivery
-                    ? formatDate(poData.expected_delivery)
-                    : '—'
-                }
-              />
-              <DetailRow label="Tiền tệ" value={poData.currency ?? '—'} />
-              <DetailRow
-                label="Cập nhật lần cuối"
-                value={formatRelativeTime(poData.updated_at)}
-              />
-            </dl>
-            {poData.notes && (
-              <div className="mt-4 pt-3 border-t border-slate-100">
-                <p className="text-xs font-medium text-slate-500 mb-1">
-                  Ghi chú
-                </p>
-                <p className="text-sm text-slate-600">{poData.notes}</p>
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-sm font-semibold text-slate-700">
+                Chi tiết
+              </h3>
+              {!isEditingNotes && (
+                <button
+                  onClick={() => {
+                    setEditNotes(poData.notes ?? '');
+                    setEditExpectedDate(
+                      poData.expected_delivery
+                        ? poData.expected_delivery.split('T')[0]
+                        : ''
+                    );
+                    setIsEditingNotes(true);
+                  }}
+                  className="flex items-center gap-1 text-xs text-brand-600 hover:text-brand-700"
+                >
+                  <Edit2 className="h-3.5 w-3.5" />
+                  Sửa
+                </button>
+              )}
+            </div>
+
+            {isEditingNotes ? (
+              <div className="space-y-3">
+                <div>
+                  <label className="block text-xs text-slate-500 mb-1">
+                    Ngày giao dự kiến
+                  </label>
+                  <input
+                    type="date"
+                    value={editExpectedDate}
+                    onChange={(e) => setEditExpectedDate(e.target.value)}
+                    className="w-full h-8 px-2 text-sm border border-slate-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-brand-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs text-slate-500 mb-1">
+                    Ghi chú
+                  </label>
+                  <textarea
+                    value={editNotes}
+                    onChange={(e) => setEditNotes(e.target.value)}
+                    rows={3}
+                    className="w-full px-2 py-1.5 text-sm border border-slate-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-brand-500 resize-none"
+                  />
+                </div>
+                <div className="flex gap-2">
+                  <Button
+                    size="sm"
+                    onClick={() =>
+                      updateMutation.mutate({
+                        notes: editNotes || undefined,
+                        expected_delivery: editExpectedDate || undefined,
+                      })
+                    }
+                    loading={updateMutation.isPending}
+                    className="gap-1"
+                  >
+                    <Save className="h-3.5 w-3.5" />
+                    Cập nhật
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => setIsEditingNotes(false)}
+                  >
+                    Hủy
+                  </Button>
+                </div>
               </div>
+            ) : (
+              <>
+                <dl className="space-y-3">
+                  <DetailRow
+                    label="Điều khoản thanh toán"
+                    value={poData.payment_terms ?? '—'}
+                  />
+                  <DetailRow
+                    label="Ngày giao dự kiến"
+                    value={
+                      poData.expected_delivery
+                        ? formatDate(poData.expected_delivery)
+                        : '—'
+                    }
+                  />
+                  <DetailRow label="Tiền tệ" value={poData.currency ?? '—'} />
+                  <DetailRow
+                    label="Cập nhật lần cuối"
+                    value={formatRelativeTime(poData.updated_at)}
+                  />
+                </dl>
+                {poData.notes && (
+                  <div className="mt-4 pt-3 border-t border-slate-100">
+                    <p className="text-xs font-medium text-slate-500 mb-1">
+                      Ghi chú
+                    </p>
+                    <p className="text-sm text-slate-600">{poData.notes}</p>
+                  </div>
+                )}
+              </>
             )}
           </div>
 

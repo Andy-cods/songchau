@@ -1,6 +1,8 @@
 'use client';
 
 import { useQuery } from '@tanstack/react-query';
+import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 import { ShoppingCart, Plus, Search } from 'lucide-react';
 import { api } from '@/lib/api';
 import { cn, formatCurrency, formatDate } from '@/lib/utils';
@@ -9,6 +11,7 @@ import { PO_STATUS_CONFIG } from '@/lib/constants';
 import type { PaginatedResponse, PurchaseOrder } from '@/types/models';
 
 export default function PurchaseOrdersPage() {
+  const router = useRouter();
   const { data, isLoading, error } = useQuery<PaginatedResponse<PurchaseOrder>>({
     queryKey: ['purchase-orders'],
     queryFn: () => api.get('/api/v1/purchase-orders'),
@@ -29,10 +32,13 @@ export default function PurchaseOrdersPage() {
             Quản lý tất cả đơn đặt hàng
           </p>
         </div>
-        <button className="flex items-center gap-2 px-4 py-2 bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium rounded-lg transition-colors">
+        <Link
+          href="/purchase-orders/new"
+          className="flex items-center gap-2 px-4 py-2 bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium rounded-lg transition-colors"
+        >
           <Plus className="h-4 w-4" />
           Tạo đơn mới
-        </button>
+        </Link>
       </div>
 
       {/* Search bar placeholder */}
@@ -81,6 +87,7 @@ export default function PurchaseOrdersPage() {
                   return (
                     <tr
                       key={po.id}
+                      onClick={() => router.push(`/purchase-orders/${po.id}`)}
                       className="hover:bg-slate-50/50 transition-colors cursor-pointer"
                     >
                       <td className="px-4 py-3">

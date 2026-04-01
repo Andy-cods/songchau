@@ -2,6 +2,8 @@
 
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
+import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 import { createColumnHelper } from '@tanstack/react-table';
 import { Users, ShieldAlert, Plus } from 'lucide-react';
 import { useAuth } from '@/providers/auth-provider';
@@ -108,6 +110,7 @@ function AccessDenied() {
 
 export default function UsersPage() {
   const { user: currentUser } = useAuth();
+  const router = useRouter();
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState('');
 
@@ -138,10 +141,12 @@ export default function UsersPage() {
             Quản lý tài khoản và phân quyền
           </p>
         </div>
-        <Button>
-          <Plus className="h-4 w-4" />
-          Thêm người dùng
-        </Button>
+        <Link href="/users/new">
+          <Button>
+            <Plus className="h-4 w-4" />
+            Thêm người dùng
+          </Button>
+        </Link>
       </div>
 
       {/* Data Table */}
@@ -163,13 +168,14 @@ export default function UsersPage() {
             : undefined
         }
         onPageChange={setPage}
+        onRowClick={(row) => router.push(`/users/${row.id}`)}
         emptyState={
           <EmptyState
             icon={Users}
             heading="Chưa có người dùng nào"
             description="Thêm người dùng để bắt đầu quản lý hệ thống"
             actionLabel="Thêm người dùng"
-            onAction={() => {}}
+            onAction={() => router.push('/users/new')}
           />
         }
       />

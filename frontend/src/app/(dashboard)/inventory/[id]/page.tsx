@@ -1,6 +1,7 @@
 'use client';
 
-import { useQuery } from '@tanstack/react-query';
+import { useState } from 'react';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useParams } from 'next/navigation';
 import {
   ArrowLeft,
@@ -9,8 +10,12 @@ import {
   TrendingDown,
   RotateCw,
   AlertTriangle,
+  SlidersHorizontal,
+  X,
+  Loader2,
 } from 'lucide-react';
 import Link from 'next/link';
+import { toast } from 'sonner';
 import { api } from '@/lib/api';
 import { cn, formatDate } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
@@ -117,11 +122,148 @@ function StockLevelBar({
   );
 }
 
+// ─── Adjustment Modal ─────────────────────────────────────────
+
+function AdjustmentModal({
+  inventoryId,
+  currentStock,
+  unit,
+  onClose,
+}: {
+  inventoryId: string;
+  currentStock: number;
+  unit: string;
+  onClose: () => void;
+}) {
+  const queryClient = useQueryClient();
+  const [adjustQty, setAdjustQty] = useState('');
+  const [reason, setReason] = useState('');
+
+  const mutation = useMutation({
+    mutationFn: (data: { adjust_qty: number; reason: string }) =>
+      api.put(`/api/v1/inventory/${inventoryId}`, data),
+    onSuccess: () => {
+      toast.success('Điều chỉnh tồn kho thành công!');
+      queryClient.invalidateQueries({ queryKey: ['inventory', inventoryId] });
+      queryClient.invalidateQueries({ queryKey: ['inventory-movements', inventoryId] });
+      onClose();
+    },
+    onError: () => toast.error('Không thể điều chỉnh tồn kho'),
+  });
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    const qty = parseFloat(adjustQty);
+    if (isNaN(qty) || qty === 0) {
+      toast.error('Vui lòng nhập số lượng điều chỉnh hợp lệ');
+      return;
+    }
+    if (!reason.trim()) {
+      toast.error('Vui lòng nhập lý do điều chỉnh');
+      return;
+    }
+    mutation.mutate({ adjust_qty: qty, reason: reason.trim() });
+  };
+
+  const newStock = currentStock + (parseFloat(adjustQty) || 0);
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+      <div className="bg-white rounded-xl shadow-xl w-full max-w-md">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
+          <h3 className="text-base font-semibold text-slate-900">
+            Điều chỉnh tồn kho
+          </h3>
+          <button
+            onClick={onClose}
+            className="text-slate-400 hover:text-slate-600 transition-colors"
+          >
+            <X className="h-5 w-5" />
+          </button>
+        </div>
+
+        <form onSubmit={handleSubmit} className="px-6 py-4 space-y-4">
+          <div className="p-3 bg-slate-50 rounded-lg">
+            <p className="text-xs text-slate-500">Tồn kho hiện tại</p>
+            <p className="text-lg font-bold font-mono text-slate-900">
+              {currentStock.toLocaleString('vi-VN')} {unit}
+            </p>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1">
+              Điều chỉnh số lượng <span className="text-red-500">*</span>
+            </label>
+            <input
+              type="number"
+              value={adjustQty}
+              onChange={(e) => setAdjustQty(e.target.value)}
+              placeholder="Dương (+) để thêm, âm (-) để giảm"
+              className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-300"
+            />
+            {adjustQty && !isNaN(parseFloat(adjustQty)) && (
+              <p className="text-xs mt-1">
+                Tồn kho sau điều chỉnh:{' '}
+                <span
+                  className={cn(
+                    'font-mono font-semibold',
+                    newStock < 0 ? 'text-red-600' : 'text-emerald-600'
+                  )}
+                >
+                  {newStock.toLocaleString('vi-VN')} {unit}
+                </span>
+              </p>
+            )}
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1">
+              Lý do điều chỉnh <span className="text-red-500">*</span>
+            </label>
+            <textarea
+              value={reason}
+              onChange={(e) => setReason(e.target.value)}
+              rows={3}
+              placeholder="Nhập lý do điều chỉnh tồn kho..."
+              className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-300 resize-none"
+            />
+          </div>
+
+          {mutation.isError && (
+            <p className="text-sm text-red-600 bg-red-50 px-3 py-2 rounded-lg">
+              Có lỗi xảy ra. Vui lòng thử lại.
+            </p>
+          )}
+
+          <div className="flex justify-end gap-3 pt-2">
+            <button
+              type="button"
+              onClick={onClose}
+              className="px-4 py-2 text-sm text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors"
+            >
+              Hủy
+            </button>
+            <button
+              type="submit"
+              disabled={mutation.isPending}
+              className="flex items-center gap-2 px-4 py-2 bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium rounded-lg transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+            >
+              {mutation.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
+              Xác nhận điều chỉnh
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
 // ─── Page Component ───────────────────────────────────────────
 
 export default function InventoryDetailPage() {
   const params = useParams();
   const id = params.id as string;
+  const [showAdjustModal, setShowAdjustModal] = useState(false);
 
   const { data: item, isLoading: itemLoading } = useQuery<InventoryDetail>({
     queryKey: ['inventory', id],
@@ -161,6 +303,15 @@ export default function InventoryDetailPage() {
 
   return (
     <div className="max-w-5xl">
+      {showAdjustModal && (
+        <AdjustmentModal
+          inventoryId={id}
+          currentStock={item.current_stock}
+          unit={item.unit}
+          onClose={() => setShowAdjustModal(false)}
+        />
+      )}
+
       {/* Header */}
       <div className="flex items-center gap-3 mb-6">
         <Link
@@ -185,6 +336,15 @@ export default function InventoryDetailPage() {
             {item.product_code}
           </p>
         </div>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => setShowAdjustModal(true)}
+          className="gap-2"
+        >
+          <SlidersHorizontal className="h-4 w-4" />
+          Điều chỉnh tồn kho
+        </Button>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">

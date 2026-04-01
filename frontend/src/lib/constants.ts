@@ -115,6 +115,10 @@ const NAV_MAIN: SidebarItem[] = [
 const NAV_BQMS: SidebarItem[] = [
   { key: 'bqms', label: 'BQMS', href: '/bqms', icon: ClipboardList },
   { key: 'quotation-new', label: 'Tạo báo giá', href: '/bqms/quotation/new', icon: FileSpreadsheet },
+  { key: 'quotation-history', label: 'Lịch sử BG', href: '/bqms/quotation/history', icon: FileSpreadsheet },
+  { key: 'quotation-templates', label: 'Template BG', href: '/bqms/quotation/templates', icon: FileSpreadsheet },
+  { key: 'rfq', label: 'RFQ', href: '/bqms/rfq', icon: ClipboardList },
+  { key: 'bqms-deliveries', label: 'Giao hàng BQMS', href: '/bqms/deliveries', icon: Truck },
   { key: 'classify', label: 'Lọc đơn AI', href: '/bqms/classify', icon: Brain },
   { key: 'reports', label: 'Báo cáo', href: '/reports', icon: BarChart3 },
 ];
@@ -131,6 +135,7 @@ const NAV_OPERATIONS: SidebarItem[] = [
   { key: 'inventory-forecast', label: 'Kho thông minh', href: '/inventory/forecast', icon: Package },
   { key: 'tasks', label: 'Công việc', href: '/tasks', icon: ListTodo },
   { key: 'workload', label: 'Phân công', href: '/tasks/workload', icon: Users },
+  { key: 'notifications-list', label: 'DS Thông báo', href: '/notifications', icon: Bell },
   { key: 'notification-settings', label: 'Thông báo', href: '/notifications/settings', icon: Bell },
 ];
 
@@ -172,6 +177,8 @@ const NAV_ADMIN: SidebarItem[] = [
   { key: 'data-quality', label: 'Chất lượng DL', href: '/admin/data-quality', icon: ShieldCheck },
   { key: 'security-log', label: 'Bảo mật', href: '/admin/security-log', icon: Shield },
   { key: 'user-activity', label: 'Hoạt động', href: '/admin/user-activity', icon: Eye },
+  { key: 'audit', label: 'Audit Log', href: '/audit', icon: Eye },
+  { key: 'workflows', label: 'Workflows', href: '/workflows', icon: FileCheck },
 ];
 
 /**

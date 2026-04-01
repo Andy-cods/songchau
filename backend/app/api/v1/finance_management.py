@@ -62,6 +62,22 @@ class BudgetSetRequest(BaseModel):
     notes: str | None = None
 
 
+class RecordPaymentRequest(BaseModel):
+    ap_id: int = Field(..., description="ID bản ghi accounts_payable")
+    amount: float = Field(..., gt=0, description="Số tiền thanh toán")
+    payment_date: date = Field(..., description="Ngày thanh toán")
+    bank_ref: str | None = Field(None, description="Mã tham chiếu ngân hàng")
+    notes: str | None = None
+
+
+class RecordReceiptRequest(BaseModel):
+    ar_id: int = Field(..., description="ID bản ghi accounts_receivable")
+    amount: float = Field(..., gt=0, description="Số tiền thu")
+    payment_date: date = Field(..., description="Ngày thu tiền")
+    bank_ref: str | None = Field(None, description="Mã tham chiếu ngân hàng")
+    notes: str | None = None
+
+
 # ---------------------------------------------------------------------------
 # Helper
 # ---------------------------------------------------------------------------
@@ -410,6 +426,180 @@ async def ar_summary(
             "aging": _rows_to_list(aging),
         },
         "message": "Tóm tắt công nợ phải thu",
+    }
+
+
+# ---------------------------------------------------------------------------
+# POST /record-payment  — Ghi nhận thanh toán AP (accounts_payable)
+# ---------------------------------------------------------------------------
+
+@router.post("/record-payment", status_code=201)
+async def record_ap_payment(
+    body: RecordPaymentRequest,
+    token_data: TokenData = Depends(require_role("accountant", "manager", "admin")),
+    conn: asyncpg.Connection = Depends(get_db),
+):
+    """Ghi nhận thanh toán cho một khoản phải trả (accounts_payable)."""
+    ap = await conn.fetchrow(
+        "SELECT id, amount, paid_amount, status, supplier_id, invoice_number FROM accounts_payable WHERE id = $1",
+        body.ap_id,
+    )
+    if not ap:
+        raise HTTPException(status_code=404, detail="Không tìm thấy khoản phải trả")
+    if ap["status"] == "paid":
+        raise HTTPException(status_code=400, detail="Khoản này đã được thanh toán đầy đủ")
+
+    remaining = float(ap["amount"]) - float(ap["paid_amount"] or 0)
+    if body.amount > remaining + 0.01:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Số tiền thanh toán ({body.amount:,.0f}) vượt quá số còn lại ({remaining:,.0f})",
+        )
+
+    new_paid = float(ap["paid_amount"] or 0) + body.amount
+    new_status = "paid" if new_paid >= float(ap["amount"]) - 0.01 else "partial"
+
+    async with conn.transaction():
+        # Update accounts_payable
+        await conn.execute(
+            """
+            UPDATE accounts_payable
+            SET paid_amount = $1,
+                status      = $2,
+                updated_at  = NOW()
+            WHERE id = $3
+            """,
+            new_paid,
+            new_status,
+            body.ap_id,
+        )
+
+        # Create cash_book entry
+        last_balance = await conn.fetchval(
+            "SELECT balance_after FROM cash_book ORDER BY entry_date DESC, id DESC LIMIT 1"
+        )
+        current_balance = float(last_balance or 0)
+        new_balance = current_balance - body.amount
+
+        cb_row = await conn.fetchrow(
+            """
+            INSERT INTO cash_book (
+                entry_date, direction, category, description,
+                amount, currency, exchange_rate, balance_after,
+                bank_ref, notes, ref_type, ref_id, created_by
+            ) VALUES ($1, 'expense', 'supplier_payment', $2, $3, 'VND', 1.0, $4, $5, $6, 'ap', $7, $8)
+            RETURNING id
+            """,
+            body.payment_date,
+            f"Thanh toán NCC — Hóa đơn {ap['invoice_number'] or ap['id']}",
+            body.amount,
+            new_balance,
+            body.bank_ref,
+            body.notes,
+            body.ap_id,
+            token_data.user_id,
+        )
+
+    logger.info(
+        "AP payment recorded: ap_id=%s amount=%s by user=%s cash_book_id=%s",
+        body.ap_id, body.amount, token_data.user_id, cb_row["id"],
+    )
+    return {
+        "data": {
+            "ap_id": body.ap_id,
+            "amount_paid": body.amount,
+            "new_paid_total": new_paid,
+            "new_status": new_status,
+            "cash_book_id": cb_row["id"],
+        },
+        "message": f"Đã ghi nhận thanh toán {body.amount:,.0f}₫ cho khoản phải trả #{body.ap_id}",
+    }
+
+
+# ---------------------------------------------------------------------------
+# POST /record-receipt  — Ghi nhận thu tiền AR (accounts_receivable)
+# ---------------------------------------------------------------------------
+
+@router.post("/record-receipt", status_code=201)
+async def record_ar_receipt(
+    body: RecordReceiptRequest,
+    token_data: TokenData = Depends(require_role("accountant", "manager", "admin")),
+    conn: asyncpg.Connection = Depends(get_db),
+):
+    """Ghi nhận thu tiền cho một khoản phải thu (accounts_receivable)."""
+    ar = await conn.fetchrow(
+        "SELECT id, amount, paid_amount, status, customer_id, invoice_number FROM accounts_receivable WHERE id = $1",
+        body.ar_id,
+    )
+    if not ar:
+        raise HTTPException(status_code=404, detail="Không tìm thấy khoản phải thu")
+    if ar["status"] == "paid":
+        raise HTTPException(status_code=400, detail="Khoản này đã được thu đầy đủ")
+
+    remaining = float(ar["amount"]) - float(ar["paid_amount"] or 0)
+    if body.amount > remaining + 0.01:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Số tiền thu ({body.amount:,.0f}) vượt quá số còn lại ({remaining:,.0f})",
+        )
+
+    new_paid = float(ar["paid_amount"] or 0) + body.amount
+    new_status = "paid" if new_paid >= float(ar["amount"]) - 0.01 else "partial"
+
+    async with conn.transaction():
+        # Update accounts_receivable
+        await conn.execute(
+            """
+            UPDATE accounts_receivable
+            SET paid_amount = $1,
+                status      = $2,
+                updated_at  = NOW()
+            WHERE id = $3
+            """,
+            new_paid,
+            new_status,
+            body.ar_id,
+        )
+
+        # Create cash_book entry
+        last_balance = await conn.fetchval(
+            "SELECT balance_after FROM cash_book ORDER BY entry_date DESC, id DESC LIMIT 1"
+        )
+        current_balance = float(last_balance or 0)
+        new_balance = current_balance + body.amount
+
+        cb_row = await conn.fetchrow(
+            """
+            INSERT INTO cash_book (
+                entry_date, direction, category, description,
+                amount, currency, exchange_rate, balance_after,
+                bank_ref, notes, ref_type, ref_id, created_by
+            ) VALUES ($1, 'income', 'customer_receipt', $2, $3, 'VND', 1.0, $4, $5, $6, 'ar', $7, $8)
+            RETURNING id
+            """,
+            body.payment_date,
+            f"Thu tiền KH — Hóa đơn {ar['invoice_number'] or ar['id']}",
+            body.amount,
+            new_balance,
+            body.bank_ref,
+            body.notes,
+            body.ar_id,
+            token_data.user_id,
+        )
+
+    logger.info(
+        "AR receipt recorded: ar_id=%s amount=%s by user=%s cash_book_id=%s",
+        body.ar_id, body.amount, token_data.user_id, cb_row["id"],
+    )
+    return {
+        "data": {
+            "ar_id": body.ar_id,
+            "amount_received": body.amount,
+            "new_paid_total": new_paid,
+            "new_status": new_status,
+            "cash_book_id": cb_row["id"],
+        },
+        "message": f"Đã ghi nhận thu tiền {body.amount:,.0f}₫ cho khoản phải thu #{body.ar_id}",
     }
 
 

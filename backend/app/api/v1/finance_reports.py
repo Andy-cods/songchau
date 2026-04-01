@@ -313,8 +313,9 @@ async def cash_flow_statement(
     ]
 
     def _net(items: list[dict]) -> float:
-        income = sum(r["amount"] for r in items if r["direction"] == "income")
-        expense = sum(r["amount"] for r in items if r["direction"] == "expense")
+        # cash_book uses direction values 'in'/'income' for inflows, 'out'/'expense' for outflows
+        income = sum(r["amount"] for r in items if r["direction"] in ("in", "income", "inbound"))
+        expense = sum(r["amount"] for r in items if r["direction"] in ("out", "expense", "outbound"))
         return float(income) - float(expense)
 
     net_operating = _net(operating_items)

@@ -1,0 +1,6 @@
+Place real PNG icon files here:
+  - icon-192.png  (192x192 pixels)
+  - icon-512.png  (512x512 pixels)
+
+These icons are required for the PWA manifest and must be actual PNG image files.
+Generate them using the Song Chau logo or a simple SC monogram on a #1e40af (blue) background.

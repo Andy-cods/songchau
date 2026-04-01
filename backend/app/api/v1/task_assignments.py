@@ -459,7 +459,7 @@ async def auto_assign(
     4. Round-robin assign to users with lowest load
     5. Create task_assignments + send notifications
     """
-    # Get eligible staff (staff + manager, exclude admin-only roles)
+    # Get eligible staff (staff + sales + procurement + manager, exclude admin-only roles)
     staff_rows = await conn.fetch(
         """
         SELECT u.id::text AS user_id, u.full_name, u.email,
@@ -467,7 +467,7 @@ async def auto_assign(
         FROM users u
         LEFT JOIN task_assignments ta ON ta.assigned_to = u.id
         WHERE u.is_active = true
-          AND u.role IN ('staff','manager')
+          AND u.role::text IN ('staff', 'sales', 'procurement', 'manager')
         GROUP BY u.id, u.full_name, u.email
         ORDER BY active_load ASC, u.full_name ASC
         """
@@ -481,7 +481,6 @@ async def auto_assign(
 
     # Build mutable workload dict: {user_id: current_load}
     workload: dict[str, int] = {str(r["user_id"]): int(r["active_load"]) for r in staff_rows}
-    staff_list = [str(r["user_id"]) for r in staff_rows]
     staff_names = {str(r["user_id"]): r["full_name"] for r in staff_rows}
 
     def pick_least_loaded() -> str:

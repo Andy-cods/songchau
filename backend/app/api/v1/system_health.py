@@ -17,6 +17,7 @@ Endpoints:
 
 from __future__ import annotations
 
+import json
 import logging
 import time
 from typing import Optional
@@ -24,10 +25,23 @@ from typing import Optional
 import asyncpg
 from fastapi import APIRouter, Depends, HTTPException, Query
 
-from app.core.cache import cache
 from app.core.database import get_db
 from app.core.rbac import require_role
 from app.core.security import TokenData
+
+try:
+    from app.core.cache import cache as _cache
+except Exception:
+    _cache = None  # type: ignore[assignment]
+
+# Provide a safe fallback cache object if import fails
+class _NullCache:
+    async def ping(self) -> bool:
+        return False
+    async def info(self) -> dict:
+        return {}
+
+cache = _cache if _cache is not None else _NullCache()  # type: ignore[assignment]
 
 logger = logging.getLogger(__name__)
 
@@ -568,11 +582,11 @@ async def run_health_check(
     await conn.execute(
         """
         INSERT INTO system_health_checks (check_type, status, response_time_ms, details)
-        VALUES ('database', $1, $2, $3)
+        VALUES ('database', $1, $2, $3::jsonb)
         """,
         db_status,
         db_ms,
-        db_details,
+        json.dumps(db_details),
     )
     results.append({"check_type": "database", "status": db_status, "response_time_ms": db_ms, "details": db_details})
 
@@ -587,11 +601,11 @@ async def run_health_check(
         elif redis_ms < 100:
             redis_status = "healthy"
             redis_info = await cache.info()
-            redis_details = redis_info
+            redis_details = dict(redis_info) if redis_info else {}
         else:
             redis_status = "degraded"
             redis_info = await cache.info()
-            redis_details = redis_info
+            redis_details = dict(redis_info) if redis_info else {}
     except Exception as exc:
         redis_ms = int((time.monotonic() - t0) * 1000)
         redis_status = "unhealthy"
@@ -601,11 +615,11 @@ async def run_health_check(
     await conn.execute(
         """
         INSERT INTO system_health_checks (check_type, status, response_time_ms, details)
-        VALUES ('redis', $1, $2, $3)
+        VALUES ('redis', $1, $2, $3::jsonb)
         """,
         redis_status,
         redis_ms,
-        redis_details,
+        json.dumps(redis_details),
     )
     results.append({"check_type": "redis", "status": redis_status, "response_time_ms": redis_ms, "details": redis_details})
 
@@ -617,7 +631,7 @@ async def run_health_check(
         )
         tbl_ms = int((time.monotonic() - t0) * 1000)
         tbl_status = "healthy"
-        tbl_details: dict = {"public_tables": tbl_count}
+        tbl_details: dict = {"public_tables": int(tbl_count or 0)}
     except Exception as exc:
         tbl_ms = int((time.monotonic() - t0) * 1000)
         tbl_status = "degraded"
@@ -626,11 +640,11 @@ async def run_health_check(
     await conn.execute(
         """
         INSERT INTO system_health_checks (check_type, status, response_time_ms, details)
-        VALUES ('api', $1, $2, $3)
+        VALUES ('api', $1, $2, $3::jsonb)
         """,
         tbl_status,
         tbl_ms,
-        tbl_details,
+        json.dumps(tbl_details),
     )
     results.append({"check_type": "api", "status": tbl_status, "response_time_ms": tbl_ms, "details": tbl_details})
 

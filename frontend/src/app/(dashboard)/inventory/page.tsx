@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
+import { useRouter } from 'next/navigation';
 import { createColumnHelper } from '@tanstack/react-table';
 import { Package } from 'lucide-react';
 import { getInventory } from '@/services/inventory';
@@ -103,6 +104,7 @@ const columns = [
 // ─── Page Component ────────────────────────────────────────────
 
 export default function InventoryPage() {
+  const router = useRouter();
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState('');
 
@@ -156,6 +158,7 @@ export default function InventoryPage() {
             : undefined
         }
         onPageChange={setPage}
+        onRowClick={(row) => router.push(`/inventory/${row.id}`)}
         emptyState={
           <EmptyState
             icon={Package}

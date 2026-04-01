@@ -2,11 +2,16 @@
 
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
+import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 import {
   ClipboardList,
   RefreshCw,
   Search,
   Inbox,
+  Plus,
+  Brain,
+  FileSpreadsheet,
 } from 'lucide-react';
 import { api } from '@/lib/api';
 import { cn, formatDate } from '@/lib/utils';
@@ -34,6 +39,7 @@ const BQMS_STATUS_MAP: Record<
 // ─── Page Component ────────────────────────────────────────────
 
 export default function BQMSPage() {
+  const router = useRouter();
   const [searchQuery, setSearchQuery] = useState('');
 
   // Fetch KPIs
@@ -139,12 +145,27 @@ export default function BQMSPage() {
             Hệ thống quản lý báo giá mua sắm
           </p>
         </div>
-        <div className="flex items-center gap-2 text-xs text-slate-400">
-          <RefreshCw className="h-3.5 w-3.5" />
-          <span>
-            Cập nhật lần cuối:{' '}
-            {lastSynced ? formatDate(lastSynced) : formatDate(new Date())}
-          </span>
+        <div className="flex items-center gap-3">
+          <Link
+            href="/bqms/classify"
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-600 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors"
+          >
+            <Brain className="h-3.5 w-3.5" />
+            Lọc đơn AI
+          </Link>
+          <Link
+            href="/bqms/quotation/new"
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white bg-brand-600 rounded-lg hover:bg-brand-700 transition-colors"
+          >
+            <Plus className="h-3.5 w-3.5" />
+            Tạo báo giá
+          </Link>
+          <div className="flex items-center gap-2 text-xs text-slate-400">
+            <RefreshCw className="h-3.5 w-3.5" />
+            <span>
+              {lastSynced ? formatDate(lastSynced) : formatDate(new Date())}
+            </span>
+          </div>
         </div>
       </div>
 
@@ -310,7 +331,8 @@ export default function BQMSPage() {
                   return (
                     <tr
                       key={record.id ?? idx}
-                      className="hover:bg-slate-50/50 transition-colors"
+                      onClick={() => record.id && router.push(`/bqms/quotation/${record.id}`)}
+                      className={cn('hover:bg-slate-50/50 transition-colors', record.id && 'cursor-pointer')}
                     >
                       <TD>
                         {formatDate(

@@ -158,6 +158,30 @@ async def get_unread_count(
 
 
 # ---------------------------------------------------------------------------
+# POST /read-all — Mark all as read  (static route MUST be before /{id}/read)
+# ---------------------------------------------------------------------------
+
+@router.post("/read-all")
+async def mark_all_read(
+    token_data: TokenData = Depends(require_role("staff", "manager", "admin")),
+    conn: asyncpg.Connection = Depends(get_db),
+):
+    result = await conn.execute(
+        """
+        UPDATE notifications
+        SET is_read = true, read_at = NOW()
+        WHERE recipient_id = $1::uuid AND is_read = false
+        """,
+        token_data.user_id,
+    )
+    count = int(result.split()[-1]) if result else 0
+    return {
+        "data": {"updated": count},
+        "message": f"Đã đánh dấu {count} thông báo đã đọc",
+    }
+
+
+# ---------------------------------------------------------------------------
 # POST /{id}/read — Mark single notification as read
 # ---------------------------------------------------------------------------
 
@@ -184,30 +208,6 @@ async def mark_read(
             detail="Thông báo không tồn tại hoặc không thuộc về bạn",
         )
     return {"data": dict(row), "message": "Đã đánh dấu đã đọc"}
-
-
-# ---------------------------------------------------------------------------
-# POST /read-all — Mark all as read
-# ---------------------------------------------------------------------------
-
-@router.post("/read-all")
-async def mark_all_read(
-    token_data: TokenData = Depends(require_role("staff", "manager", "admin")),
-    conn: asyncpg.Connection = Depends(get_db),
-):
-    result = await conn.execute(
-        """
-        UPDATE notifications
-        SET is_read = true, read_at = NOW()
-        WHERE recipient_id = $1::uuid AND is_read = false
-        """,
-        token_data.user_id,
-    )
-    count = int(result.split()[-1]) if result else 0
-    return {
-        "data": {"updated": count},
-        "message": f"Đã đánh dấu {count} thông báo đã đọc",
-    }
 
 
 # ---------------------------------------------------------------------------
