@@ -19,6 +19,7 @@ from typing import Optional
 import asyncpg
 from fastapi import APIRouter, Depends, HTTPException, Query
 
+from app.core.config import settings
 from app.core.database import get_db
 from app.core.rbac import require_role
 from app.core.security import TokenData
@@ -228,13 +229,49 @@ async def trigger_sync(
         row_id,
     )
 
+    # Actually run the sync in background thread (not just create a record)
+    import threading
+
+    def _run_sync():
+        try:
+            if sync_type == "onedrive":
+                from app.tasks.onedrive_sync import onedrive_delta_sync
+                result = onedrive_delta_sync(timestamp=0)
+                logger.info("OneDrive sync completed: %s", result)
+            elif sync_type == "bqms":
+                from app.tasks.bqms_sync import bqms_nightly_sync
+                result = bqms_nightly_sync(timestamp=0)
+                logger.info("BQMS sync completed: %s", result)
+            else:
+                logger.info("No sync handler for type=%s", sync_type)
+        except Exception as exc:
+            logger.error("Sync %s failed: %s", sync_type, exc)
+            # Update the sync log entry to failed
+            import psycopg2
+            try:
+                c = psycopg2.connect(
+                    f"postgresql://{settings.POSTGRES_USER}:{settings.POSTGRES_PASSWORD}"
+                    f"@postgres:5432/{settings.POSTGRES_DB}"
+                )
+                with c, c.cursor() as cur:
+                    cur.execute(
+                        "UPDATE etl_sync_log SET status='error', error_message=%s, completed_at=NOW() WHERE id=%s",
+                        (str(exc)[:500], row_id),
+                    )
+                c.close()
+            except Exception:
+                pass
+
+    thread = threading.Thread(target=_run_sync, daemon=True)
+    thread.start()
+
     return {
         "data": {
             "log_id": row_id,
             "sync_type": sync_type,
             "status": "running",
         },
-        "message": f"Đã kích hoạt đồng bộ '{sync_type}'. Log ID: {row_id}",
+        "message": f"Đã kích hoạt đồng bộ '{sync_type}' thật sự. Log ID: {row_id}. Đang chạy nền...",
     }
 
 
