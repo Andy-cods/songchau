@@ -1,357 +1,174 @@
 """
-Container History API (M21) — Docker container monitoring for Song Châu ERP.
-
-Since the API runs inside a container and cannot execute docker commands directly,
-these endpoints serve data from the latest system_health_checks records stored in
-the database, supplemented by known container configuration.
-
-Endpoints:
-  GET /          — List current container statuses (from latest health checks)
-  GET /logs/{container_name} — Last N log lines from health check details
-  GET /resources — Container resource usage from stored health data
+Container Monitoring API — REAL health probing.
 """
 
 from __future__ import annotations
 
+import json
 import logging
-from typing import Optional
+import os
+import time as _time
 
 import asyncpg
-from fastapi import APIRouter, Depends, HTTPException, Query
+import httpx
+from fastapi import APIRouter, Depends, Query
 
 from app.core.database import get_db
 from app.core.rbac import require_role
 from app.core.security import TokenData
 
-logger = logging.getLogger(__name__)
+try:
+    from app.core.cache import cache
+except Exception:
+    cache = None
 
+logger = logging.getLogger(__name__)
 router = APIRouter()
 
-# Known containers in the Song Châu ERP stack
-KNOWN_CONTAINERS = [
-    {
-        "name": "songchau-api",
-        "image": "songchau-erp/api",
-        "description": "FastAPI backend server",
-        "port": "8000",
-        "role": "backend",
-    },
-    {
-        "name": "songchau-frontend",
-        "image": "songchau-erp/frontend",
-        "description": "Next.js frontend",
-        "port": "3000",
-        "role": "frontend",
-    },
-    {
-        "name": "songchau-postgres",
-        "image": "postgres:15",
-        "description": "PostgreSQL database",
-        "port": "5432",
-        "role": "database",
-    },
-    {
-        "name": "songchau-redis",
-        "image": "redis:7-alpine",
-        "description": "Redis cache",
-        "port": "6379",
-        "role": "cache",
-    },
-    {
-        "name": "songchau-nginx",
-        "image": "nginx:alpine",
-        "description": "Nginx reverse proxy",
-        "port": "80/443",
-        "role": "proxy",
-    },
+CONTAINERS = [
+    {"name": "sc-postgres", "role": "PostgreSQL Database", "host": "postgres", "port": 5432, "check": "db"},
+    {"name": "sc-redis", "role": "Redis Cache", "host": "redis", "port": 6379, "check": "redis"},
+    {"name": "sc-api", "role": "FastAPI Backend", "host": "localhost", "port": 8000, "check": "self"},
+    {"name": "sc-frontend", "role": "Next.js Frontend", "host": "frontend", "port": 3000, "check": "http"},
+    {"name": "sc-libreoffice", "role": "Gotenberg PDF", "host": "gotenberg", "port": 3000, "check": "http_health"},
+    {"name": "sc-nginx", "role": "Nginx Proxy", "host": "nginx", "port": 80, "check": "http"},
+    {"name": "sc-worker", "role": "Task Worker", "host": None, "port": None, "check": "procrastinate"},
+    {"name": "sc-scheduler", "role": "Task Scheduler", "host": None, "port": None, "check": "procrastinate"},
 ]
 
 
-def _infer_container_status(container_name: str, health_checks: list[dict]) -> dict:
-    """
-    Infer container status from the latest stored health check results.
-    Maps container roles to relevant check_types.
-    """
-    role_to_check = {
-        "database": "database",
-        "cache": "redis",
-        "backend": "api",
-        "frontend": "api",
-        "proxy": "api",
-    }
-
-    container = next(
-        (c for c in KNOWN_CONTAINERS if c["name"] == container_name), None
-    )
-    if not container:
-        return {"status": "unknown", "health_source": None}
-
-    check_type = role_to_check.get(container["role"], "api")
-    relevant = next((h for h in health_checks if h["check_type"] == check_type), None)
-
-    if relevant is None:
-        return {"status": "unknown", "health_source": "no_data"}
-
-    check_status = relevant["status"]
-    container_status = {
-        "healthy": "running",
-        "degraded": "running (degraded)",
-        "unhealthy": "exited",
-    }.get(check_status, "unknown")
-
-    return {
-        "status": container_status,
-        "health_status": check_status,
-        "response_time_ms": relevant.get("response_time_ms"),
-        "last_checked": relevant.get("created_at"),
-        "health_source": "system_health_checks",
-    }
+async def _check_http(host, port, path="/"):
+    try:
+        t0 = _time.time()
+        async with httpx.AsyncClient(timeout=3) as c:
+            r = await c.get(f"http://{host}:{port}{path}")
+        ms = int((_time.time() - t0) * 1000)
+        return ("running" if r.status_code < 500 else "degraded"), ms
+    except Exception:
+        return "stopped", 0
 
 
-# ---------------------------------------------------------------------------
-# GET / — List current container statuses
-# ---------------------------------------------------------------------------
-
-@router.get("")
+@router.get("/")
 async def list_containers(
     token_data: TokenData = Depends(require_role("admin")),
     conn: asyncpg.Connection = Depends(get_db),
 ):
-    """
-    Returns current container statuses inferred from the latest stored
-    health check results in system_health_checks.
-    """
-    # Get most recent health check per type
-    rows = await conn.fetch(
-        """
-        SELECT DISTINCT ON (check_type)
-            check_type, status, response_time_ms, details, created_at
-        FROM system_health_checks
-        ORDER BY check_type, created_at DESC
-        """
-    )
+    results = []
+    for c in CONTAINERS:
+        status, ms, details = "unknown", 0, ""
+        if c["check"] == "db":
+            t0 = _time.time()
+            try:
+                await conn.fetchval("SELECT 1")
+                ms = int((_time.time() - t0) * 1000)
+                db_size = await conn.fetchval("SELECT pg_size_pretty(pg_database_size(current_database()))")
+                status, details = "running", f"Size: {db_size}"
+            except Exception:
+                status = "stopped"
+        elif c["check"] == "redis":
+            if cache:
+                try:
+                    t0 = _time.time()
+                    ok = await cache.ping()
+                    ms = int((_time.time() - t0) * 1000)
+                    info = await cache.info()
+                    status = "running" if ok else "stopped"
+                    details = f"Memory: {info.get('used_memory_human', 'N/A')}"
+                except Exception:
+                    status = "stopped"
+            else:
+                status = "unknown"
+        elif c["check"] == "self":
+            status, details = "running", f"PID: {os.getpid()}"
+        elif c["check"] == "http":
+            status, ms = await _check_http(c["host"], c["port"])
+        elif c["check"] == "http_health":
+            status, ms = await _check_http(c["host"], c["port"], "/health")
+        elif c["check"] == "procrastinate":
+            try:
+                recent = await conn.fetchval(
+                    "SELECT COUNT(*) FROM procrastinate_jobs WHERE started_at > NOW() - interval '1 hour'"
+                )
+                status = "running" if recent and recent > 0 else "idle"
+                details = f"{recent or 0} jobs/hour"
+            except Exception:
+                status = "unknown"
+        results.append({"name": c["name"], "role": c["role"], "status": status,
+                        "response_time_ms": ms, "details": details})
+    running = sum(1 for r in results if r["status"] in ("running", "idle"))
+    return {"data": results, "message": f"{running}/{len(results)} services active"}
 
-    health_checks = [
-        {
-            "check_type": r["check_type"],
-            "status": r["status"],
-            "response_time_ms": r["response_time_ms"],
-            "details": r["details"],
-            "created_at": r["created_at"].isoformat(),
-        }
-        for r in rows
-    ]
-
-    containers = []
-    for c in KNOWN_CONTAINERS:
-        inferred = _infer_container_status(c["name"], health_checks)
-        containers.append(
-            {
-                **c,
-                **inferred,
-            }
-        )
-
-    # Count by status
-    running = sum(1 for c in containers if "running" in (c.get("status") or ""))
-    total = len(containers)
-
-    return {
-        "data": {
-            "containers": containers,
-            "summary": {
-                "total": total,
-                "running": running,
-                "stopped": total - running,
-            },
-            "health_data_source": "system_health_checks",
-            "note": (
-                "Trạng thái container được suy luận từ kết quả health check "
-                "gần nhất. Chạy POST /system-health/health-check để cập nhật."
-            ),
-        },
-        "message": f"Trạng thái {total} container trong hệ thống",
-    }
-
-
-# ---------------------------------------------------------------------------
-# GET /logs/{container_name} — Container log lines from health check details
-# ---------------------------------------------------------------------------
 
 @router.get("/logs/{container_name}")
 async def container_logs(
-    container_name: str,
-    lines: int = Query(50, ge=1, le=500, description="Số dòng log cần lấy"),
+    container_name: str, lines: int = Query(50, ge=10, le=200),
     token_data: TokenData = Depends(require_role("admin")),
     conn: asyncpg.Connection = Depends(get_db),
 ):
-    """
-    Return stored log lines for a container from system_health_checks details.
-    If no logs are stored, returns the most recent health check details
-    for the relevant component.
-    """
-    valid_names = [c["name"] for c in KNOWN_CONTAINERS]
-    if container_name not in valid_names:
-        raise HTTPException(
-            status_code=404,
-            detail=f"Container '{container_name}' không tồn tại. "
-                   f"Hợp lệ: {', '.join(valid_names)}",
+    log_lines = []
+    if "postgres" in container_name:
+        rows = await conn.fetch(
+            "SELECT pid, state, query, query_start FROM pg_stat_activity "
+            "WHERE query NOT LIKE '%pg_stat%' ORDER BY query_start DESC NULLS LAST LIMIT $1", lines
         )
-
-    container = next(c for c in KNOWN_CONTAINERS if c["name"] == container_name)
-
-    role_to_check = {
-        "database": "database",
-        "cache": "redis",
-        "backend": "api",
-        "frontend": "api",
-        "proxy": "api",
-    }
-    check_type = role_to_check.get(container["role"], "api")
-
-    # Get recent health check records for this component
-    history = await conn.fetch(
-        """
-        SELECT id, status, response_time_ms, details, created_at
-        FROM system_health_checks
-        WHERE check_type = $1
-        ORDER BY created_at DESC
-        LIMIT $2
-        """,
-        check_type,
-        lines,
-    )
-
-    log_entries = []
-    for r in history:
-        details = r["details"] or {}
-        # Format as pseudo-log lines
-        ts = r["created_at"].strftime("%Y-%m-%dT%H:%M:%S")
-        log_entries.append(
-            f"[{ts}] [{r['status'].upper()}] {container_name} — "
-            f"response_time={r['response_time_ms']}ms "
-            f"details={details}"
+        for r in rows:
+            log_lines.append(f"[{r['query_start']}] pid={r['pid']} {r['state']}: {str(r['query'])[:120]}")
+    elif "redis" in container_name:
+        if cache:
+            try:
+                info = await cache.info()
+                for k, v in info.items():
+                    log_lines.append(f"{k}: {v}")
+            except Exception:
+                log_lines.append("Redis not available")
+    elif "worker" in container_name or "scheduler" in container_name:
+        try:
+            rows = await conn.fetch(
+                "SELECT id, task_name, status, started_at, finished_at "
+                "FROM procrastinate_jobs ORDER BY id DESC LIMIT $1", lines
+            )
+            for r in rows:
+                log_lines.append(f"Job#{r['id']} {r['task_name']}: {r['status']} started={r['started_at']}")
+        except Exception as e:
+            log_lines.append(f"Error: {e}")
+    elif "api" in container_name:
+        rows = await conn.fetch(
+            "SELECT check_type, status, response_time_ms, created_at "
+            "FROM system_health_checks ORDER BY created_at DESC LIMIT $1", lines
         )
+        for r in rows:
+            log_lines.append(f"[{r['created_at']}] {r['check_type']}: {r['status']} ({r['response_time_ms']}ms)")
+    else:
+        log_lines.append(f"Logs not available for {container_name} (no direct docker access)")
+    return {"data": {"container": container_name, "lines": log_lines, "count": len(log_lines)}}
 
-    return {
-        "data": {
-            "container_name": container_name,
-            "log_lines": log_entries,
-            "total_lines": len(log_entries),
-            "source": "system_health_checks",
-            "check_type": check_type,
-            "note": (
-                "Log được tổng hợp từ lịch sử health check. "
-                "Docker log trực tiếp không khả dụng từ bên trong container."
-            ),
-        },
-        "message": f"Log container '{container_name}' ({len(log_entries)} dòng)",
-    }
-
-
-# ---------------------------------------------------------------------------
-# GET /resources — Container resource usage
-# ---------------------------------------------------------------------------
 
 @router.get("/resources")
-async def container_resources(
+async def resources(
     token_data: TokenData = Depends(require_role("admin")),
     conn: asyncpg.Connection = Depends(get_db),
 ):
-    """
-    Returns estimated container resource usage based on stored health check data.
-    DB size, Redis memory, and response times are retrieved from system_health_checks.
-    """
-    # DB size from latest database health check
-    db_check = await conn.fetchrow(
-        """
-        SELECT details, response_time_ms, created_at
-        FROM system_health_checks
-        WHERE check_type = 'database'
-        ORDER BY created_at DESC
-        LIMIT 1
-        """
-    )
-
-    # Redis info from latest redis health check
-    redis_check = await conn.fetchrow(
-        """
-        SELECT details, response_time_ms, created_at
-        FROM system_health_checks
-        WHERE check_type = 'redis'
-        ORDER BY created_at DESC
-        LIMIT 1
-        """
-    )
-
-    # Average response times over last 24h per check_type
-    avg_times = await conn.fetch(
-        """
-        SELECT
-            check_type,
-            ROUND(AVG(response_time_ms)::NUMERIC, 1) AS avg_ms,
-            MIN(response_time_ms) AS min_ms,
-            MAX(response_time_ms) AS max_ms,
-            COUNT(*) AS sample_count
-        FROM system_health_checks
-        WHERE created_at >= NOW() - INTERVAL '24 hours'
-          AND response_time_ms IS NOT NULL
-        GROUP BY check_type
-        """
-    )
-
-    resources = []
-
-    for c in KNOWN_CONTAINERS:
-        resource: dict = {
-            "container_name": c["name"],
-            "role": c["role"],
-            "description": c["description"],
-        }
-
-        if c["role"] == "database" and db_check:
-            details = db_check["details"] or {}
-            resource.update(
-                {
-                    "db_size_bytes": details.get("size_bytes"),
-                    "db_size_human": details.get("size_human"),
-                    "response_time_ms": db_check["response_time_ms"],
-                    "last_measured": db_check["created_at"].isoformat(),
-                }
-            )
-        elif c["role"] == "cache" and redis_check:
-            details = redis_check["details"] or {}
-            resource.update(
-                {
-                    "used_memory_bytes": details.get("used_memory"),
-                    "used_memory_human": details.get("used_memory_human"),
-                    "connected_clients": details.get("connected_clients"),
-                    "response_time_ms": redis_check["response_time_ms"],
-                    "last_measured": redis_check["created_at"].isoformat(),
-                }
-            )
-        else:
-            resource.update({"note": "Dữ liệu tài nguyên không có sẵn trực tiếp"})
-
-        resources.append(resource)
-
-    return {
-        "data": {
-            "resources": resources,
-            "response_time_trends": [
-                {
-                    "check_type": r["check_type"],
-                    "avg_ms": float(r["avg_ms"]) if r["avg_ms"] else None,
-                    "min_ms": r["min_ms"],
-                    "max_ms": r["max_ms"],
-                    "sample_count": r["sample_count"],
-                }
-                for r in avg_times
-            ],
-            "note": (
-                "Thông số tài nguyên container được lấy từ dữ liệu health check đã lưu. "
-                "CPU/RAM trực tiếp không khả dụng từ bên trong container."
-            ),
-        },
-        "message": "Tài nguyên sử dụng của các container",
-    }
+    db_size = await conn.fetchval("SELECT pg_database_size(current_database())")
+    db_conns = await conn.fetchval("SELECT COUNT(*) FROM pg_stat_activity")
+    db_max = await conn.fetchval("SHOW max_connections")
+    redis_mem = 0
+    if cache:
+        try:
+            info = await cache.info()
+            redis_mem = info.get("used_memory", 0)
+        except Exception:
+            pass
+    disk = {"total_gb": 0, "used_gb": 0, "free_gb": 0, "pct": 0}
+    try:
+        st = os.statvfs("/data")
+        total, free = st.f_blocks * st.f_frsize, st.f_bavail * st.f_frsize
+        disk = {"total_gb": round(total/1e9, 1), "used_gb": round((total-free)/1e9, 1),
+                "free_gb": round(free/1e9, 1), "pct": round((total-free)/total*100, 1) if total else 0}
+    except Exception:
+        pass
+    return {"data": {
+        "database": {"size_bytes": db_size, "size_mb": round(db_size/1024/1024, 1),
+                      "connections": db_conns, "max_connections": int(db_max)},
+        "redis": {"memory_bytes": redis_mem, "memory_mb": round(redis_mem/1024/1024, 1)},
+        "disk": disk,
+    }}

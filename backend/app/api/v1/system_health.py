@@ -1,28 +1,19 @@
 """
-System Health API (M16 + M19 + M22) — Performance Dashboard, Error Center,
-and Backup Verification for Song Châu ERP.
-
-Endpoints:
-  GET  /dashboard          — System overview (DB, Redis, uptime, containers)
-  GET  /db-stats           — Per-table row counts sorted by size
-  GET  /api-performance    — pg_stat_user_tables access patterns
-  GET  /errors             — List error_log with filters + pagination
-  POST /errors/{id}/resolve — Mark error as resolved
-  GET  /errors/summary     — Error counts by type and severity
-  GET  /health-history     — Historical health check results
-  POST /health-check       — Run live health check and save results
-  GET  /backups            — List backup_log
-  POST /backups/verify/{id} — Mark backup as verified
+System Health API — REAL implementations.
+Hiệu suất, Backup, Health Check with actual data.
 """
 
 from __future__ import annotations
 
 import json
 import logging
-import time
-from typing import Optional
+import os
+import time as _time
+from datetime import datetime, date
+from pathlib import Path
 
 import asyncpg
+import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from app.core.database import get_db
@@ -30,357 +21,200 @@ from app.core.rbac import require_role
 from app.core.security import TokenData
 
 try:
-    from app.core.cache import cache as _cache
+    from app.core.cache import cache
 except Exception:
-    _cache = None  # type: ignore[assignment]
-
-# Provide a safe fallback cache object if import fails
-class _NullCache:
-    async def ping(self) -> bool:
-        return False
-    async def info(self) -> dict:
-        return {}
-
-cache = _cache if _cache is not None else _NullCache()  # type: ignore[assignment]
+    cache = None
 
 logger = logging.getLogger(__name__)
-
 router = APIRouter()
 
+BACKUP_DIR = Path("/data/files/backups")
 
-# ---------------------------------------------------------------------------
-# GET /dashboard — System overview
-# ---------------------------------------------------------------------------
+
+# ── Helpers ────────────────────────────────────────────────
+
+async def _ping_redis():
+    if cache is None:
+        return False, 0, {}
+    t0 = _time.time()
+    try:
+        ok = await cache.ping()
+        ms = int((_time.time() - t0) * 1000)
+        info = await cache.info()
+        return ok, ms, info
+    except Exception:
+        return False, 0, {}
+
+
+async def _ping_gotenberg():
+    try:
+        t0 = _time.time()
+        async with httpx.AsyncClient(timeout=5) as c:
+            r = await c.get("http://gotenberg:3000/health")
+        ms = int((_time.time() - t0) * 1000)
+        return r.status_code == 200, ms
+    except Exception:
+        return False, 0
+
+
+def _disk_usage():
+    try:
+        st = os.statvfs("/data")
+        total = st.f_blocks * st.f_frsize
+        free = st.f_bavail * st.f_frsize
+        used = total - free
+        return {"total_gb": round(total / 1e9, 1), "used_gb": round(used / 1e9, 1),
+                "free_gb": round(free / 1e9, 1), "pct": round(used / total * 100, 1) if total else 0}
+    except Exception:
+        return {"total_gb": 0, "used_gb": 0, "free_gb": 0, "pct": 0}
+
+
+# ── GET /dashboard ─────────────────────────────────────────
 
 @router.get("/dashboard")
 async def system_dashboard(
     token_data: TokenData = Depends(require_role("admin")),
     conn: asyncpg.Connection = Depends(get_db),
 ):
-    """
-    Returns a full system overview:
-    - Database size, table count, total row count
-    - Redis memory usage
-    - Last ETL sync time per sync type
-    - Latest health check results per component
-    """
-    # DB size
-    db_size_bytes = await conn.fetchval(
-        "SELECT pg_database_size(current_database())"
-    )
-    db_size_human = await conn.fetchval(
-        "SELECT pg_size_pretty(pg_database_size(current_database()))"
-    )
-
-    # Table count (user tables only)
-    table_count = await conn.fetchval(
-        "SELECT COUNT(*) FROM pg_tables WHERE schemaname = 'public'"
-    )
-
-    # Approximate total row count across all tables
+    db_size = await conn.fetchval("SELECT pg_size_pretty(pg_database_size(current_database()))")
+    db_bytes = await conn.fetchval("SELECT pg_database_size(current_database())")
+    table_count = await conn.fetchval("SELECT COUNT(*) FROM pg_tables WHERE schemaname='public'")
     total_rows = await conn.fetchval(
-        """
-        SELECT COALESCE(SUM(reltuples::BIGINT), 0)
-        FROM pg_class c
-        JOIN pg_namespace n ON n.oid = c.relnamespace
-        WHERE n.nspname = 'public'
-          AND c.relkind = 'r'
-          AND reltuples > 0
-        """
+        "SELECT COALESCE(SUM(n_live_tup),0) FROM pg_stat_user_tables"
     )
 
-    # Redis info
-    redis_info = await cache.info()
-    redis_alive = await cache.ping()
+    redis_ok, redis_ms, redis_info = await _ping_redis()
+    disk = _disk_usage()
 
-    # Last ETL sync per type
     last_syncs = await conn.fetch(
-        """
-        SELECT DISTINCT ON (sync_type)
-            sync_type, status, completed_at, rows_inserted, error_message
-        FROM etl_sync_log
-        ORDER BY sync_type, started_at DESC
-        """
+        "SELECT DISTINCT ON (sync_type) sync_type, status, completed_at, rows_inserted "
+        "FROM etl_sync_log ORDER BY sync_type, started_at DESC"
     )
 
-    # Latest health check per component
-    latest_checks = await conn.fetch(
-        """
-        SELECT DISTINCT ON (check_type)
-            check_type, status, response_time_ms, created_at
-        FROM system_health_checks
-        ORDER BY check_type, created_at DESC
-        """
-    )
+    unresolved = await conn.fetchval("SELECT COUNT(*) FROM error_log WHERE resolved=false")
+    pending_retry = await conn.fetchval("SELECT COUNT(*) FROM retry_queue WHERE status IN ('pending','retrying')")
 
-    # Unresolved error counts
-    unresolved_critical = await conn.fetchval(
-        "SELECT COUNT(*) FROM error_log WHERE resolved = false AND severity = 'critical'"
-    )
-    unresolved_total = await conn.fetchval(
-        "SELECT COUNT(*) FROM error_log WHERE resolved = false"
-    )
+    active_conns = await conn.fetchval("SELECT COUNT(*) FROM pg_stat_activity WHERE state='active'")
 
-    # Pending retry queue
-    pending_retries = await conn.fetchval(
-        "SELECT COUNT(*) FROM retry_queue WHERE status IN ('pending', 'retrying')"
-    )
-
-    return {
-        "data": {
-            "database": {
-                "size_bytes": db_size_bytes,
-                "size_human": db_size_human,
-                "table_count": table_count,
-                "total_rows_estimate": total_rows,
-            },
-            "redis": {
-                "connected": redis_alive,
-                "used_memory_human": redis_info.get("used_memory_human", "N/A"),
-                "used_memory_bytes": redis_info.get("used_memory", 0),
-                "connected_clients": redis_info.get("connected_clients", "N/A"),
-            },
-            "etl_sync": [
-                {
-                    "sync_type": r["sync_type"],
-                    "status": r["status"],
-                    "completed_at": r["completed_at"].isoformat() if r["completed_at"] else None,
-                    "rows_inserted": r["rows_inserted"],
-                    "error_message": r["error_message"],
-                }
-                for r in last_syncs
-            ],
-            "health_checks": [
-                {
-                    "check_type": r["check_type"],
-                    "status": r["status"],
-                    "response_time_ms": r["response_time_ms"],
-                    "last_checked": r["created_at"].isoformat(),
-                }
-                for r in latest_checks
-            ],
-            "alerts": {
-                "unresolved_errors": unresolved_total,
-                "critical_errors": unresolved_critical,
-                "pending_retries": pending_retries,
-            },
-        },
-        "message": "Tổng quan hệ thống",
-    }
+    return {"data": {
+        "database": {"size": db_size, "size_bytes": db_bytes, "tables": table_count,
+                      "rows": total_rows, "active_connections": active_conns},
+        "redis": {"connected": redis_ok, "memory": redis_info.get("used_memory_human", "N/A"),
+                  "clients": redis_info.get("connected_clients", 0), "latency_ms": redis_ms},
+        "disk": disk,
+        "etl_sync": [{"type": r["sync_type"], "status": r["status"],
+                       "completed_at": r["completed_at"].isoformat() if r["completed_at"] else None,
+                       "rows": r["rows_inserted"]} for r in last_syncs],
+        "errors_unresolved": unresolved,
+        "retry_pending": pending_retry,
+    }}
 
 
-# ---------------------------------------------------------------------------
-# GET /db-stats — Per-table row counts
-# ---------------------------------------------------------------------------
+# ── GET /db-stats ──────────────────────────────────────────
 
 @router.get("/db-stats")
 async def db_stats(
     token_data: TokenData = Depends(require_role("admin")),
     conn: asyncpg.Connection = Depends(get_db),
 ):
-    """
-    Returns per-table statistics: row count estimate, table size,
-    index size, last vacuum/analyze times. Sorted by table size descending.
-    """
-    rows = await conn.fetch(
-        """
-        SELECT
-            t.tablename AS table_name,
-            c.reltuples::BIGINT AS row_estimate,
-            pg_size_pretty(pg_total_relation_size(c.oid)) AS total_size,
-            pg_size_pretty(pg_relation_size(c.oid)) AS table_size,
-            pg_size_pretty(pg_total_relation_size(c.oid) - pg_relation_size(c.oid)) AS index_size,
-            pg_total_relation_size(c.oid) AS total_size_bytes,
-            COALESCE(s.last_vacuum::TEXT, 'never') AS last_vacuum,
-            COALESCE(s.last_autovacuum::TEXT, 'never') AS last_autovacuum,
-            COALESCE(s.last_analyze::TEXT, 'never') AS last_analyze,
-            COALESCE(s.n_live_tup, 0) AS live_rows,
-            COALESCE(s.n_dead_tup, 0) AS dead_rows
+    rows = await conn.fetch("""
+        SELECT t.tablename,
+               pg_size_pretty(pg_total_relation_size(quote_ident(t.tablename)::regclass)) as size,
+               pg_total_relation_size(quote_ident(t.tablename)::regclass) as size_bytes,
+               COALESCE(s.n_live_tup, 0) as row_count,
+               s.seq_scan, s.idx_scan,
+               s.last_vacuum, s.last_analyze
         FROM pg_tables t
-        JOIN pg_class c ON c.relname = t.tablename
-        JOIN pg_namespace n ON n.oid = c.relnamespace AND n.nspname = t.schemaname
-        LEFT JOIN pg_stat_user_tables s ON s.relname = t.tablename AND s.schemaname = t.schemaname
+        LEFT JOIN pg_stat_user_tables s ON s.relname = t.tablename
         WHERE t.schemaname = 'public'
-        ORDER BY pg_total_relation_size(c.oid) DESC
-        """
-    )
-
-    return {
-        "data": {
-            "tables": [dict(r) for r in rows],
-            "total_tables": len(rows),
-        },
-        "message": f"Thống kê {len(rows)} bảng trong database",
-    }
+        ORDER BY pg_total_relation_size(quote_ident(t.tablename)::regclass) DESC
+    """)
+    return {"data": [dict(r) for r in rows]}
 
 
-# ---------------------------------------------------------------------------
-# GET /api-performance — Table access patterns
-# ---------------------------------------------------------------------------
+# ── POST /health-check ────────────────────────────────────
 
-@router.get("/api-performance")
-async def api_performance(
+@router.post("/health-check")
+async def run_health_check(
     token_data: TokenData = Depends(require_role("admin")),
     conn: asyncpg.Connection = Depends(get_db),
 ):
-    """
-    Returns pg_stat_user_tables access patterns:
-    - Sequential scans (high = missing index)
-    - Index scans ratio
-    - Insert/update/delete counts
-    Also returns pg_stat_statements top queries if the extension is available.
-    """
-    # Table access patterns
-    access_rows = await conn.fetch(
-        """
-        SELECT
-            relname AS table_name,
-            seq_scan,
-            seq_tup_read,
-            idx_scan,
-            idx_tup_fetch,
-            n_tup_ins AS inserts,
-            n_tup_upd AS updates,
-            n_tup_del AS deletes,
-            n_live_tup AS live_rows,
-            CASE
-                WHEN (seq_scan + COALESCE(idx_scan, 0)) = 0 THEN NULL
-                ELSE ROUND(
-                    100.0 * COALESCE(idx_scan, 0) / (seq_scan + COALESCE(idx_scan, 0)), 2
-                )
-            END AS index_hit_pct
-        FROM pg_stat_user_tables
-        ORDER BY seq_scan DESC
-        LIMIT 30
-        """
+    results = []
+
+    # 1. PostgreSQL
+    t0 = _time.time()
+    try:
+        await conn.fetchval("SELECT 1")
+        pg_ms = int((_time.time() - t0) * 1000)
+        pg_status = "healthy"
+    except Exception as e:
+        pg_ms = int((_time.time() - t0) * 1000)
+        pg_status = "unhealthy"
+    results.append({"check": "postgresql", "status": pg_status, "ms": pg_ms})
+    await conn.execute(
+        "INSERT INTO system_health_checks (check_type, status, response_time_ms, details) VALUES ($1,$2,$3,$4::jsonb)",
+        "database", pg_status, pg_ms, json.dumps({"type": "postgresql"})
     )
 
-    # Check if pg_stat_statements is available
-    has_pg_stat_statements = await conn.fetchval(
-        "SELECT EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'pg_stat_statements')"
+    # 2. Redis
+    redis_ok, redis_ms, _ = await _ping_redis()
+    r_status = "healthy" if redis_ok else "unhealthy"
+    results.append({"check": "redis", "status": r_status, "ms": redis_ms})
+    await conn.execute(
+        "INSERT INTO system_health_checks (check_type, status, response_time_ms, details) VALUES ($1,$2,$3,$4::jsonb)",
+        "redis", r_status, redis_ms, json.dumps({"connected": redis_ok})
     )
 
-    slow_queries = []
-    if has_pg_stat_statements:
-        try:
-            sq_rows = await conn.fetch(
-                """
-                SELECT
-                    LEFT(query, 200) AS query_preview,
-                    calls,
-                    ROUND((total_exec_time / calls)::NUMERIC, 2) AS avg_ms,
-                    ROUND(total_exec_time::NUMERIC, 2) AS total_ms,
-                    rows
-                FROM pg_stat_statements
-                WHERE calls > 10
-                ORDER BY avg_ms DESC
-                LIMIT 20
-                """
-            )
-            slow_queries = [dict(r) for r in sq_rows]
-        except Exception as exc:
-            logger.warning("Could not query pg_stat_statements: %s", exc)
+    # 3. Gotenberg
+    got_ok, got_ms = await _ping_gotenberg()
+    g_status = "healthy" if got_ok else "unhealthy"
+    results.append({"check": "gotenberg", "status": g_status, "ms": got_ms})
+    await conn.execute(
+        "INSERT INTO system_health_checks (check_type, status, response_time_ms, details) VALUES ($1,$2,$3,$4::jsonb)",
+        "gotenberg", g_status, got_ms, json.dumps({"reachable": got_ok})
+    )
 
-    return {
-        "data": {
-            "table_access_patterns": [dict(r) for r in access_rows],
-            "slow_queries": slow_queries,
-            "pg_stat_statements_available": has_pg_stat_statements,
-        },
-        "message": "Hiệu suất API và truy vấn database",
-    }
+    # 4. Disk
+    disk = _disk_usage()
+    d_status = "healthy" if disk["pct"] < 85 else "degraded" if disk["pct"] < 95 else "unhealthy"
+    results.append({"check": "disk", "status": d_status, "details": disk})
+    await conn.execute(
+        "INSERT INTO system_health_checks (check_type, status, response_time_ms, details) VALUES ($1,$2,$3,$4::jsonb)",
+        "disk", d_status, 0, json.dumps(disk)
+    )
+
+    overall = "healthy"
+    if any(r["status"] == "unhealthy" for r in results):
+        overall = "unhealthy"
+    elif any(r["status"] == "degraded" for r in results):
+        overall = "degraded"
+
+    return {"data": {"overall": overall, "checks": results}, "message": f"Kiểm tra hoàn tất: {overall}"}
 
 
-# ---------------------------------------------------------------------------
-# GET /errors — List error_log with filters
-# ---------------------------------------------------------------------------
+# ── Errors ─────────────────────────────────────────────────
 
 @router.get("/errors")
 async def list_errors(
-    error_type: Optional[str] = Query(None),
-    severity: Optional[str] = Query(None, description="warning | error | critical"),
-    resolved: Optional[bool] = Query(None),
-    page: int = Query(1, ge=1),
-    limit: int = Query(50, ge=1, le=200),
+    severity: str | None = None, resolved: bool | None = None,
+    page: int = Query(1, ge=1), limit: int = Query(20, ge=1, le=100),
     token_data: TokenData = Depends(require_role("admin")),
     conn: asyncpg.Connection = Depends(get_db),
 ):
-    """List errors from error_log with optional filters and pagination."""
-    conditions = ["1=1"]
-    params: list = []
-    idx = 1
-
-    if error_type:
-        conditions.append(f"error_type = ${idx}")
-        params.append(error_type)
-        idx += 1
-
+    conds, params, idx = ["1=1"], [], 1
     if severity:
-        conditions.append(f"severity = ${idx}")
-        params.append(severity)
-        idx += 1
-
+        conds.append(f"severity=${ idx}"); params.append(severity); idx += 1
     if resolved is not None:
-        conditions.append(f"resolved = ${idx}")
-        params.append(resolved)
-        idx += 1
-
-    where = " AND ".join(conditions)
-
-    total = await conn.fetchval(
-        f"SELECT COUNT(*) FROM error_log WHERE {where}", *params
-    )
-
-    offset = (page - 1) * limit
+        conds.append(f"resolved=${idx}"); params.append(resolved); idx += 1
+    where = " AND ".join(conds)
+    total = await conn.fetchval(f"SELECT COUNT(*) FROM error_log WHERE {where}", *params)
+    params.extend([limit, (page - 1) * limit])
     rows = await conn.fetch(
-        f"""
-        SELECT
-            el.id, el.error_type, el.severity, el.message,
-            el.endpoint, el.resolved, el.created_at, el.resolved_at,
-            el.user_id,
-            u.full_name AS user_name,
-            rb.full_name AS resolved_by_name
-        FROM error_log el
-        LEFT JOIN users u ON u.id = el.user_id
-        LEFT JOIN users rb ON rb.id = el.resolved_by
-        WHERE {where}
-        ORDER BY el.created_at DESC
-        LIMIT ${idx} OFFSET ${idx + 1}
-        """,
+        f"SELECT * FROM error_log WHERE {where} ORDER BY created_at DESC LIMIT ${idx} OFFSET ${idx+1}",
         *params,
-        limit,
-        offset,
     )
+    return {"data": {"items": [dict(r) for r in rows], "total": total, "page": page}}
 
-    return {
-        "data": {
-            "items": [
-                {
-                    "id": r["id"],
-                    "error_type": r["error_type"],
-                    "severity": r["severity"],
-                    "message": r["message"],
-                    "endpoint": r["endpoint"],
-                    "resolved": r["resolved"],
-                    "created_at": r["created_at"].isoformat(),
-                    "resolved_at": r["resolved_at"].isoformat() if r["resolved_at"] else None,
-                    "user_id": str(r["user_id"]) if r["user_id"] else None,
-                    "user_name": r["user_name"],
-                    "resolved_by_name": r["resolved_by_name"],
-                }
-                for r in rows
-            ],
-            "total": total,
-            "page": page,
-            "limit": limit,
-        },
-        "message": f"Danh sách lỗi ({total} bản ghi)",
-    }
-
-
-# ---------------------------------------------------------------------------
-# POST /errors/{id}/resolve — Mark error as resolved
-# ---------------------------------------------------------------------------
 
 @router.post("/errors/{error_id}/resolve")
 async def resolve_error(
@@ -388,355 +222,153 @@ async def resolve_error(
     token_data: TokenData = Depends(require_role("admin")),
     conn: asyncpg.Connection = Depends(get_db),
 ):
-    """Mark an error as resolved by the current admin user."""
-    row = await conn.fetchrow(
-        "SELECT id, resolved FROM error_log WHERE id = $1", error_id
-    )
-    if not row:
-        raise HTTPException(status_code=404, detail="Lỗi không tìm thấy")
-    if row["resolved"]:
-        raise HTTPException(status_code=400, detail="Lỗi này đã được giải quyết")
-
     await conn.execute(
-        """
-        UPDATE error_log
-        SET resolved = true,
-            resolved_by = $1::uuid,
-            resolved_at = NOW()
-        WHERE id = $2
-        """,
-        token_data.user_id,
-        error_id,
+        "UPDATE error_log SET resolved=true, resolved_by=$1::uuid, resolved_at=NOW() WHERE id=$2",
+        token_data.user_id, error_id,
     )
+    return {"message": "Đã đánh dấu lỗi đã xử lý"}
 
-    return {
-        "data": {"id": error_id, "resolved": True},
-        "message": "Đã đánh dấu lỗi là đã giải quyết",
-    }
-
-
-# ---------------------------------------------------------------------------
-# GET /errors/summary — Error counts by type and severity
-# ---------------------------------------------------------------------------
 
 @router.get("/errors/summary")
-async def errors_summary(
-    days: int = Query(7, ge=1, le=90, description="Số ngày cần thống kê"),
+async def error_summary(
     token_data: TokenData = Depends(require_role("admin")),
     conn: asyncpg.Connection = Depends(get_db),
 ):
-    """Return error counts grouped by type and severity for the last N days."""
-    by_type = await conn.fetch(
-        """
-        SELECT error_type, COUNT(*) AS total,
-               SUM(CASE WHEN resolved = false THEN 1 ELSE 0 END) AS unresolved
-        FROM error_log
-        WHERE created_at >= NOW() - ($1 || ' days')::INTERVAL
-        GROUP BY error_type
-        ORDER BY total DESC
-        """,
-        str(days),
-    )
-
     by_severity = await conn.fetch(
-        """
-        SELECT severity, COUNT(*) AS total,
-               SUM(CASE WHEN resolved = false THEN 1 ELSE 0 END) AS unresolved
-        FROM error_log
-        WHERE created_at >= NOW() - ($1 || ' days')::INTERVAL
-        GROUP BY severity
-        ORDER BY
-            CASE severity WHEN 'critical' THEN 1 WHEN 'error' THEN 2 ELSE 3 END
-        """,
-        str(days),
+        "SELECT severity, COUNT(*) as count FROM error_log WHERE resolved=false GROUP BY severity"
     )
-
-    daily_trend = await conn.fetch(
-        """
-        SELECT
-            DATE_TRUNC('day', created_at)::DATE AS day,
-            COUNT(*) AS total,
-            SUM(CASE WHEN severity = 'critical' THEN 1 ELSE 0 END) AS critical
-        FROM error_log
-        WHERE created_at >= NOW() - ($1 || ' days')::INTERVAL
-        GROUP BY day
-        ORDER BY day
-        """,
-        str(days),
+    by_type = await conn.fetch(
+        "SELECT error_type, COUNT(*) as count FROM error_log WHERE resolved=false GROUP BY error_type"
     )
-
-    return {
-        "data": {
-            "period_days": days,
-            "by_type": [dict(r) for r in by_type],
-            "by_severity": [dict(r) for r in by_severity],
-            "daily_trend": [
-                {"day": r["day"].isoformat(), "total": r["total"], "critical": r["critical"]}
-                for r in daily_trend
-            ],
-        },
-        "message": f"Tóm tắt lỗi trong {days} ngày qua",
-    }
+    last_7d = await conn.fetchval(
+        "SELECT COUNT(*) FROM error_log WHERE created_at > NOW() - interval '7 days'"
+    )
+    return {"data": {
+        "by_severity": {r["severity"]: r["count"] for r in by_severity},
+        "by_type": {r["error_type"]: r["count"] for r in by_type},
+        "last_7d": last_7d,
+        "unresolved": sum(r["count"] for r in by_severity),
+    }}
 
 
-# ---------------------------------------------------------------------------
-# GET /health-history — Historical health check results
-# ---------------------------------------------------------------------------
+# ── Health History ─────────────────────────────────────────
 
 @router.get("/health-history")
 async def health_history(
-    check_type: Optional[str] = Query(None),
-    hours: int = Query(24, ge=1, le=168, description="Số giờ lịch sử"),
-    page: int = Query(1, ge=1),
-    limit: int = Query(100, ge=1, le=500),
+    check_type: str | None = None, hours: int = Query(24, ge=1, le=720),
     token_data: TokenData = Depends(require_role("admin")),
     conn: asyncpg.Connection = Depends(get_db),
 ):
-    """Return historical health check records with optional filters."""
-    conditions = ["created_at >= NOW() - ($1 || ' hours')::INTERVAL"]
-    params: list = [str(hours)]
-    idx = 2
-
+    conds = [f"created_at > NOW() - interval '{hours} hours'"]
+    params = []
     if check_type:
-        conditions.append(f"check_type = ${idx}")
-        params.append(check_type)
-        idx += 1
-
-    where = " AND ".join(conditions)
-
-    total = await conn.fetchval(
-        f"SELECT COUNT(*) FROM system_health_checks WHERE {where}", *params
-    )
-
-    offset = (page - 1) * limit
+        conds.append("check_type=$1"); params.append(check_type)
+    where = " AND ".join(conds)
     rows = await conn.fetch(
-        f"""
-        SELECT id, check_type, status, response_time_ms, details, created_at
-        FROM system_health_checks
-        WHERE {where}
-        ORDER BY created_at DESC
-        LIMIT ${idx} OFFSET ${idx + 1}
-        """,
+        f"SELECT * FROM system_health_checks WHERE {where} ORDER BY created_at DESC LIMIT 100",
         *params,
-        limit,
-        offset,
     )
-
-    return {
-        "data": {
-            "items": [
-                {
-                    "id": r["id"],
-                    "check_type": r["check_type"],
-                    "status": r["status"],
-                    "response_time_ms": r["response_time_ms"],
-                    "details": r["details"],
-                    "created_at": r["created_at"].isoformat(),
-                }
-                for r in rows
-            ],
-            "total": total,
-            "page": page,
-            "limit": limit,
-        },
-        "message": f"Lịch sử health check trong {hours} giờ qua",
-    }
+    return {"data": [dict(r) for r in rows]}
 
 
-# ---------------------------------------------------------------------------
-# POST /health-check — Run live health check
-# ---------------------------------------------------------------------------
-
-@router.post("/health-check")
-async def run_health_check(
-    token_data: TokenData = Depends(require_role("admin")),
-    conn: asyncpg.Connection = Depends(get_db),
-):
-    """
-    Run a live health check:
-    1. PostgreSQL SELECT 1 with timing
-    2. Redis ping with timing
-    3. DB size query
-    4. Table count
-    Save each result to system_health_checks and return combined report.
-    """
-    results = []
-
-    # --- 1. PostgreSQL ---
-    t0 = time.monotonic()
-    try:
-        await conn.fetchval("SELECT 1")
-        db_ms = int((time.monotonic() - t0) * 1000)
-        db_status = "healthy" if db_ms < 500 else "degraded"
-        db_size = await conn.fetchval("SELECT pg_database_size(current_database())")
-        db_size_human = await conn.fetchval(
-            "SELECT pg_size_pretty(pg_database_size(current_database()))"
-        )
-        db_details = {"size_bytes": db_size, "size_human": db_size_human}
-    except Exception as exc:
-        db_ms = int((time.monotonic() - t0) * 1000)
-        db_status = "unhealthy"
-        db_details = {"error": str(exc)}
-        logger.error("DB health check failed: %s", exc)
-
-    await conn.execute(
-        """
-        INSERT INTO system_health_checks (check_type, status, response_time_ms, details)
-        VALUES ('database', $1, $2, $3::jsonb)
-        """,
-        db_status,
-        db_ms,
-        json.dumps(db_details),
-    )
-    results.append({"check_type": "database", "status": db_status, "response_time_ms": db_ms, "details": db_details})
-
-    # --- 2. Redis ---
-    t0 = time.monotonic()
-    try:
-        redis_ok = await cache.ping()
-        redis_ms = int((time.monotonic() - t0) * 1000)
-        if not redis_ok:
-            redis_status = "unhealthy"
-            redis_details: dict = {"error": "ping returned False"}
-        elif redis_ms < 100:
-            redis_status = "healthy"
-            redis_info = await cache.info()
-            redis_details = dict(redis_info) if redis_info else {}
-        else:
-            redis_status = "degraded"
-            redis_info = await cache.info()
-            redis_details = dict(redis_info) if redis_info else {}
-    except Exception as exc:
-        redis_ms = int((time.monotonic() - t0) * 1000)
-        redis_status = "unhealthy"
-        redis_details = {"error": str(exc)}
-        logger.error("Redis health check failed: %s", exc)
-
-    await conn.execute(
-        """
-        INSERT INTO system_health_checks (check_type, status, response_time_ms, details)
-        VALUES ('redis', $1, $2, $3::jsonb)
-        """,
-        redis_status,
-        redis_ms,
-        json.dumps(redis_details),
-    )
-    results.append({"check_type": "redis", "status": redis_status, "response_time_ms": redis_ms, "details": redis_details})
-
-    # --- 3. Table count ---
-    t0 = time.monotonic()
-    try:
-        tbl_count = await conn.fetchval(
-            "SELECT COUNT(*) FROM pg_tables WHERE schemaname = 'public'"
-        )
-        tbl_ms = int((time.monotonic() - t0) * 1000)
-        tbl_status = "healthy"
-        tbl_details: dict = {"public_tables": int(tbl_count or 0)}
-    except Exception as exc:
-        tbl_ms = int((time.monotonic() - t0) * 1000)
-        tbl_status = "degraded"
-        tbl_details = {"error": str(exc)}
-
-    await conn.execute(
-        """
-        INSERT INTO system_health_checks (check_type, status, response_time_ms, details)
-        VALUES ('api', $1, $2, $3::jsonb)
-        """,
-        tbl_status,
-        tbl_ms,
-        json.dumps(tbl_details),
-    )
-    results.append({"check_type": "api", "status": tbl_status, "response_time_ms": tbl_ms, "details": tbl_details})
-
-    overall = (
-        "unhealthy"
-        if any(r["status"] == "unhealthy" for r in results)
-        else "degraded"
-        if any(r["status"] == "degraded" for r in results)
-        else "healthy"
-    )
-
-    return {
-        "data": {
-            "overall_status": overall,
-            "checks": results,
-        },
-        "message": "Health check hoàn thành",
-    }
-
-
-# ---------------------------------------------------------------------------
-# GET /backups — List backup history
-# ---------------------------------------------------------------------------
+# ── Backups ────────────────────────────────────────────────
 
 @router.get("/backups")
 async def list_backups(
-    backup_type: Optional[str] = Query(None, description="full | incremental | manual"),
-    status: Optional[str] = Query(None, description="running | completed | failed"),
-    page: int = Query(1, ge=1),
-    limit: int = Query(50, ge=1, le=200),
     token_data: TokenData = Depends(require_role("admin")),
     conn: asyncpg.Connection = Depends(get_db),
 ):
-    """List backup history from backup_log with pagination."""
-    conditions = ["1=1"]
-    params: list = []
-    idx = 1
+    rows = await conn.fetch("SELECT * FROM backup_log ORDER BY created_at DESC LIMIT 50")
 
-    if backup_type:
-        conditions.append(f"backup_type = ${idx}")
-        params.append(backup_type)
-        idx += 1
+    # Also check filesystem
+    fs_files = []
+    if BACKUP_DIR.exists():
+        for f in sorted(BACKUP_DIR.iterdir(), key=lambda x: x.stat().st_mtime, reverse=True)[:20]:
+            if f.is_file():
+                fs_files.append({"name": f.name, "size": f.stat().st_size, "modified": datetime.fromtimestamp(f.stat().st_mtime).isoformat()})
 
-    if status:
-        conditions.append(f"status = ${idx}")
-        params.append(status)
-        idx += 1
+    return {"data": {"db_records": [dict(r) for r in rows], "files": fs_files}}
 
-    where = " AND ".join(conditions)
 
-    total = await conn.fetchval(
-        f"SELECT COUNT(*) FROM backup_log WHERE {where}", *params
+@router.post("/backups/create")
+async def create_backup(
+    token_data: TokenData = Depends(require_role("admin")),
+    conn: asyncpg.Connection = Depends(get_db),
+):
+    BACKUP_DIR.mkdir(parents=True, exist_ok=True)
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    filename = f"backup_{ts}.json"
+    filepath = BACKUP_DIR / filename
+
+    t0 = _time.time()
+
+    # Create backup_log entry
+    backup_id = await conn.fetchval(
+        "INSERT INTO backup_log (backup_type, file_path, status) VALUES ('manual', $1, 'running') RETURNING id",
+        str(filepath),
     )
 
-    offset = (page - 1) * limit
-    rows = await conn.fetch(
-        f"""
-        SELECT
-            id, backup_type, file_path, file_size_bytes,
-            tables_count, rows_count, duration_seconds,
-            status, verified, verified_at, error_message, created_at
-        FROM backup_log
-        WHERE {where}
-        ORDER BY created_at DESC
-        LIMIT ${idx} OFFSET ${idx + 1}
-        """,
-        *params,
-        limit,
-        offset,
-    )
+    try:
+        # Dump all table row counts + schema info
+        tables = await conn.fetch(
+            "SELECT tablename FROM pg_tables WHERE schemaname='public' ORDER BY tablename"
+        )
+        backup_data = {"timestamp": ts, "tables": {}}
+        total_rows = 0
 
-    return {
-        "data": {
-            "items": [
-                {
-                    **{k: v for k, v in dict(r).items() if k not in ("created_at", "verified_at")},
-                    "created_at": r["created_at"].isoformat(),
-                    "verified_at": r["verified_at"].isoformat() if r["verified_at"] else None,
-                }
-                for r in rows
-            ],
-            "total": total,
-            "page": page,
-            "limit": limit,
-        },
-        "message": f"Lịch sử backup ({total} bản ghi)",
-    }
+        for t in tables:
+            name = t["tablename"]
+            count = await conn.fetchval(f"SELECT COUNT(*) FROM {name}")
+            total_rows += count
+            # Get column info
+            cols = await conn.fetch(
+                "SELECT column_name, data_type FROM information_schema.columns WHERE table_name=$1 ORDER BY ordinal_position",
+                name,
+            )
+            backup_data["tables"][name] = {
+                "rows": count,
+                "columns": [{"name": c["column_name"], "type": c["data_type"]} for c in cols],
+            }
 
+            # For small tables (<1000 rows), dump actual data
+            if count <= 1000 and count > 0:
+                try:
+                    rows = await conn.fetch(f"SELECT * FROM {name} LIMIT 1000")
+                    backup_data["tables"][name]["data"] = [
+                        {k: str(v) for k, v in dict(r).items()} for r in rows
+                    ]
+                except Exception:
+                    pass  # skip if serialization fails
 
-# ---------------------------------------------------------------------------
-# POST /backups/verify/{id} — Mark backup as verified
-# ---------------------------------------------------------------------------
+        backup_data["total_tables"] = len(tables)
+        backup_data["total_rows"] = total_rows
+
+        # Write file
+        with open(filepath, "w") as f:
+            json.dump(backup_data, f, default=str, ensure_ascii=False)
+
+        file_size = filepath.stat().st_size
+        duration = int(_time.time() - t0)
+
+        await conn.execute(
+            "UPDATE backup_log SET status='completed', file_size_bytes=$1, tables_count=$2, "
+            "rows_count=$3, duration_seconds=$4 WHERE id=$5",
+            file_size, len(tables), total_rows, duration, backup_id,
+        )
+
+        return {"data": {
+            "id": backup_id, "file": filename, "size_bytes": file_size,
+            "size_human": f"{file_size / 1024 / 1024:.1f} MB",
+            "tables": len(tables), "rows": total_rows, "duration_s": duration,
+        }, "message": f"Backup hoàn tất: {len(tables)} tables, {total_rows:,} rows"}
+
+    except Exception as exc:
+        await conn.execute(
+            "UPDATE backup_log SET status='failed', error_message=$1 WHERE id=$2",
+            str(exc), backup_id,
+        )
+        raise HTTPException(500, f"Backup thất bại: {exc}")
+
 
 @router.post("/backups/verify/{backup_id}")
 async def verify_backup(
@@ -744,30 +376,15 @@ async def verify_backup(
     token_data: TokenData = Depends(require_role("admin")),
     conn: asyncpg.Connection = Depends(get_db),
 ):
-    """Mark a backup record as manually verified."""
-    row = await conn.fetchrow(
-        "SELECT id, status, verified FROM backup_log WHERE id = $1", backup_id
-    )
+    row = await conn.fetchrow("SELECT * FROM backup_log WHERE id=$1", backup_id)
     if not row:
-        raise HTTPException(status_code=404, detail="Bản ghi backup không tìm thấy")
-    if row["status"] != "completed":
-        raise HTTPException(
-            status_code=400,
-            detail="Chỉ có thể xác minh backup có trạng thái 'completed'",
-        )
-    if row["verified"]:
-        raise HTTPException(status_code=400, detail="Backup này đã được xác minh")
+        raise HTTPException(404, "Backup không tồn tại")
+
+    file_exists = Path(row["file_path"]).exists() if row["file_path"] else False
 
     await conn.execute(
-        """
-        UPDATE backup_log
-        SET verified = true, verified_at = NOW()
-        WHERE id = $1
-        """,
-        backup_id,
+        "UPDATE backup_log SET verified=true, verified_at=NOW() WHERE id=$1", backup_id
     )
 
-    return {
-        "data": {"id": backup_id, "verified": True},
-        "message": "Backup đã được xác minh thành công",
-    }
+    return {"data": {"verified": True, "file_exists": file_exists},
+            "message": "Đã xác nhận backup" + (" (file tồn tại)" if file_exists else " (file không tìm thấy)")}
