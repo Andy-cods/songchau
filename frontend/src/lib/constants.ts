@@ -40,6 +40,7 @@ import {
   Mail,
   Scan,
   CalendarDays,
+  Globe,
   type LucideIcon,
 } from 'lucide-react';
 import type { UserRole, POStatus, DeliveryStatus, WorkflowStatus } from '@/types/models';
@@ -161,6 +162,7 @@ const NAV_ADMIN: SidebarItem[] = [
   { key: 'suppliers', label: 'Nhà cung cấp', href: '/suppliers', icon: Building2 },
   { key: 'users', label: 'Người dùng', href: '/users', icon: Users },
   { key: 'settings', label: 'Cài đặt', href: '/settings', icon: Settings },
+  { key: 'language', label: 'Ngôn ngữ', href: '/settings/language', icon: Globe },
   { key: 'performance', label: 'Hiệu suất', href: '/admin/performance', icon: Activity },
   { key: 'errors', label: 'Lỗi hệ thống', href: '/admin/errors', icon: AlertTriangle },
   { key: 'migration', label: 'Đồng bộ dữ liệu', href: '/admin/migration', icon: RefreshCw },
@@ -200,6 +202,7 @@ export function getSidebarConfig(role: UserRole): SidebarSection[] {
         { title: 'Khách hàng', items: NAV_CRM },
         { title: 'Phân tích', items: NAV_ANALYTICS },
         { title: 'Vận hành', items: NAV_OPERATIONS },
+        { title: 'Nâng cao', items: NAV_ADVANCED },
         {
           title: 'Hệ thống',
           items: [

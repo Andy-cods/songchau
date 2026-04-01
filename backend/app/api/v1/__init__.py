@@ -13,7 +13,8 @@ Mỗi router tương ứng với 1 file trong app/api/v1/:
   [Phase 5] document_management, security_log_api, excel_export, batch_operations,
             user_guide, user_activity,
   [Phase 6] finance_management, crm, finance_reports,
-  [Phase 7] email_history, demand_forecast, ocr_service, calendar_api
+  [Phase 7] email_history, demand_forecast, ocr_service, calendar_api,
+  [Phase 8] pwa_settings (PWA config + i18n)
 """
 
 from fastapi import APIRouter
@@ -151,3 +152,8 @@ v1_router.include_router(email_history_router, prefix="/emails", tags=["emails"]
 v1_router.include_router(demand_forecast_router, prefix="/demand-forecast", tags=["demand-forecast"])
 v1_router.include_router(ocr_service_router, prefix="/ocr", tags=["ocr"])
 v1_router.include_router(calendar_router, prefix="/calendar", tags=["calendar"])
+
+# ── Phase 8: PWA + i18n ──
+from app.api.v1.pwa_settings import router as pwa_settings_router
+
+v1_router.include_router(pwa_settings_router, prefix="/pwa", tags=["pwa"])
