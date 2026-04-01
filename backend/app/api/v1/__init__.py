@@ -11,7 +11,8 @@ Mỗi router tương ứng với 1 file trong app/api/v1/:
   [Phase 3] smart_inventory, smart_notifications, profit_analysis, task_assignments,
   [Phase 4] system_health, data_migration, retry_queue_api, container_history,
   [Phase 5] document_management, security_log_api, excel_export, batch_operations,
-            user_guide, user_activity
+            user_guide, user_activity,
+  [Phase 6] finance_management, crm, finance_reports
 """
 
 from fastapi import APIRouter
@@ -129,3 +130,12 @@ v1_router.include_router(excel_export_router, prefix="/excel-export", tags=["exc
 v1_router.include_router(batch_ops_router, prefix="/batch", tags=["batch"])
 v1_router.include_router(user_guide_router, prefix="/help", tags=["help"])
 v1_router.include_router(user_activity_router, prefix="/user-activity", tags=["user-activity"])
+
+# ── Phase 6: Finance & CRM ──
+from app.api.v1.finance_management import router as finance_mgmt_router
+from app.api.v1.crm import router as crm_router
+from app.api.v1.finance_reports import router as finance_reports_router
+
+v1_router.include_router(finance_mgmt_router, prefix="/finance-management", tags=["finance-management"])
+v1_router.include_router(crm_router, prefix="/crm", tags=["crm"])
+v1_router.include_router(finance_reports_router, prefix="/finance-reports", tags=["finance-reports"])

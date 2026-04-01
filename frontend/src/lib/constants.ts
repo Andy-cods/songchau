@@ -32,6 +32,11 @@ import {
   Shield,
   Eye,
   HelpCircle,
+  BookOpen,
+  CreditCard,
+  Banknote,
+  PieChart,
+  Contact,
   type LucideIcon,
 } from 'lucide-react';
 import type { UserRole, POStatus, DeliveryStatus, WorkflowStatus } from '@/types/models';
@@ -132,6 +137,14 @@ const NAV_SUPPLY_CHAIN: SidebarItem[] = [
 
 const NAV_FINANCE: SidebarItem[] = [
   { key: 'invoices', label: 'Hóa đơn', href: '/invoices', icon: Receipt },
+  { key: 'cash-book', label: 'Sổ quỹ', href: '/finance/cash-book', icon: BookOpen },
+  { key: 'payables', label: 'Công nợ trả', href: '/finance/payables', icon: CreditCard },
+  { key: 'receivables', label: 'Công nợ thu', href: '/finance/receivables', icon: Banknote },
+  { key: 'finance-reports', label: 'Báo cáo TC', href: '/finance/reports', icon: PieChart },
+];
+
+const NAV_CRM: SidebarItem[] = [
+  { key: 'crm', label: 'CRM', href: '/crm', icon: Contact },
 ];
 
 const NAV_ADMIN: SidebarItem[] = [
@@ -160,6 +173,7 @@ export function getSidebarConfig(role: UserRole): SidebarSection[] {
         { title: 'BQMS Samsung', items: NAV_BQMS },
         { title: 'Chuỗi cung ứng', items: NAV_SUPPLY_CHAIN },
         { title: 'Tài chính', items: NAV_FINANCE },
+        { title: 'Khách hàng', items: NAV_CRM },
         { title: 'Phân tích', items: NAV_ANALYTICS },
         { title: 'Vận hành', items: NAV_OPERATIONS },
         { title: 'Hệ thống', items: NAV_ADMIN },
@@ -172,6 +186,7 @@ export function getSidebarConfig(role: UserRole): SidebarSection[] {
         { title: 'BQMS Samsung', items: NAV_BQMS },
         { title: 'Chuỗi cung ứng', items: NAV_SUPPLY_CHAIN },
         { title: 'Tài chính', items: NAV_FINANCE },
+        { title: 'Khách hàng', items: NAV_CRM },
         { title: 'Phân tích', items: NAV_ANALYTICS },
         { title: 'Vận hành', items: NAV_OPERATIONS },
         {
@@ -194,6 +209,7 @@ export function getSidebarConfig(role: UserRole): SidebarSection[] {
             { key: 'help', label: 'Hướng dẫn', href: '/help', icon: HelpCircle },
           ],
         },
+        { title: 'Tài chính', items: NAV_FINANCE },
         { title: 'Quản lý', items: [{ key: 'reports', label: 'Báo cáo', href: '/reports', icon: BarChart3 }] },
       ];
 
@@ -233,6 +249,7 @@ export function getSidebarConfig(role: UserRole): SidebarSection[] {
             { key: 'help', label: 'Hướng dẫn', href: '/help', icon: HelpCircle },
           ],
         },
+        { title: 'Khách hàng', items: NAV_CRM },
         {
           title: 'Phân tích',
           items: [
