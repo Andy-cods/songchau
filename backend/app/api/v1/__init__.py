@@ -12,7 +12,8 @@ Mỗi router tương ứng với 1 file trong app/api/v1/:
   [Phase 4] system_health, data_migration, retry_queue_api, container_history,
   [Phase 5] document_management, security_log_api, excel_export, batch_operations,
             user_guide, user_activity,
-  [Phase 6] finance_management, crm, finance_reports
+  [Phase 6] finance_management, crm, finance_reports,
+  [Phase 7] email_history, demand_forecast, ocr_service, calendar_api
 """
 
 from fastapi import APIRouter
@@ -139,3 +140,14 @@ from app.api.v1.finance_reports import router as finance_reports_router
 v1_router.include_router(finance_mgmt_router, prefix="/finance-management", tags=["finance-management"])
 v1_router.include_router(crm_router, prefix="/crm", tags=["crm"])
 v1_router.include_router(finance_reports_router, prefix="/finance-reports", tags=["finance-reports"])
+
+# ── Phase 7: Advanced Features ──
+from app.api.v1.email_history import router as email_history_router
+from app.api.v1.demand_forecast import router as demand_forecast_router
+from app.api.v1.ocr_service import router as ocr_service_router
+from app.api.v1.calendar_api import router as calendar_router
+
+v1_router.include_router(email_history_router, prefix="/emails", tags=["emails"])
+v1_router.include_router(demand_forecast_router, prefix="/demand-forecast", tags=["demand-forecast"])
+v1_router.include_router(ocr_service_router, prefix="/ocr", tags=["ocr"])
+v1_router.include_router(calendar_router, prefix="/calendar", tags=["calendar"])

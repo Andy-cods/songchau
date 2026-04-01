@@ -37,6 +37,9 @@ import {
   Banknote,
   PieChart,
   Contact,
+  Mail,
+  Scan,
+  CalendarDays,
   type LucideIcon,
 } from 'lucide-react';
 import type { UserRole, POStatus, DeliveryStatus, WorkflowStatus } from '@/types/models';
@@ -147,6 +150,13 @@ const NAV_CRM: SidebarItem[] = [
   { key: 'crm', label: 'CRM', href: '/crm', icon: Contact },
 ];
 
+const NAV_ADVANCED: SidebarItem[] = [
+  { key: 'emails', label: 'Email Samsung', href: '/bqms/emails', icon: Mail },
+  { key: 'forecast', label: 'Dự báo', href: '/analytics/forecast', icon: TrendingUp },
+  { key: 'ocr', label: 'OCR', href: '/documents/ocr', icon: Scan },
+  { key: 'calendar', label: 'Lịch', href: '/calendar', icon: CalendarDays },
+];
+
 const NAV_ADMIN: SidebarItem[] = [
   { key: 'suppliers', label: 'Nhà cung cấp', href: '/suppliers', icon: Building2 },
   { key: 'users', label: 'Người dùng', href: '/users', icon: Users },
@@ -176,6 +186,7 @@ export function getSidebarConfig(role: UserRole): SidebarSection[] {
         { title: 'Khách hàng', items: NAV_CRM },
         { title: 'Phân tích', items: NAV_ANALYTICS },
         { title: 'Vận hành', items: NAV_OPERATIONS },
+        { title: 'Nâng cao', items: NAV_ADVANCED },
         { title: 'Hệ thống', items: NAV_ADMIN },
       ];
 
