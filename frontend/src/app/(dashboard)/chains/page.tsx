@@ -245,7 +245,7 @@ export default function ChainListPage() {
                     <td className="px-4 py-3 text-right">
                       {chain.total_revenue_vnd != null ? (
                         <span className="text-sm font-mono text-slate-900">
-                          {chain.total_revenue_vnd.toLocaleString('vi-VN')}₫
+                          {(chain.total_revenue_vnd ?? 0).toLocaleString('vi-VN')}₫
                         </span>
                       ) : (
                         <span className="text-sm text-slate-300">—</span>

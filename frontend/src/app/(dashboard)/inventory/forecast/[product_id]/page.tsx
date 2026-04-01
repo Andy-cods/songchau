@@ -168,7 +168,7 @@ export default function ProductForecastPage({
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
           <StatCard
             label="TB tiêu thụ/ngày"
-            value={forecast.avg_daily_consumption.toLocaleString('vi-VN')}
+            value={(forecast.avg_daily_consumption ?? 0).toLocaleString('vi-VN')}
             icon={TrendingDown}
             colorClass="bg-blue-50 text-blue-600"
             sublabel="đơn vị/ngày"
@@ -192,14 +192,14 @@ export default function ProductForecastPage({
           />
           <StatCard
             label="Dự báo 30 ngày"
-            value={forecast.forecast_30d.toLocaleString('vi-VN')}
+            value={(forecast.forecast_30d ?? 0).toLocaleString('vi-VN')}
             icon={BarChart2}
             colorClass="bg-purple-50 text-purple-600"
             sublabel="đơn vị cần dùng"
           />
           <StatCard
             label="Đề xuất đặt hàng"
-            value={forecast.suggested_reorder_qty.toLocaleString('vi-VN')}
+            value={(forecast.suggested_reorder_qty ?? 0).toLocaleString('vi-VN')}
             icon={ShoppingCart}
             colorClass="bg-green-50 text-green-600"
             sublabel="đơn vị"

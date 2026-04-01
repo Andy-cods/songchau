@@ -358,7 +358,7 @@ export default function QuotationNewPage() {
                     <td className="px-4 py-3 text-sm text-slate-600">{item.so_luong}</td>
                     <td className="px-4 py-3 text-sm text-right font-medium">
                       {item.suggested_price ? (
-                        <span className="text-green-700">{item.suggested_price.toLocaleString('vi-VN')} ₫</span>
+                        <span className="text-green-700">{(item.suggested_price ?? 0).toLocaleString('vi-VN')} ₫</span>
                       ) : (
                         <span className="text-slate-400">—</span>
                       )}

@@ -313,10 +313,10 @@ export default function InvoiceDetailPage() {
                   <td className="py-3 px-4 text-sm font-mono text-brand-600">{item.bqms_code || '—'}</td>
                   <td className="py-3 px-4 text-right text-sm font-mono text-slate-700">{item.quantity}</td>
                   <td className="py-3 px-4 text-right text-sm font-mono text-slate-700">
-                    {item.unit_price_vnd.toLocaleString('vi-VN')}
+                    {(item.unit_price_vnd ?? 0).toLocaleString('vi-VN')}
                   </td>
                   <td className="py-3 pl-4 text-right text-sm font-mono font-medium text-slate-900">
-                    {item.total_vnd.toLocaleString('vi-VN')}
+                    {(item.total_vnd ?? 0).toLocaleString('vi-VN')}
                   </td>
                 </tr>
               ))}

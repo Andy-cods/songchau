@@ -254,7 +254,7 @@ export default function PerformancePage() {
                     <tr key={row.table_name} className="hover:bg-slate-50/50 transition-colors">
                       <td className="px-4 py-2.5 font-mono text-xs text-slate-700">{row.table_name}</td>
                       <td className="px-4 py-2.5 text-right font-medium text-slate-800">
-                        {row.row_count.toLocaleString('vi-VN')}
+                        {(row.row_count ?? 0).toLocaleString('vi-VN')}
                       </td>
                       <td className="px-4 py-2.5 text-right text-slate-500 font-mono text-xs">
                         {formatBytes(row.size_bytes)}

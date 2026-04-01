@@ -415,7 +415,7 @@ export default function InventoryDetailPage() {
                 <div className="flex justify-between text-xs text-slate-500">
                   <span>Tồn kho tối đa</span>
                   <span className="font-mono">
-                    {item.max_stock.toLocaleString('vi-VN')} {item.unit}
+                    {(item.max_stock ?? 0).toLocaleString('vi-VN')} {item.unit}
                   </span>
                 </div>
               </div>
@@ -525,14 +525,14 @@ export default function InventoryDetailPage() {
                               )}
                             >
                               {mv.type === 'in' ? '+' : mv.type === 'out' ? '-' : ''}
-                              {mv.quantity.toLocaleString('vi-VN')}
+                              {(mv.quantity ?? 0).toLocaleString('vi-VN')}
                             </span>
                           </td>
                           <td className="px-4 py-3 text-sm font-mono text-slate-500">
-                            {mv.stock_before.toLocaleString('vi-VN')}
+                            {(mv.stock_before ?? 0).toLocaleString('vi-VN')}
                           </td>
                           <td className="px-4 py-3 text-sm font-mono text-slate-700 font-medium">
-                            {mv.stock_after.toLocaleString('vi-VN')}
+                            {(mv.stock_after ?? 0).toLocaleString('vi-VN')}
                           </td>
                           <td className="px-4 py-3 text-sm text-slate-500 font-mono">
                             {mv.reference ?? '—'}

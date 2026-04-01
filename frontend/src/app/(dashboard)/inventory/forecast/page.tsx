@@ -278,13 +278,13 @@ export default function InventoryForecastPage() {
                         </span>
                       </td>
                       <td className="px-4 py-3 text-sm text-right font-mono text-slate-700">
-                        {alert.current_qty.toLocaleString('vi-VN')}
+                        {(alert.current_qty ?? 0).toLocaleString('vi-VN')}
                       </td>
                       <td className="px-4 py-3 text-sm text-right font-mono text-slate-500">
-                        {alert.threshold_qty.toLocaleString('vi-VN')}
+                        {(alert.threshold_qty ?? 0).toLocaleString('vi-VN')}
                       </td>
                       <td className="px-4 py-3 text-sm text-right font-mono text-slate-700">
-                        {alert.suggested_order_qty.toLocaleString('vi-VN')}
+                        {(alert.suggested_order_qty ?? 0).toLocaleString('vi-VN')}
                       </td>
                       <td className="px-4 py-3">
                         {isAcknowledged ? (
@@ -387,14 +387,14 @@ export default function InventoryForecastPage() {
                         }
                       >
                         {item.movement_type === 'in' ? '+' : item.movement_type === 'out' ? '-' : ''}
-                        {item.quantity.toLocaleString('vi-VN')}
+                        {(item.quantity ?? 0).toLocaleString('vi-VN')}
                       </span>
                     </td>
                     <td className="px-4 py-3 text-sm text-right font-mono text-slate-500">
-                      {item.before_qty.toLocaleString('vi-VN')}
+                      {(item.before_qty ?? 0).toLocaleString('vi-VN')}
                     </td>
                     <td className="px-4 py-3 text-sm text-right font-mono text-slate-700">
-                      {item.after_qty.toLocaleString('vi-VN')}
+                      {(item.after_qty ?? 0).toLocaleString('vi-VN')}
                     </td>
                     <td className="px-4 py-3 text-sm text-slate-500 max-w-[150px] truncate">
                       {item.notes || '—'}

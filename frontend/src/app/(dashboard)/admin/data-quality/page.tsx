@@ -257,7 +257,7 @@ export default function DataQualityPage() {
                       <td className="px-4 py-2.5 text-right font-mono text-sm text-slate-700">
                         {item.affected_rows > 0
                           ? <span className={item.status.toLowerCase() !== 'pass' ? 'text-amber-600 font-bold' : ''}>
-                              {item.affected_rows.toLocaleString('vi-VN')}
+                              {(item.affected_rows ?? 0).toLocaleString('vi-VN')}
                             </span>
                           : <span className="text-slate-300">0</span>}
                       </td>

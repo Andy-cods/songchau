@@ -171,7 +171,7 @@ export default function ForecastPage() {
                             <div className="flex items-center gap-2 mt-1">
                               {product.predicted_qty != null && (
                                 <span className="text-xs text-brand-600 font-semibold">
-                                  Dự báo: {product.predicted_qty.toLocaleString('vi-VN')}
+                                  Dự báo: {(product.predicted_qty ?? 0).toLocaleString('vi-VN')}
                                 </span>
                               )}
                               {product.last_forecast_date && (
@@ -368,7 +368,7 @@ export default function ForecastPage() {
                             })}
                           </td>
                           <td className="px-4 py-3 text-sm text-right font-mono font-semibold text-slate-800">
-                            {f.predicted_qty.toLocaleString('vi-VN')}
+                            {(f.predicted_qty ?? 0).toLocaleString('vi-VN')}
                           </td>
                           <td className="px-4 py-3">
                             <div className="flex items-center gap-2">

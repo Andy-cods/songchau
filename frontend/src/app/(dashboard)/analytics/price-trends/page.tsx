@@ -155,10 +155,10 @@ export default function PriceTrendsPage() {
                   <td className="px-4 py-3 text-sm font-mono text-slate-600">{item.bqms_code}</td>
                   <td className="px-4 py-3 text-sm text-slate-600 max-w-[150px] truncate">{item.specification}</td>
                   <td className="px-4 py-3 text-sm text-slate-600">{item.maker}</td>
-                  <td className="px-4 py-3 text-sm text-right text-slate-700">{item.quoted_price_bqms_v1?.toLocaleString('vi-VN') || '—'}</td>
-                  <td className="px-4 py-3 text-sm text-right text-slate-700">{item.quoted_price_bqms_v2?.toLocaleString('vi-VN') || '—'}</td>
-                  <td className="px-4 py-3 text-sm text-right text-slate-700">{item.quoted_price_bqms_v3?.toLocaleString('vi-VN') || '—'}</td>
-                  <td className="px-4 py-3 text-sm text-right text-slate-700">{item.quoted_price_bqms_v4?.toLocaleString('vi-VN') || '—'}</td>
+                  <td className="px-4 py-3 text-sm text-right text-slate-700">{(item.quoted_price_bqms_v1 ?? 0).toLocaleString('vi-VN') || '—'}</td>
+                  <td className="px-4 py-3 text-sm text-right text-slate-700">{(item.quoted_price_bqms_v2 ?? 0).toLocaleString('vi-VN') || '—'}</td>
+                  <td className="px-4 py-3 text-sm text-right text-slate-700">{(item.quoted_price_bqms_v3 ?? 0).toLocaleString('vi-VN') || '—'}</td>
+                  <td className="px-4 py-3 text-sm text-right text-slate-700">{(item.quoted_price_bqms_v4 ?? 0).toLocaleString('vi-VN') || '—'}</td>
                   <td className="px-4 py-3">
                     <span className={`text-xs px-2 py-0.5 rounded font-medium ${
                       item.result?.toLowerCase().includes('won') ? 'bg-green-100 text-green-700'

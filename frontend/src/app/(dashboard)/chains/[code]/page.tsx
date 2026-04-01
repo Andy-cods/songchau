@@ -138,7 +138,7 @@ function StageCard({ stageData, isCurrent }: { stageData: ChainStage; isCurrent:
             )}
             {entity.amount_vnd != null && (
               <p className="text-xs font-mono text-slate-700 mt-1">
-                {entity.amount_vnd.toLocaleString('vi-VN')}₫
+                {(entity.amount_vnd ?? 0).toLocaleString('vi-VN')}₫
               </p>
             )}
           </>
@@ -230,7 +230,7 @@ function MarginBreakdownCard({ breakdown }: { breakdown: MarginBreakdown }) {
                   ? isPositive ? 'font-bold text-green-600' : 'font-bold text-red-600'
                   : row.isDeduction ? 'text-red-500' : 'text-slate-800'
               }`}>
-                {row.isDeduction ? '-' : ''}{row.value.toLocaleString('vi-VN')}₫
+                {row.isDeduction ? '-' : ''}{(row.value ?? 0).toLocaleString('vi-VN')}₫
               </span>
             </div>
           </div>

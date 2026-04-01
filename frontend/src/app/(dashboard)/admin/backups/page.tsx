@@ -174,10 +174,10 @@ export default function BackupsPage() {
                         {formatBytes(backup.file_size_bytes)}
                       </td>
                       <td className="px-4 py-3 text-right font-mono text-sm text-slate-700">
-                        {backup.tables_count.toLocaleString('vi-VN')}
+                        {(backup.tables_count ?? 0).toLocaleString('vi-VN')}
                       </td>
                       <td className="px-4 py-3 text-right font-mono text-sm text-slate-700">
-                        {backup.rows_count.toLocaleString('vi-VN')}
+                        {(backup.rows_count ?? 0).toLocaleString('vi-VN')}
                       </td>
                       <td className="px-4 py-3">
                         <span className={cn('text-xs px-2 py-0.5 rounded border font-medium', statusBadgeClass(backup.status))}>

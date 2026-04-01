@@ -265,7 +265,7 @@ export default function MigrationPage() {
                         {formatRelativeTime(item.started_at)}
                       </td>
                       <td className="px-4 py-2.5 text-right font-mono text-sm text-slate-700">
-                        {item.rows_processed.toLocaleString('vi-VN')}
+                        {(item.rows_processed ?? 0).toLocaleString('vi-VN')}
                       </td>
                       <td className="px-4 py-2.5 text-xs text-red-500 max-w-xs truncate">
                         {item.error_message ?? <span className="text-slate-300">—</span>}
@@ -332,7 +332,7 @@ export default function MigrationPage() {
                         </span>
                       </td>
                       <td className="px-4 py-2.5 text-right font-mono text-sm text-slate-700">
-                        {item.affected_rows.toLocaleString('vi-VN')}
+                        {(item.affected_rows ?? 0).toLocaleString('vi-VN')}
                       </td>
                       <td className="px-4 py-2.5 text-xs text-slate-500 max-w-xs truncate">
                         {item.details ?? <span className="text-slate-300">—</span>}

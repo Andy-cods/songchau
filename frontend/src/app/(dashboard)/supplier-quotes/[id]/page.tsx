@@ -201,7 +201,7 @@ function MarginSummaryCard({ quote }: { quote: SupplierQuote }) {
         <div className="ml-auto text-right">
           <p className="text-xs text-slate-500">Tổng giá NCC</p>
           <p className="text-lg font-bold font-mono text-slate-800">
-            ¥{quote.total_amount_cny.toLocaleString('zh-CN', { minimumFractionDigits: 2 })}
+            ¥{(quote.total_amount_cny ?? 0).toLocaleString('zh-CN', { minimumFractionDigits: 2 })}
           </p>
         </div>
       )}
@@ -376,7 +376,7 @@ export default function SupplierQuoteDetailPage() {
                   <td className="px-4 py-3 text-right">
                     {item.unit_price_cny != null ? (
                       <span className="text-sm font-mono text-slate-900">
-                        ¥{item.unit_price_cny.toLocaleString('zh-CN', { minimumFractionDigits: 2 })}
+                        ¥{(item.unit_price_cny ?? 0).toLocaleString('zh-CN', { minimumFractionDigits: 2 })}
                       </span>
                     ) : (
                       <span className="text-sm text-slate-300">—</span>
@@ -385,7 +385,7 @@ export default function SupplierQuoteDetailPage() {
                   <td className="px-4 py-3 text-right">
                     {item.samsung_sell_price_vnd != null ? (
                       <span className="text-sm font-mono text-slate-900">
-                        {item.samsung_sell_price_vnd.toLocaleString('vi-VN')}₫
+                        {(item.samsung_sell_price_vnd ?? 0).toLocaleString('vi-VN')}₫
                       </span>
                     ) : (
                       <span className="text-sm text-slate-300">—</span>

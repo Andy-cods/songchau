@@ -262,7 +262,7 @@ export default function UserActivityPage() {
                           {p.page}
                         </span>
                         <span className="text-xs text-slate-400 font-mono ml-2">
-                          {p.count.toLocaleString('vi-VN')}
+                          {(p.count ?? 0).toLocaleString('vi-VN')}
                         </span>
                       </div>
                       <div className="h-1.5 bg-slate-100 rounded-full">

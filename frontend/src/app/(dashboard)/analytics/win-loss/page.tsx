@@ -101,7 +101,7 @@ export default function WinLossPage() {
           <div className="grid grid-cols-4 gap-4 mb-6">
             <div className="bg-white rounded-lg shadow-sm border border-slate-200 p-4">
               <p className="text-xs text-slate-500 uppercase tracking-wider">Tổng RFQ</p>
-              <p className="text-2xl font-bold text-slate-800 mt-1">{overview.total_rfq.toLocaleString()}</p>
+              <p className="text-2xl font-bold text-slate-800 mt-1">{(overview.total_rfq ?? 0).toLocaleString()}</p>
             </div>
             <div className="bg-green-50 rounded-lg shadow-sm border border-green-200 p-4">
               <p className="text-xs text-green-600 uppercase tracking-wider">Tỷ lệ thắng</p>
@@ -113,7 +113,7 @@ export default function WinLossPage() {
             </div>
             <div className="bg-white rounded-lg shadow-sm border border-slate-200 p-4">
               <p className="text-xs text-slate-500 uppercase tracking-wider">Giá TB (V1)</p>
-              <p className="text-2xl font-bold text-slate-800 mt-1">{overview.avg_price_v1?.toLocaleString('vi-VN')}</p>
+              <p className="text-2xl font-bold text-slate-800 mt-1">{(overview.avg_price_v1 ?? 0).toLocaleString('vi-VN')}</p>
             </div>
           </div>
 
@@ -168,7 +168,7 @@ export default function WinLossPage() {
                     <tr key={i} className="hover:bg-slate-50/50 transition-colors">
                       <td className="px-4 py-3 text-sm text-slate-700">{l.reason}</td>
                       <td className="px-4 py-3 text-sm text-right font-medium text-red-600">{l.count}</td>
-                      <td className="px-4 py-3 text-sm text-right text-slate-600">{l.avg_our_price?.toLocaleString('vi-VN')} ₫</td>
+                      <td className="px-4 py-3 text-sm text-right text-slate-600">{(l.avg_our_price ?? 0).toLocaleString('vi-VN')} ₫</td>
                     </tr>
                   ))}
                   {losses.length === 0 && (
