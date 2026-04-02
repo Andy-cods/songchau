@@ -55,7 +55,6 @@ export interface StatusConfig {
   pulse?: boolean;
 }
 
-/** Workflow / Approval status configuration */
 export const STATUS_CONFIG: Record<WorkflowStatus, StatusConfig> = {
   pending: { label: 'Chờ duyệt', variant: 'warning', pulse: true },
   in_review: { label: 'Đang xem xét', variant: 'info', pulse: true },
@@ -64,7 +63,6 @@ export const STATUS_CONFIG: Record<WorkflowStatus, StatusConfig> = {
   escalated: { label: 'Chuyển cấp trên', variant: 'warning', pulse: true },
 };
 
-/** Purchase Order status configuration */
 export const PO_STATUS_CONFIG: Record<POStatus, StatusConfig> = {
   draft: { label: 'Nháp', variant: 'neutral' },
   pending_approval: { label: 'Chờ duyệt', variant: 'warning', pulse: true },
@@ -78,7 +76,6 @@ export const PO_STATUS_CONFIG: Record<POStatus, StatusConfig> = {
   cancelled: { label: 'Đã hủy', variant: 'neutral' },
 };
 
-/** Delivery status configuration */
 export const DELIVERY_STATUS_CONFIG: Record<DeliveryStatus, StatusConfig> = {
   pending: { label: 'Chờ lấy hàng', variant: 'neutral' },
   picked_up: { label: 'Đã lấy hàng', variant: 'info' },
@@ -102,65 +99,51 @@ export interface SidebarSection {
   items: SidebarItem[];
 }
 
+// ═══ NAV GROUPS (theo yêu cầu mới) ═══════════════════════════
+
 const NAV_MAIN: SidebarItem[] = [
   { key: 'dashboard', label: 'Tổng quan', href: '/dashboard', icon: LayoutDashboard },
-  { key: 'purchase-orders', label: 'Đơn mua hàng', href: '/purchase-orders', icon: ShoppingCart },
-  { key: 'deliveries', label: 'Vận chuyển', href: '/deliveries', icon: Truck },
-  { key: 'approvals', label: 'Phê duyệt', href: '/approvals', icon: FileCheck },
-  { key: 'inventory', label: 'Kho hàng', href: '/inventory', icon: Package },
+  { key: 'kho-hang', label: 'Kho hàng', href: '/inventory', icon: Package },
   { key: 'documents', label: 'Tài liệu', href: '/documents', icon: FolderOpen },
   { key: 'help', label: 'Hướng dẫn', href: '/help', icon: HelpCircle },
+  // Ẩn: Đơn mua hàng, Vận chuyển, Phê duyệt
 ];
 
 const NAV_BQMS: SidebarItem[] = [
   { key: 'bqms', label: 'BQMS', href: '/bqms', icon: ClipboardList },
-  { key: 'quotation-new', label: 'Tạo báo giá', href: '/bqms/quotation/new', icon: FileSpreadsheet },
-  { key: 'quotation-history', label: 'Lịch sử BG', href: '/bqms/quotation/history', icon: FileSpreadsheet },
-  { key: 'quotation-templates', label: 'Template BG', href: '/bqms/quotation/templates', icon: FileSpreadsheet },
-  { key: 'rfq', label: 'RFQ', href: '/bqms/rfq', icon: ClipboardList },
-  { key: 'bqms-deliveries', label: 'Giao hàng BQMS', href: '/bqms/deliveries', icon: Truck },
-  { key: 'classify', label: 'Lọc đơn AI', href: '/bqms/classify', icon: Brain },
-  { key: 'reports', label: 'Báo cáo', href: '/reports', icon: BarChart3 },
+  { key: 'giao-hang', label: 'Giao hàng', href: '/bqms/deliveries', icon: Truck },
+  // Gộp: Tạo BG, Lịch sử BG, Template, RFQ → tất cả trong mục BQMS
+  // Ẩn: Lọc đơn AI, Báo cáo (chờ phát triển)
+];
+
+const NAV_FINANCE: SidebarItem[] = [
+  { key: 'tai-chinh', label: 'Tài chính tổng hợp', href: '/finance/overview', icon: DollarSign },
+  { key: 'invoices', label: 'Hóa đơn', href: '/invoices', icon: Receipt },
+  { key: 'finance-reports', label: 'Báo cáo TC', href: '/finance/reports', icon: PieChart },
+  // Gộp: Công nợ trả + Công nợ thu + Sổ quỹ → "Tài chính tổng hợp"
+  // OCR tích hợp trong Hóa đơn
+];
+
+const NAV_CRM: SidebarItem[] = [
+  { key: 'crm', label: 'Khách hàng', href: '/crm', icon: Contact },
 ];
 
 const NAV_ANALYTICS: SidebarItem[] = [
   { key: 'price-trends', label: 'Xu hướng giá', href: '/analytics/price-trends', icon: TrendingUp },
-  { key: 'win-loss', label: 'Win/Loss', href: '/analytics/win-loss', icon: Trophy },
-  { key: 'scheduled-reports', label: 'Báo cáo tự động', href: '/reports/scheduled', icon: Calendar },
-  { key: 'chains', label: 'Chuỗi doanh thu', href: '/chains', icon: Link2 },
-  { key: 'profit', label: 'Lợi nhuận', href: '/analytics/profit', icon: DollarSign },
+  // Ẩn: Win/Loss, Báo cáo tự động, Chuỗi doanh thu, Lợi nhuận (có thể mở lại sau)
 ];
 
 const NAV_OPERATIONS: SidebarItem[] = [
   { key: 'inventory-forecast', label: 'Kho thông minh', href: '/inventory/forecast', icon: Package },
   { key: 'tasks', label: 'Công việc', href: '/tasks', icon: ListTodo },
   { key: 'workload', label: 'Phân công', href: '/tasks/workload', icon: Users },
-  { key: 'notifications-list', label: 'DS Thông báo', href: '/notifications', icon: Bell },
-  { key: 'notification-settings', label: 'Thông báo', href: '/notifications/settings', icon: Bell },
-];
-
-const NAV_SUPPLY_CHAIN: SidebarItem[] = [
-  { key: 'supplier-quotes', label: 'Báo giá NCC', href: '/supplier-quotes', icon: FileText },
-  { key: 'shipments', label: 'Vận chuyển', href: '/shipments', icon: Ship },
-];
-
-const NAV_FINANCE: SidebarItem[] = [
-  { key: 'invoices', label: 'Hóa đơn', href: '/invoices', icon: Receipt },
-  { key: 'cash-book', label: 'Sổ quỹ', href: '/finance/cash-book', icon: BookOpen },
-  { key: 'payables', label: 'Công nợ trả', href: '/finance/payables', icon: CreditCard },
-  { key: 'receivables', label: 'Công nợ thu', href: '/finance/receivables', icon: Banknote },
-  { key: 'finance-reports', label: 'Báo cáo TC', href: '/finance/reports', icon: PieChart },
-];
-
-const NAV_CRM: SidebarItem[] = [
-  { key: 'crm', label: 'CRM', href: '/crm', icon: Contact },
+  { key: 'calendar', label: 'Lịch', href: '/calendar', icon: CalendarDays },
+  { key: 'notifications', label: 'Thông báo', href: '/notifications/settings', icon: Bell },
 ];
 
 const NAV_ADVANCED: SidebarItem[] = [
   { key: 'emails', label: 'Email Samsung', href: '/bqms/emails', icon: Mail },
   { key: 'forecast', label: 'Dự báo', href: '/analytics/forecast', icon: TrendingUp },
-  { key: 'ocr', label: 'OCR', href: '/documents/ocr', icon: Scan },
-  { key: 'calendar', label: 'Lịch', href: '/calendar', icon: CalendarDays },
 ];
 
 const NAV_ADMIN: SidebarItem[] = [
@@ -171,26 +154,21 @@ const NAV_ADMIN: SidebarItem[] = [
   { key: 'performance', label: 'Hiệu suất', href: '/admin/performance', icon: Activity },
   { key: 'errors', label: 'Lỗi hệ thống', href: '/admin/errors', icon: AlertTriangle },
   { key: 'migration', label: 'Đồng bộ dữ liệu', href: '/admin/migration', icon: RefreshCw },
-  { key: 'retry-queue', label: 'Hàng đợi', href: '/admin/retry-queue', icon: RotateCcw },
   { key: 'containers', label: 'Containers', href: '/admin/containers', icon: Server },
   { key: 'backups', label: 'Backup', href: '/admin/backups', icon: HardDrive },
   { key: 'data-quality', label: 'Chất lượng DL', href: '/admin/data-quality', icon: ShieldCheck },
   { key: 'security-log', label: 'Bảo mật', href: '/admin/security-log', icon: Shield },
-  { key: 'user-activity', label: 'Hoạt động', href: '/admin/user-activity', icon: Eye },
   { key: 'audit', label: 'Audit Log', href: '/audit', icon: Eye },
-  { key: 'workflows', label: 'Workflows', href: '/workflows', icon: FileCheck },
 ];
 
-/**
- * Get sidebar sections based on user role.
- */
+// ═══ SIDEBAR CONFIG PER ROLE ═══════════════════════════════════
+
 export function getSidebarConfig(role: UserRole): SidebarSection[] {
   switch (role) {
     case 'admin':
       return [
         { title: 'Chính', items: NAV_MAIN },
         { title: 'BQMS Samsung', items: NAV_BQMS },
-        { title: 'Chuỗi cung ứng', items: NAV_SUPPLY_CHAIN },
         { title: 'Tài chính', items: NAV_FINANCE },
         { title: 'Khách hàng', items: NAV_CRM },
         { title: 'Phân tích', items: NAV_ANALYTICS },
@@ -204,18 +182,11 @@ export function getSidebarConfig(role: UserRole): SidebarSection[] {
       return [
         { title: 'Chính', items: NAV_MAIN },
         { title: 'BQMS Samsung', items: NAV_BQMS },
-        { title: 'Chuỗi cung ứng', items: NAV_SUPPLY_CHAIN },
         { title: 'Tài chính', items: NAV_FINANCE },
         { title: 'Khách hàng', items: NAV_CRM },
         { title: 'Phân tích', items: NAV_ANALYTICS },
         { title: 'Vận hành', items: NAV_OPERATIONS },
         { title: 'Nâng cao', items: NAV_ADVANCED },
-        {
-          title: 'Hệ thống',
-          items: [
-            { key: 'suppliers', label: 'Nhà cung cấp', href: '/suppliers', icon: Building2 },
-          ],
-        },
       ];
 
     case 'accountant':
@@ -224,14 +195,11 @@ export function getSidebarConfig(role: UserRole): SidebarSection[] {
           title: 'Chính',
           items: [
             { key: 'dashboard', label: 'Tổng quan', href: '/dashboard', icon: LayoutDashboard },
-            { key: 'purchase-orders', label: 'Đơn mua hàng', href: '/purchase-orders', icon: ShoppingCart },
-            { key: 'approvals', label: 'Phê duyệt', href: '/approvals', icon: FileCheck },
             { key: 'documents', label: 'Tài liệu', href: '/documents', icon: FolderOpen },
             { key: 'help', label: 'Hướng dẫn', href: '/help', icon: HelpCircle },
           ],
         },
         { title: 'Tài chính', items: NAV_FINANCE },
-        { title: 'Quản lý', items: [{ key: 'reports', label: 'Báo cáo', href: '/reports', icon: BarChart3 }] },
       ];
 
     case 'warehouse':
@@ -240,10 +208,9 @@ export function getSidebarConfig(role: UserRole): SidebarSection[] {
           title: 'Chính',
           items: [
             { key: 'dashboard', label: 'Tổng quan', href: '/dashboard', icon: LayoutDashboard },
-            { key: 'deliveries', label: 'Vận chuyển', href: '/deliveries', icon: Truck },
+            { key: 'giao-hang', label: 'Giao hàng', href: '/bqms/deliveries', icon: Truck },
             { key: 'inventory', label: 'Kho hàng', href: '/inventory', icon: Package },
             { key: 'documents', label: 'Tài liệu', href: '/documents', icon: FolderOpen },
-            { key: 'help', label: 'Hướng dẫn', href: '/help', icon: HelpCircle },
           ],
         },
         {
@@ -251,7 +218,6 @@ export function getSidebarConfig(role: UserRole): SidebarSection[] {
           items: [
             { key: 'inventory-forecast', label: 'Kho thông minh', href: '/inventory/forecast', icon: Package },
             { key: 'tasks', label: 'Công việc', href: '/tasks', icon: ListTodo },
-            { key: 'notification-settings', label: 'Thông báo', href: '/notifications/settings', icon: Bell },
           ],
         },
       ];
@@ -262,12 +228,9 @@ export function getSidebarConfig(role: UserRole): SidebarSection[] {
           title: 'Chính',
           items: [
             { key: 'dashboard', label: 'Tổng quan', href: '/dashboard', icon: LayoutDashboard },
-            { key: 'purchase-orders', label: 'Đơn mua hàng', href: '/purchase-orders', icon: ShoppingCart },
             { key: 'bqms', label: 'BQMS', href: '/bqms', icon: ClipboardList },
-            { key: 'quotation-new', label: 'Tạo báo giá', href: '/bqms/quotation/new', icon: FileSpreadsheet },
-            { key: 'classify', label: 'Lọc đơn AI', href: '/bqms/classify', icon: Brain },
+            { key: 'giao-hang', label: 'Giao hàng', href: '/bqms/deliveries', icon: Truck },
             { key: 'documents', label: 'Tài liệu', href: '/documents', icon: FolderOpen },
-            { key: 'help', label: 'Hướng dẫn', href: '/help', icon: HelpCircle },
           ],
         },
         { title: 'Khách hàng', items: NAV_CRM },
@@ -275,13 +238,6 @@ export function getSidebarConfig(role: UserRole): SidebarSection[] {
           title: 'Phân tích',
           items: [
             { key: 'price-trends', label: 'Xu hướng giá', href: '/analytics/price-trends', icon: TrendingUp },
-          ],
-        },
-        {
-          title: 'Vận hành',
-          items: [
-            { key: 'tasks', label: 'Công việc', href: '/tasks', icon: ListTodo },
-            { key: 'notification-settings', label: 'Thông báo', href: '/notifications/settings', icon: Bell },
           ],
         },
       ];
@@ -293,7 +249,6 @@ export function getSidebarConfig(role: UserRole): SidebarSection[] {
           title: 'Chính',
           items: [
             { key: 'dashboard', label: 'Tổng quan', href: '/dashboard', icon: LayoutDashboard },
-            { key: 'reports', label: 'Báo cáo', href: '/reports', icon: BarChart3 },
             { key: 'documents', label: 'Tài liệu', href: '/documents', icon: FolderOpen },
             { key: 'help', label: 'Hướng dẫn', href: '/help', icon: HelpCircle },
           ],
