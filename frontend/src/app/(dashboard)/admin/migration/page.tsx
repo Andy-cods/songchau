@@ -52,7 +52,7 @@ interface DataQualityItem {
   created_at: string;
 }
 
-type SyncStatus = 'synced' | 'modified' | 'not_imported' | 'error';
+type SyncStatus = 'imported' | 'needs_update' | 'has_mapping' | 'no_mapping' | 'empty';
 
 interface FileNode {
   name: string;
@@ -62,6 +62,9 @@ interface FileNode {
   size_bytes: number;
   last_modified: string;
   sync_status: SyncStatus;
+  target_table: string | null;
+  db_row_count: number;
+  last_imported_at: string | null;
 }
 
 interface FolderNode {
@@ -77,9 +80,11 @@ type TreeNode = FileNode | FolderNode;
 interface FileTreeSummary {
   total_files: number;
   total_size_bytes: number;
-  synced: number;
-  modified: number;
-  not_imported: number;
+  imported: number;
+  needs_update: number;
+  has_mapping: number;
+  no_mapping: number;
+  empty: number;
   error: number;
 }
 
@@ -170,12 +175,16 @@ function qualityLabel(status: string) {
 
 function syncStatusStyle(status: SyncStatus): { badge: string; dot: string; label: string } {
   switch (status) {
-    case 'synced':
-      return { badge: 'bg-emerald-100 text-emerald-700', dot: 'bg-emerald-500', label: 'Đã đồng bộ' };
-    case 'modified':
+    case 'imported':
+      return { badge: 'bg-emerald-100 text-emerald-700', dot: 'bg-emerald-500', label: 'Đã import' };
+    case 'needs_update':
       return { badge: 'bg-amber-100 text-amber-700', dot: 'bg-amber-500', label: 'Cần cập nhật' };
-    case 'not_imported':
-      return { badge: 'bg-slate-100 text-slate-500', dot: 'bg-slate-400', label: 'Chưa import' };
+    case 'has_mapping':
+      return { badge: 'bg-blue-100 text-blue-700', dot: 'bg-blue-500', label: 'Chưa import' };
+    case 'no_mapping':
+      return { badge: 'bg-slate-100 text-slate-400', dot: 'bg-slate-300', label: 'Không nhận dạng' };
+    case 'empty':
+      return { badge: 'bg-red-100 text-red-600', dot: 'bg-red-400', label: 'Rỗng' };
     case 'error':
       return { badge: 'bg-red-100 text-red-700', dot: 'bg-red-500', label: 'Lỗi' };
     default:
@@ -311,6 +320,9 @@ function FileTreeNode({
           <div><span className="text-slate-400">Định dạng:</span> <span className="font-mono uppercase">{node.extension}</span></div>
           <div><span className="text-slate-400">Kích thước:</span> {humanSize(node.size_bytes)}</div>
           <div><span className="text-slate-400">Cập nhật lần cuối:</span> {node.last_modified ? new Date(node.last_modified).toLocaleString('vi-VN') : '—'}</div>
+                <div><span className="text-slate-400">Bảng đích:</span> <span className="font-mono text-blue-600">{node.target_table || 'Không nhận dạng'}</span></div>
+                <div><span className="text-slate-400">Rows trong DB:</span> <span className="font-semibold">{(node.db_row_count ?? 0).toLocaleString('vi-VN')}</span></div>
+                {node.last_imported_at && <div><span className="text-slate-400">Import lần cuối:</span> {new Date(node.last_imported_at).toLocaleString('vi-VN')}</div>}
           <div><span className="text-slate-400">Đường dẫn:</span> <span className="font-mono text-slate-500 break-all">{node.path}</span></div>
           <div>
             <span className="text-slate-400">Trạng thái: </span>
@@ -340,7 +352,7 @@ function findFileNode(nodes: TreeNode[], path: string): FileNode | null {
 function OneDriveFileExplorer() {
   const queryClient = useQueryClient();
   const [search, setSearch] = useState('');
-  const [activeTab, setActiveTab] = useState<'all' | 'synced' | 'modified' | 'not_imported'>('all');
+  const [activeTab, setActiveTab] = useState<'all' | 'imported' | 'needs_update' | 'has_mapping' | 'no_mapping'>('all');
   const [expandedPaths, setExpandedPaths] = useState<Set<string>>(new Set());
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
 
@@ -360,7 +372,7 @@ function OneDriveFileExplorer() {
   });
 
   const summary: FileTreeSummary = raw?.data?.summary ?? {
-    total_files: 0, total_size_bytes: 0, synced: 0, modified: 0, not_imported: 0, error: 0,
+    total_files: 0, total_size_bytes: 0, imported: 0, needs_update: 0, has_mapping: 0, no_mapping: 0, empty: 0,
   };
   const rawTree: TreeNode[] = Array.isArray(raw?.data?.tree) ? raw.data.tree : [];
 
@@ -470,9 +482,9 @@ function OneDriveFileExplorer() {
 
   const tabs: { key: 'all' | 'synced' | 'modified' | 'not_imported'; label: string; count: number | null }[] = [
     { key: 'all', label: 'Tất cả', count: summary.total_files },
-    { key: 'synced', label: 'Đã đồng bộ', count: summary.synced },
-    { key: 'modified', label: 'Cần cập nhật', count: summary.modified },
-    { key: 'not_imported', label: 'Chưa import', count: summary.not_imported },
+    { key: 'imported', label: 'Đã import', count: summary.imported },
+    { key: 'needs_update', label: 'Cần cập nhật', count: summary.needs_update },
+    { key: 'has_mapping', label: 'Chưa import', count: summary.has_mapping },
   ];
 
   return (
@@ -501,21 +513,21 @@ function OneDriveFileExplorer() {
           <p className="text-xs text-slate-300 mt-0.5">{humanSize(summary.total_size_bytes)}</p>
         </div>
         <div className="px-4 py-3 text-center">
-          <p className="text-xl font-bold text-emerald-600">{summary.synced}</p>
+          <p className="text-xl font-bold text-emerald-600">{summary.imported}</p>
           <p className="text-xs text-slate-400 mt-0.5">Đã đồng bộ</p>
           <div className="mt-1 flex justify-center">
             <span className="inline-block w-2 h-2 rounded-full bg-emerald-500" />
           </div>
         </div>
         <div className="px-4 py-3 text-center">
-          <p className="text-xl font-bold text-amber-500">{summary.modified}</p>
+          <p className="text-xl font-bold text-amber-500">{summary.needs_update}</p>
           <p className="text-xs text-slate-400 mt-0.5">Cần cập nhật</p>
           <div className="mt-1 flex justify-center">
             <span className="inline-block w-2 h-2 rounded-full bg-amber-500" />
           </div>
         </div>
         <div className="px-4 py-3 text-center">
-          <p className="text-xl font-bold text-slate-500">{summary.not_imported}</p>
+          <p className="text-xl font-bold text-slate-500">{summary.no_mapping}</p>
           <p className="text-xs text-slate-400 mt-0.5">Chưa import</p>
           <div className="mt-1 flex justify-center">
             <span className="inline-block w-2 h-2 rounded-full bg-slate-400" />

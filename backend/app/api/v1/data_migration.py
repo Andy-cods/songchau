@@ -585,17 +585,46 @@ async def run_data_quality(
 STAGING_DIR = Path("/data/onedrive-staging")
 EXCEL_EXTS = {".xlsx", ".xls", ".xlsm"}
 
+# ── File → Table mapping (from import_precise.py) ────────────
+FILE_TABLE_MAP: dict[str, str] = {
+    "thong ke hoi hang bqms": "bqms_rfq",
+    "thong ke dat hang": "bqms_orders",
+    "thong ke giao hang": "bqms_deliveries",
+    "tt xnk bqms": "import_export_tracking",
+    "thong ke hoi hang - update": "imv_inquiries",
+    "po imv": "imv_purchase_orders",
+    "gia cong": "bqms_orders",
+    "ama trading": "bqms_material_pricing",
+    "ket qua phoi": "bqms_material_pricing",
+    "theo doi po phoi": "bqms_raw_material_po",
+    "tong hop po": "bqms_raw_material_po",
+    "sc_imv_tong hop": "imv_consolidated",
+    "bang theo doi doanh thu": "revenue_invoices",
+    "so quy": "cash_book",
+}
+
+
+def _match_file_to_table(filename: str) -> str | None:
+    """Match a filename to its target DB table."""
+    fname_lower = filename.lower()
+    for pattern, table in FILE_TABLE_MAP.items():
+        if pattern in fname_lower:
+            return table
+    return None
+
 
 @router.get("/file-tree")
 async def file_tree(
     token_data: TokenData = Depends(require_role("admin")),
     conn: asyncpg.Connection = Depends(get_db),
 ):
-    """Scan /data/onedrive-staging/ and return folder tree with sync status."""
+    """Scan /data/onedrive-staging/ and return folder tree with REAL sync status."""
     if not STAGING_DIR.exists():
-        return {"data": {"summary": {"total_files": 0, "total_size_bytes": 0, "synced": 0, "modified": 0, "not_imported": 0, "error": 0}, "tree": []}}
+        return {"data": {"summary": {"total_files": 0, "total_size_bytes": 0,
+                "imported": 0, "needs_update": 0, "has_mapping": 0, "no_mapping": 0, "empty": 0},
+                "tree": []}}
 
-    # Scan filesystem
+    # 1. Scan filesystem
     files = []
     for root, dirs, fnames in os.walk(STAGING_DIR):
         for fname in fnames:
@@ -614,45 +643,92 @@ async def file_tree(
                 except Exception:
                     pass
 
-    # Get last successful import timestamp
-    last_import = await conn.fetchrow(
-        "SELECT completed_at FROM etl_sync_log WHERE status='success' ORDER BY completed_at DESC LIMIT 1"
-    )
-    last_import_ts = last_import["completed_at"].timestamp() if last_import and last_import["completed_at"] else 0
+    # 2. Get import history per file from file_review_status
+    review_rows = await conn.fetch("SELECT file_path, status, reviewed_at, last_import_result FROM file_review_status")
+    review_map = {r["file_path"]: r for r in review_rows}
 
-    # Build tree
-    tree_dict = {}
-    summary = {"total_files": 0, "total_size_bytes": 0, "synced": 0, "modified": 0, "not_imported": 0, "error": 0}
+    # 3. Get last successful import timestamp per sync_type
+    last_imports = await conn.fetch(
+        "SELECT DISTINCT ON (source_file) source_file, completed_at, rows_inserted, status "
+        "FROM etl_sync_log WHERE source_file IS NOT NULL AND source_file != '' "
+        "ORDER BY source_file, completed_at DESC"
+    )
+    import_by_file = {r["source_file"]: r for r in last_imports}
+
+    # 4. Get row counts for known target tables
+    table_counts: dict[str, int] = {}
+    for table in set(FILE_TABLE_MAP.values()):
+        try:
+            count = await conn.fetchval(f"SELECT COUNT(*) FROM {table}")
+            table_counts[table] = count or 0
+        except Exception:
+            table_counts[table] = 0
+
+    # 5. Build tree with REAL status
+    tree_dict: dict = {}
+    summary = {"total_files": 0, "total_size_bytes": 0,
+               "imported": 0, "needs_update": 0, "has_mapping": 0, "no_mapping": 0, "empty": 0}
 
     for f in files:
-        # Determine sync status
-        if last_import_ts == 0:
-            status = "not_imported"
-        elif f["mtime"] > last_import_ts:
-            status = "modified"
+        target_table = _match_file_to_table(f["name"])
+        db_row_count = table_counts.get(target_table, 0) if target_table else 0
+
+        # Check review status first
+        review = review_map.get(f["path"])
+        file_import = import_by_file.get(f["path"])
+
+        # Determine REAL sync status
+        if f["size_bytes"] < 1000:
+            status = "empty"
+        elif target_table is None:
+            status = "no_mapping"
+        elif review and review["status"] == "imported":
+            # Check if file changed after last import
+            if review["reviewed_at"] and f["mtime"] > review["reviewed_at"].timestamp():
+                status = "needs_update"
+            else:
+                status = "imported"
+        elif file_import and file_import["status"] in ("success", "partial") and file_import["rows_inserted"] and file_import["rows_inserted"] > 0:
+            if file_import["completed_at"] and f["mtime"] > file_import["completed_at"].timestamp():
+                status = "needs_update"
+            else:
+                status = "imported"
+        elif db_row_count > 0:
+            # Table has data — likely imported before (even if no per-file log)
+            status = "imported"
         else:
-            status = "synced"
+            status = "has_mapping"
+
+        last_imported_at = None
+        if review and review["reviewed_at"]:
+            last_imported_at = review["reviewed_at"].isoformat()
+        elif file_import and file_import["completed_at"]:
+            last_imported_at = file_import["completed_at"].isoformat()
 
         summary["total_files"] += 1
         summary["total_size_bytes"] += f["size_bytes"]
-        summary[status] += 1
+        summary[status] = summary.get(status, 0) + 1
 
         parts = f["path"].split("/")
         current = tree_dict
         for p in parts[:-1]:
             if p not in current:
-                current[p] = {"_children": {}, "_path": "/".join(parts[:parts.index(p)+1])}
+                current[p] = {"_children": {}, "_path": "/".join(parts[:parts.index(p) + 1])}
             current = current[p]["_children"]
         current[parts[-1]] = {
             "name": f["name"], "path": f["path"], "type": "file",
             "extension": f["extension"], "size_bytes": f["size_bytes"],
             "last_modified": f["last_modified"], "sync_status": status,
+            "target_table": target_table,
+            "db_row_count": db_row_count,
+            "last_imported_at": last_imported_at,
         }
 
     def to_list(d, parent=""):
         result = []
         for key, val in sorted(d.items()):
-            if key.startswith("_"): continue
+            if key.startswith("_"):
+                continue
             if val.get("type") == "file":
                 result.append(val)
             else:
@@ -661,12 +737,15 @@ async def file_tree(
                 file_count = sum(1 for c in children if c.get("type") == "file") + sum(
                     c.get("file_count", 0) for c in children if c.get("type") == "folder"
                 )
-                result.append({"name": key, "path": path, "type": "folder", "children": children, "file_count": file_count})
+                result.append({"name": key, "path": path, "type": "folder",
+                               "children": children, "file_count": file_count})
         result.sort(key=lambda x: (0 if x.get("type") == "folder" else 1, x["name"].lower()))
         return result
 
     return {"data": {"summary": summary, "tree": to_list(tree_dict)},
-            "message": f"{summary['total_files']} files"}
+            "message": f"{summary['total_files']} files — {summary['imported']} imported, "
+                       f"{summary['needs_update']} cần cập nhật, {summary['has_mapping']} chưa import, "
+                       f"{summary['no_mapping']} không nhận dạng"}
 
 
 # ---------------------------------------------------------------------------
@@ -710,24 +789,8 @@ async def file_preview(
     for row in data_rows:
         clean_rows.append([str(c) if c is not None else "" for c in row])
 
-    # Check if this file has a known import mapping
-    # Simple: check filename against known patterns
-    fname_lower = full_path.name.lower()
-    target_table = None
-    known_files = {
-        "thong ke hoi hang bqms": "bqms_rfq",
-        "thong ke dat hang": "bqms_orders",
-        "thong ke giao hang": "bqms_deliveries",
-        "tt xnk bqms": "import_export_tracking",
-        "thong ke hoi hang - update": "imv_inquiries",
-        "po imv": "imv_purchase_orders",
-        "gia cong": "bqms_orders",
-        "ama trading": "bqms_material_pricing",
-    }
-    for pattern, table in known_files.items():
-        if pattern in fname_lower:
-            target_table = table
-            break
+    # Check if this file has a known import mapping (shared with file-tree)
+    target_table = _match_file_to_table(full_path.name)
 
     current_count = 0
     if target_table:
