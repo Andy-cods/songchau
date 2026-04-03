@@ -52,8 +52,8 @@ SYNC_EXTENSIONS = {
     ".jpg", ".jpeg", ".png",
 }
 # Skip: .zip .rar .7z .exe .mp4 .stp .x_t .dwg .dll .py .pyc .pptx
-MAX_FILE_SIZE_MB = 50  # Skip files > 50MB
-MAX_TOTAL_GB = 15  # Stop syncing when total reaches 15GB (VPS has 25GB free)
+MAX_FILE_SIZE_MB = 200  # Cho phép files lên đến 200MB (BC BQMS THANG ~ 190MB)
+MAX_TOTAL_GB = 20  # Stop syncing when total reaches 20GB (VPS has 23GB free)
 SKIP_PATTERNS = ["~$", "Thumbs.db", "desktop.ini", ".DS_Store"]
 # Skip folders that are too deep or contain non-business data
 SKIP_FOLDERS = {"__pycache__", "node_modules", ".git", ".venv", "venv", "env",

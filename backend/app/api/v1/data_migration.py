@@ -588,26 +588,84 @@ ALL_FILE_EXTS = {".xlsx", ".xls", ".xlsm", ".pdf", ".docx", ".doc", ".jpg", ".jp
 
 # ── File → Table mapping (from import_precise.py) ────────────
 FILE_TABLE_MAP: dict[str, str] = {
+    # ── BQMS Samsung (core business) ──
     "thong ke hoi hang bqms": "bqms_rfq",
     "thong ke dat hang": "bqms_orders",
     "thong ke giao hang": "bqms_deliveries",
     "tt xnk bqms": "import_export_tracking",
-    "thong ke hoi hang - update": "imv_inquiries",
-    "po imv": "imv_purchase_orders",
+    "tt xnk 2023": "import_export_tracking",
     "gia cong": "bqms_orders",
-    "ama trading": "bqms_material_pricing",
     "ket qua phoi": "bqms_material_pricing",
     "theo doi po phoi": "bqms_raw_material_po",
     "tong hop po": "bqms_raw_material_po",
+    "bc bqms thang": "bqms_rfq",  # BC BQMS THANG = báo cáo tháng (cùng format RFQ)
+    "dept. cnc": "bqms_orders",
+    "thong ke cac code trung": "bqms_rfq",
+    "gia phoi samsung": "bqms_material_pricing",
+    # ── AMA / Quotation ──
+    "ama trading": "bqms_material_pricing",
+    "ama vina": "bqms_material_pricing",
+    "qtamabn": "quotations",
+    # ── IMV ──
+    "thong ke hoi hang - update": "imv_inquiries",
+    "po imv": "imv_purchase_orders",
     "sc_imv_tong hop": "imv_consolidated",
+    "imv-ycbg": "imv_inquiries",
+    "imv - lua chon": "imv_consolidated",
+    "imv - po": "imv_purchase_orders",
+    "bqms - po": "imv_purchase_orders",
+    "bqms -ycbg": "imv_inquiries",
+    "bqms - lua chon": "imv_consolidated",
+    # ── Tài chính ──
     "bang theo doi doanh thu": "revenue_invoices",
+    "doanh thu sc": "revenue_invoices",
     "so quy": "cash_book",
+    "dxtt songchau": "cash_book",  # Đề xuất thanh toán
+    "bang ke cong no": "accounts_payable",
+    "bang ke po": "purchase_orders",
+    "hddt": "invoices",  # Hóa đơn điện tử
+    "bbgh": "bqms_deliveries",  # Biên bản giao hàng
+    "chi_tiet_cong_no": "accounts_receivable",
+    "bang ke hoa don": "invoices",
+    # ── EAE ──
+    "eae": "purchase_orders",  # EAE supplier data
+    # ── LG ──
+    "lg thang": "purchase_orders",
+    # ── Khách lẻ ──
+    "khach le": "purchase_orders",
+    "po apt": "purchase_orders",
+    # ── Customs/XNK ──
+    "tokhaihq": "customs_declarations",
+    "bieu thue xnk": "customs_declarations",
+    # ── Samsung ──
+    "samsung - categories": "products",
+    # ── Tổng hợp ──
+    "item_song chau": "products",
+    "tong hop hang smt": "products",
+    "tinh gia": "bqms_material_pricing",
+    "list mua hang": "purchase_orders",
+    "spare part": "products",
+    # ── Biên nhận / Giao hàng ──
+    "bien nhan": "bqms_deliveries",
+    "biên nhận": "bqms_deliveries",
+}
+
+# Files that are templates/forms — explicitly NOT for import
+TEMPLATE_FILES = {
+    "mau don dat hang", "mẫu đơn đặt hàng", "bg mau", "book1",
+    "checklist", "mau khai bao", "mẫu khai báo", "mau bien nhan", "mẫu biên nhận",
+    "powerbi", "power bii", "pham vi trach nhiem",
 }
 
 
 def _match_file_to_table(filename: str) -> str | None:
     """Match a filename to its target DB table."""
     fname_lower = filename.lower()
+    # Check if it's a template (not for import)
+    for tpl in TEMPLATE_FILES:
+        if tpl in fname_lower:
+            return None
+    # Check file→table mapping
     for pattern, table in FILE_TABLE_MAP.items():
         if pattern in fname_lower:
             return table
