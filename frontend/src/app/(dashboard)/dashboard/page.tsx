@@ -2,21 +2,18 @@
 
 import { useQuery } from '@tanstack/react-query';
 import {
-  ShoppingCart,
   TrendingUp,
   AlertTriangle,
   Clock,
-  ChevronRight,
-  BarChart3,
-  Users,
-  Package,
   ArrowUpRight,
   ArrowDownRight,
   Minus,
   Activity,
+  BarChart3,
+  Users,
   Zap,
+  Target,
 } from 'lucide-react';
-import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import {
   BarChart,
@@ -34,82 +31,82 @@ import {
   ResponsiveContainer,
   AreaChart,
   Area,
+  ReferenceLine,
 } from 'recharts';
 import { api } from '@/lib/api';
-import { cn, formatCurrency, formatDate } from '@/lib/utils';
+import { cn } from '@/lib/utils';
 
-// ─── Color Palette ──────────────────────────────────────────────
-const COLORS = {
-  brand: '#1e40af',
-  brandLight: '#3b82f6',
-  brandFade: '#dbeafe',
-  success: '#10b981',
-  successFade: '#d1fae5',
-  warning: '#f59e0b',
-  warningFade: '#fef3c7',
-  danger: '#ef4444',
-  dangerFade: '#fee2e2',
-  slate: '#64748b',
-  slateFade: '#f1f5f9',
+// ─── Constants ───────────────────────────────────────────────────
+
+const C = {
+  blue:   '#3b82f6',
+  green:  '#10b981',
+  amber:  '#f59e0b',
+  red:    '#ef4444',
   purple: '#8b5cf6',
+  slate:  '#64748b',
+  blueFade:   '#dbeafe',
+  greenFade:  '#d1fae5',
+  amberFade:  '#fef3c7',
+  redFade:    '#fee2e2',
   purpleFade: '#ede9fe',
-  cyan: '#06b6d4',
-  cyanFade: '#cffafe',
 };
 
-const MAKER_COLORS = ['#1e40af', '#3b82f6', '#10b981', '#f59e0b', '#8b5cf6'];
+const DONUT_COLORS = [
+  '#3b82f6', '#10b981', '#f59e0b', '#8b5cf6', '#ef4444',
+  '#06b6d4', '#f97316', '#84cc16',
+];
 
-const VIET_MONTHS = ['T1','T2','T3','T4','T5','T6','T7','T8','T9','T10','T11','T12'];
+const VM = ['T1','T2','T3','T4','T5','T6','T7','T8','T9','T10','T11','T12'];
 
-// ─── Helpers ────────────────────────────────────────────────────
+// ─── Helpers ─────────────────────────────────────────────────────
 
-function formatBillions(val: number): string {
-  if (val >= 1_000_000_000) return `${(val / 1_000_000_000).toFixed(1)}B`;
-  if (val >= 1_000_000) return `${(val / 1_000_000).toFixed(0)}M`;
-  if (val >= 1_000) return `${(val / 1_000).toFixed(0)}K`;
-  return String(val);
+function fmtVnd(n: number): string {
+  if (!n) return '0';
+  if (n >= 1_000_000_000) return `${(n / 1_000_000_000).toFixed(1)}B`;
+  if (n >= 1_000_000)     return `${(n / 1_000_000).toFixed(0)}M`;
+  if (n >= 1_000)         return `${(n / 1_000).toFixed(0)}K`;
+  return String(n);
 }
 
-function hoursUntil(dt: string | null | undefined): number {
-  if (!dt) return Infinity;
-  return (new Date(dt).getTime() - Date.now()) / 3_600_000;
+function fmtPct(n: number): string {
+  return `${n >= 0 ? '+' : ''}${n.toFixed(1)}%`;
 }
 
-function deadlineUrgency(dt: string | null | undefined): 'critical' | 'warning' | 'normal' {
-  const h = hoursUntil(dt);
-  if (h < 24) return 'critical';
-  if (h < 48) return 'warning';
-  return 'normal';
+function monthLabel(isoMonth: string): string {
+  // "2025-05" → "T5"
+  const parts = isoMonth?.split('-');
+  if (parts?.length >= 2) return `T${parseInt(parts[1], 10)}`;
+  return isoMonth ?? '';
 }
 
-function pct(a: number, b: number): number {
-  if (!b) return 0;
-  return Math.round(((a - b) / b) * 100);
+function daysSince(dateStr: string): number {
+  return (Date.now() - new Date(dateStr).getTime()) / 86_400_000;
 }
 
-// ─── Custom Tooltip ─────────────────────────────────────────────
+// ─── Custom Tooltips ─────────────────────────────────────────────
 
 function VndTooltip({ active, payload, label }: any) {
   if (!active || !payload?.length) return null;
   return (
-    <div className="bg-slate-900 text-white rounded-xl px-3 py-2 shadow-xl text-xs">
-      <p className="font-semibold text-slate-300 mb-1">{label}</p>
+    <div className="bg-slate-900 text-white rounded-xl px-3 py-2 shadow-xl text-xs min-w-[140px]">
+      <p className="font-semibold text-slate-300 mb-1.5">{label}</p>
       {payload.map((p: any, i: number) => (
-        <p key={i} style={{ color: p.color }} className="font-mono">
-          {p.name}: {formatBillions(p.value ?? 0)}
+        <p key={i} style={{ color: p.color }} className="font-mono leading-5">
+          {p.name}: {fmtVnd(p.value ?? 0)}
         </p>
       ))}
     </div>
   );
 }
 
-function PctTooltip({ active, payload, label }: any) {
+function CountTooltip({ active, payload, label }: any) {
   if (!active || !payload?.length) return null;
   return (
-    <div className="bg-slate-900 text-white rounded-xl px-3 py-2 shadow-xl text-xs">
-      <p className="font-semibold text-slate-300 mb-1">{label}</p>
+    <div className="bg-slate-900 text-white rounded-xl px-3 py-2 shadow-xl text-xs min-w-[140px]">
+      <p className="font-semibold text-slate-300 mb-1.5">{label}</p>
       {payload.map((p: any, i: number) => (
-        <p key={i} style={{ color: p.color }}>
+        <p key={i} style={{ color: p.color }} className="leading-5">
           {p.name}: {(p.value ?? 0).toLocaleString('vi-VN')}
         </p>
       ))}
@@ -117,94 +114,82 @@ function PctTooltip({ active, payload, label }: any) {
   );
 }
 
-// ─── KPI Card ───────────────────────────────────────────────────
-
-interface KPICardProps {
-  label: string;
-  value: string | number;
-  change?: number;           // % change vs previous period
-  icon: React.ReactNode;
-  accentColor: string;
-  fadeBg: string;
-  loading?: boolean;
-  sparkData?: number[];
-  sparkColor?: string;
-  suffix?: string;
+function WinRateTooltip({ active, payload, label }: any) {
+  if (!active || !payload?.length) return null;
+  return (
+    <div className="bg-slate-900 text-white rounded-xl px-3 py-2 shadow-xl text-xs min-w-[140px]">
+      <p className="font-semibold text-slate-300 mb-1.5">{label}</p>
+      {payload.map((p: any, i: number) => (
+        <p key={i} style={{ color: p.color }} className="leading-5">
+          {p.name}: {(p.value ?? 0).toFixed(1)}%
+        </p>
+      ))}
+    </div>
+  );
 }
 
-function KPICard({ label, value, change, icon, accentColor, fadeBg, loading, sparkData = [], sparkColor = '#1e40af' }: KPICardProps) {
-  if (loading) {
-    return (
-      <div className="bg-white rounded-2xl p-5 shadow-sm border border-slate-100 animate-pulse">
-        <div className="h-4 w-24 bg-slate-100 rounded mb-3" />
-        <div className="h-8 w-32 bg-slate-200 rounded mb-2" />
-        <div className="h-3 w-16 bg-slate-100 rounded" />
-      </div>
-    );
-  }
+// ─── Ring Progress ───────────────────────────────────────────────
 
-  const chartData = sparkData.map((v, i) => ({ i, v }));
-  const gradId = `spark-${sparkColor.replace('#', '')}`;
-
-  const positiveChange = change !== undefined && change > 0;
-  const negativeChange = change !== undefined && change < 0;
-
+function RingProgress({ value, max = 100, color, size = 52 }: { value: number; max?: number; color: string; size?: number }) {
+  const r = (size - 8) / 2;
+  const circ = 2 * Math.PI * r;
+  const filled = Math.min(value / max, 1) * circ;
   return (
-    <div className="bg-white rounded-2xl p-5 shadow-sm border border-slate-100 hover:shadow-md transition-all duration-200 group">
-      <div className="flex items-start justify-between mb-3">
-        <div className={cn('w-10 h-10 rounded-xl flex items-center justify-center', fadeBg)}>
-          <div style={{ color: accentColor }}>{icon}</div>
-        </div>
-        {change !== undefined && (
-          <div className={cn(
-            'flex items-center gap-0.5 text-xs font-semibold px-2 py-1 rounded-full',
-            positiveChange ? 'bg-emerald-50 text-emerald-700' :
-            negativeChange ? 'bg-red-50 text-red-600' :
-            'bg-slate-50 text-slate-500'
-          )}>
-            {positiveChange ? <ArrowUpRight className="h-3 w-3" /> :
-             negativeChange ? <ArrowDownRight className="h-3 w-3" /> :
-             <Minus className="h-3 w-3" />}
-            {Math.abs(change)}%
-          </div>
-        )}
-      </div>
-      <p className="text-2xl font-bold text-slate-900 font-mono mb-0.5">{value}</p>
-      <p className="text-xs text-slate-500 font-medium">{label}</p>
-      {chartData.length > 1 && (
-        <div className="mt-3 h-10">
-          <ResponsiveContainer width="100%" height="100%">
-            <AreaChart data={chartData} margin={{ top: 2, right: 0, bottom: 0, left: 0 }}>
-              <defs>
-                <linearGradient id={gradId} x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor={sparkColor} stopOpacity={0.25} />
-                  <stop offset="95%" stopColor={sparkColor} stopOpacity={0} />
-                </linearGradient>
-              </defs>
-              <Area type="monotone" dataKey="v" stroke={sparkColor} strokeWidth={2} fill={`url(#${gradId})`} dot={false} isAnimationActive={false} />
-            </AreaChart>
-          </ResponsiveContainer>
-        </div>
-      )}
-    </div>
+    <svg width={size} height={size} style={{ transform: 'rotate(-90deg)' }}>
+      <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke="#e2e8f0" strokeWidth={6} />
+      <circle
+        cx={size / 2} cy={size / 2} r={r} fill="none"
+        stroke={color} strokeWidth={6}
+        strokeDasharray={`${filled} ${circ - filled}`}
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+}
+
+// ─── Sparkline ───────────────────────────────────────────────────
+
+function Sparkline({ data, color }: { data: number[]; color: string }) {
+  if (!data?.length) return null;
+  const pts = data.map((v, i) => ({ i, v }));
+  const gradId = `sg-${color.replace('#', '')}`;
+  return (
+    <ResponsiveContainer width="100%" height={36}>
+      <AreaChart data={pts} margin={{ top: 2, right: 0, bottom: 0, left: 0 }}>
+        <defs>
+          <linearGradient id={gradId} x1="0" y1="0" x2="0" y2="1">
+            <stop offset="5%" stopColor={color} stopOpacity={0.3} />
+            <stop offset="95%" stopColor={color} stopOpacity={0} />
+          </linearGradient>
+        </defs>
+        <Area type="monotone" dataKey="v" stroke={color} strokeWidth={2} fill={`url(#${gradId})`} dot={false} isAnimationActive={false} />
+      </AreaChart>
+    </ResponsiveContainer>
   );
 }
 
 // ─── Section Header ──────────────────────────────────────────────
 
-function SectionHeader({ title, subtitle, icon, action }: { title: string; subtitle?: string; icon?: React.ReactNode; action?: React.ReactNode }) {
+function SectionHeader({ title, subtitle, icon }: { title: string; subtitle?: string; icon?: React.ReactNode }) {
   return (
-    <div className="flex items-center justify-between mb-4">
-      <div className="flex items-center gap-2">
-        {icon && <div className="text-slate-400">{icon}</div>}
-        <div>
-          <h3 className="text-sm font-bold text-slate-800">{title}</h3>
-          {subtitle && <p className="text-xs text-slate-400 mt-0.5">{subtitle}</p>}
+    <div className="flex items-center gap-2.5 mb-5">
+      {icon && (
+        <div className="w-8 h-8 rounded-lg bg-slate-100 flex items-center justify-center text-slate-500 shrink-0">
+          {icon}
         </div>
+      )}
+      <div>
+        <h2 className="text-sm font-bold text-slate-800 leading-tight">{title}</h2>
+        {subtitle && <p className="text-xs text-slate-400 mt-0.5">{subtitle}</p>}
       </div>
-      {action}
     </div>
   );
+}
+
+// ─── Loading skeleton ─────────────────────────────────────────────
+
+function Skeleton({ className }: { className?: string }) {
+  return <div className={cn('animate-pulse bg-slate-100 rounded-lg', className)} />;
 }
 
 // ─── Page ────────────────────────────────────────────────────────
@@ -212,585 +197,651 @@ function SectionHeader({ title, subtitle, icon, action }: { title: string; subti
 export default function DashboardPage() {
   const router = useRouter();
 
-  // — KPIs
-  const { data: kpisRaw, isLoading: kpisLoading } = useQuery({
-    queryKey: ['dashboard-kpis'],
-    queryFn: () => api.get<any>('/api/v1/dashboard/kpis'),
+  const { data: raw, isLoading } = useQuery({
+    queryKey: ['dashboard-v2'],
+    queryFn: () => api.get<any>('/api/v1/dashboard/kpis-v2'),
     refetchInterval: 30_000,
-    retry: 1,
+    retry: 2,
   });
 
-  // — Finance dashboard
-  const { data: financeRaw, isLoading: financeLoading } = useQuery({
-    queryKey: ['finance-dashboard'],
-    queryFn: () => api.get<any>('/api/v1/finance-management/dashboard'),
-    refetchInterval: 30_000,
-    retry: 1,
-  });
+  const d = raw?.data ?? {};
 
-  // — Cash flow (monthly income/expense for charts)
-  const { data: cashflowRaw } = useQuery({
-    queryKey: ['finance-cashflow'],
-    queryFn: () => api.get<any>('/api/v1/finance-management/cash-flow'),
-    refetchInterval: 30_000,
-    retry: 1,
-  });
+  // ── Scalar KPIs ────────────────────────────────────────────────
+  const rfqThisMonth  = d.rfq_this_month   ?? 0;
+  const rfqMomPct     = d.rfq_mom_pct      ?? 0;
+  const rfqSpark: number[] = Array.isArray(d.rfq_spark) ? d.rfq_spark : [];
+  const winRate3m     = d.win_rate_3m      ?? 0;
+  const winRateDelta  = d.win_rate_delta   ?? 0;
+  const won3m         = d.won_3m           ?? 0;
+  const decided3m     = d.decided_3m       ?? 0;
+  const revThisMonth  = d.revenue_this_month ?? 0;
+  const revMomPct     = d.revenue_mom_pct    ?? 0;
+  const rfqPending    = d.rfq_pending        ?? 0;
+  const rfqOverdue    = d.rfq_overdue        ?? 0;
 
-  // — BQMS records (for RFQ deadline alerts)
-  const { data: bqmsRaw, isLoading: bqmsLoading } = useQuery({
-    queryKey: ['bqms-records-dashboard'],
-    queryFn: () => api.get<any>('/api/v1/bqms/records'),
-    refetchInterval: 30_000,
-    retry: 1,
-  });
+  // ── Arrays ─────────────────────────────────────────────────────
+  const monthlyRevenue: any[] = Array.isArray(d.monthly_revenue) ? d.monthly_revenue : [];
+  const yoy: any[]            = Array.isArray(d.yoy)             ? d.yoy             : [];
+  const funnel: any           = d.funnel ?? {};
+  const winRateTrend: any[]   = Array.isArray(d.win_rate_trend)  ? d.win_rate_trend  : [];
+  const makers: any[]         = Array.isArray(d.makers)          ? d.makers          : [];
+  const owners: any[]         = Array.isArray(d.owners)          ? d.owners          : [];
+  const urgentRfqs: any[]     = Array.isArray(d.urgent_rfqs)     ? d.urgent_rfqs     : [];
 
-  // — Price analytics (maker breakdown)
-  const { data: makerRaw } = useQuery({
-    queryKey: ['price-analytics-maker'],
-    queryFn: () => api.get<any>('/api/v1/price-analytics/by-maker?months=12'),
-    retry: 1,
-  });
+  // ── Derived chart data ─────────────────────────────────────────
 
-  // — Price analytics overview
-  const { data: priceOverviewRaw } = useQuery({
-    queryKey: ['price-analytics-overview'],
-    queryFn: () => api.get<any>('/api/v1/price-analytics/overview?months=12'),
-    retry: 1,
-  });
+  // Section 2 – Revenue bar chart
+  const revenueChartData = monthlyRevenue.map((m: any) => ({
+    name: monthLabel(m.month ?? ''),
+    'Báo giá':    m.total_quoted ?? 0,
+    'Chốt được':  m.won_revenue  ?? 0,
+  }));
 
-  // — Inventory
-  const { data: inventoryRaw } = useQuery({
-    queryKey: ['inventory-dashboard'],
-    queryFn: () => api.get<any>('/api/v1/smart-inventory/dashboard'),
-    refetchInterval: 30_000,
-    retry: 1,
-  });
-
-  // — Team workload
-  const { data: workloadRaw } = useQuery({
-    queryKey: ['task-workload'],
-    queryFn: () => api.get<any>('/api/v1/task-assignments/workload'),
-    retry: 1,
-  });
-
-  // ── Data extraction ──────────────────────────────────────────
-
-  const kpis = kpisRaw?.data ?? kpisRaw ?? {};
-  const finance = financeRaw?.data ?? financeRaw ?? {};
-
-  // KPI values
-  const poActive = kpis?.active_po_count ?? kpis?.po_active ?? 0;
-  const poChange = kpis?.po_change_pct ?? undefined;
-  const revMonth = finance?.revenue_this_month ?? kpis?.total_revenue_mtd ?? 0;
-  const revMonthPrev = finance?.revenue_last_month ?? 0;
-  const revYear = finance?.revenue_ytd ?? kpis?.total_revenue_ytd ?? 0;
-  const revYearPrev = finance?.revenue_last_year ?? 0;
-  const poTrend: number[] = kpis?.po_trend ?? [];
-  const revTrend: number[] = finance?.revenue_trend ?? kpis?.revenue_trend ?? [];
-
-  // BQMS records
-  const _bqms = bqmsRaw?.data;
-  const allBqms: any[] = Array.isArray(_bqms) ? _bqms : Array.isArray(_bqms?.items) ? _bqms.items : [];
-  const rfqActive = allBqms.filter((r: any) => !['completed','cancelled','rejected'].includes(r.status ?? '')).length;
-
-  // RFQ deadline within 48 hours
-  const now = Date.now();
-  const urgentRfqs = allBqms
-    .filter((r: any) => {
-      const dl = r.deadline_dt ?? r.deadline ?? r.due_date;
-      if (!dl) return false;
-      const ms = new Date(dl).getTime() - now;
-      return ms > 0 && ms < 48 * 3_600_000;
-    })
-    .sort((a: any, b: any) => {
-      const da = a.deadline_dt ?? a.deadline ?? a.due_date;
-      const db = b.deadline_dt ?? b.deadline ?? b.due_date;
-      return new Date(da).getTime() - new Date(db).getTime();
-    });
-
-  // Cashflow chart data
-  const _cf = cashflowRaw?.data;
-  const cfItems: any[] = Array.isArray(_cf) ? _cf : Array.isArray(_cf?.items) ? _cf.items : [];
-
-  // Build monthly chart — normalize keys
-  const monthlyRevenue = cfItems.map((m: any, idx: number) => {
-    const label = m.month_label ?? m.month ?? m.period ?? VIET_MONTHS[idx] ?? `T${idx + 1}`;
-    const shortLabel = typeof label === 'string' && label.length > 4 ? label.slice(-4) : label;
-    return {
-      name: shortLabel,
-      'Doanh thu': m.income ?? m.revenue ?? m.total_income ?? 0,
-      'Chi phí': m.expense ?? m.cost ?? m.total_expense ?? 0,
-      'Lợi nhuận': (m.income ?? m.revenue ?? 0) - (m.expense ?? m.cost ?? 0),
-    };
-  });
-
-  // YoY comparison — split into this year vs last year
+  // Section 2 – YoY line chart
   const currentYear = new Date().getFullYear();
-  const lastYear = currentYear - 1;
-
-  // Attempt to get YoY from finance or build from cashflow
-  const _yoyRaw = finance?.yoy_data ?? finance?.monthly_yoy ?? [];
-  const yoyData: any[] = Array.isArray(_yoyRaw) && _yoyRaw.length > 0
-    ? _yoyRaw.map((d: any, i: number) => ({
-        name: VIET_MONTHS[i] ?? `T${i+1}`,
-        [currentYear]: d.this_year ?? d.current ?? 0,
-        [lastYear]: d.last_year ?? d.previous ?? 0,
-      }))
-    : VIET_MONTHS.map((m, i) => ({
-        name: m,
-        [currentYear]: cfItems[i]?.income ?? cfItems[i]?.revenue ?? 0,
-        [lastYear]: cfItems[i]?.last_year_income ?? cfItems[i]?.prev_year_revenue ?? 0,
-      }));
-
-  // Maker pie data
-  const _maker = makerRaw?.data;
-  const makerArr: any[] = Array.isArray(_maker) ? _maker : Array.isArray(_maker?.items) ? _maker.items : [];
-  const makerPie = makerArr.slice(0, 5).map((m: any) => ({
-    name: m.maker_name ?? m.name ?? m.maker ?? '—',
-    value: m.rfq_count ?? m.count ?? m.total ?? 0,
+  const yoyChartData = yoy.map((y: any, i: number) => ({
+    name: VM[i] ?? `T${y.month_num ?? i + 1}`,
+    [`Năm ${currentYear}`]:     y.rfq_this_year  ?? 0,
+    [`Năm ${currentYear - 1}`]: y.rfq_last_year  ?? 0,
   }));
 
-  // Price analytics overview
-  const priceOverview = priceOverviewRaw?.data ?? priceOverviewRaw ?? {};
-  const winRate = Number(priceOverview?.win_rate ?? 0);
+  // Section 3 – Funnel
+  const funnelStages = [
+    { label: 'RFQ nhận được', value: funnel.rfq_received ?? 0, color: C.blue },
+    { label: 'Đã báo giá',    value: funnel.quoted       ?? 0, color: C.purple },
+    { label: 'Đã thắng',      value: funnel.won          ?? 0, color: C.green },
+    { label: 'Đã giao hàng',  value: funnel.delivered    ?? 0, color: C.amber },
+    { label: 'Đã xuất hóa đơn', value: funnel.invoiced   ?? 0, color: C.slate },
+  ];
+  const funnelMax = funnelStages[0]?.value || 1;
 
-  // Inventory alerts
-  const _inv = inventoryRaw?.data;
-  const invDash = _inv ?? {};
-  const lowStockItems: any[] = Array.isArray(invDash?.low_stock_items)
-    ? invDash.low_stock_items.slice(0, 5)
-    : [];
-
-  // Team workload
-  const _wl = workloadRaw?.data;
-  const workloadArr: any[] = Array.isArray(_wl) ? _wl : Array.isArray(_wl?.items) ? _wl.items : [];
-  const workloadData = workloadArr.slice(0, 8).map((w: any) => ({
-    name: w.user_name ?? w.full_name ?? w.name ?? '—',
-    tasks: w.task_count ?? w.assigned ?? w.total ?? 0,
-    done: w.completed ?? w.done ?? 0,
+  // Section 3 – Win rate trend + average
+  const avgWinRate = winRateTrend.length
+    ? winRateTrend.reduce((s: number, r: any) => s + (r.win_rate ?? 0), 0) / winRateTrend.length
+    : 0;
+  const winRateChartData = winRateTrend.map((r: any) => ({
+    name:        monthLabel(r.month ?? ''),
+    'Tỷ lệ thắng': r.win_rate ?? 0,
   }));
 
-  const isLoading = kpisLoading || financeLoading;
+  // Section 4 – Owners horizontal bar
+  const ownersChartData = [...owners]
+    .sort((a: any, b: any) => (b.win_rate ?? 0) - (a.win_rate ?? 0))
+    .map((o: any) => ({
+      name:           o.owner ?? '',
+      'Được giao':    o.total  ?? 0,
+      'Đã thắng':     o.won    ?? 0,
+      'Tỷ lệ':        o.win_rate ?? 0,
+    }));
 
+  // Section 4 – Makers donut
+  const makersChartData = makers.map((m: any) => ({
+    name:  m.maker    ?? '',
+    value: m.total    ?? 0,
+    won:   m.won      ?? 0,
+    rate:  m.win_rate ?? 0,
+  }));
+
+  // ── Funnel conversion helpers ──────────────────────────────────
+  function convPct(from: number, to: number): string {
+    if (!from) return '—';
+    return `${Math.round((to / from) * 100)}%`;
+  }
+
+  // ── Render ─────────────────────────────────────────────────────
   return (
-    <div className="space-y-6 pb-10">
-      {/* ── Header ──────────────────────────────────────────────── */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-slate-900">Bảng điều khiển</h1>
-          <p className="text-sm text-slate-500 mt-0.5">
-            Cập nhật lần cuối: {new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })}
-            <span className="ml-2 inline-flex items-center gap-1">
-              <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
-              <span className="text-emerald-600 font-medium">Live</span>
-            </span>
-          </p>
-        </div>
-        <div className="flex items-center gap-2 text-xs text-slate-500 bg-slate-50 rounded-xl px-3 py-2 border border-slate-200">
-          <Activity className="h-3.5 w-3.5" />
-          Tự động làm mới mỗi 30 giây
-        </div>
-      </div>
+    <div className="min-h-screen bg-slate-50 p-6 space-y-8">
 
-      {/* ── ROW 1: KPI Cards ────────────────────────────────────── */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <KPICard
-          label="PO đang theo dõi"
-          value={poActive}
-          change={poChange}
-          icon={<ShoppingCart className="h-5 w-5" />}
-          accentColor={COLORS.brand}
-          fadeBg="bg-blue-50"
-          loading={isLoading}
-          sparkData={poTrend}
-          sparkColor={COLORS.brand}
+      {/* ═══ SECTION 1: Executive Pulse ═══════════════════════════ */}
+      <section>
+        <SectionHeader
+          title="Tổng quan điều hành"
+          subtitle="Cập nhật mỗi 30 giây"
+          icon={<Activity className="w-4 h-4" />}
         />
-        <KPICard
-          label="Doanh thu tháng"
-          value={formatCurrency(revMonth)}
-          change={pct(revMonth, revMonthPrev)}
-          icon={<BarChart3 className="h-5 w-5" />}
-          accentColor={COLORS.success}
-          fadeBg="bg-emerald-50"
-          loading={isLoading}
-          sparkData={revTrend}
-          sparkColor={COLORS.success}
-        />
-        <KPICard
-          label="Doanh thu năm (YTD)"
-          value={formatCurrency(revYear)}
-          change={pct(revYear, revYearPrev)}
-          icon={<TrendingUp className="h-5 w-5" />}
-          accentColor={COLORS.purple}
-          fadeBg="bg-purple-50"
-          loading={isLoading}
-          sparkData={[]}
-          sparkColor={COLORS.purple}
-        />
-        <KPICard
-          label="RFQ đang xử lý"
-          value={rfqActive}
-          icon={<Zap className="h-5 w-5" />}
-          accentColor={COLORS.warning}
-          fadeBg="bg-amber-50"
-          loading={bqmsLoading}
-          sparkData={[]}
-          sparkColor={COLORS.warning}
-        />
-      </div>
 
-      {/* ── ROW 2: Revenue Charts ────────────────────────────────── */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Doanh thu theo tháng — BarChart */}
-        <div className="bg-white rounded-2xl p-5 shadow-sm border border-slate-100">
-          <SectionHeader
-            title="Doanh thu theo tháng"
-            subtitle="12 tháng gần nhất — thu nhập, chi phí và lợi nhuận"
-            icon={<BarChart3 className="h-4 w-4" />}
-          />
-          {monthlyRevenue.length > 0 ? (
-            <ResponsiveContainer width="100%" height={280}>
-              <BarChart data={monthlyRevenue} margin={{ top: 4, right: 4, bottom: 0, left: 0 }} barGap={2}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
-                <XAxis dataKey="name" tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
-                <YAxis tickFormatter={formatBillions} tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false} width={48} />
-                <Tooltip content={<VndTooltip />} cursor={{ fill: '#f8fafc' }} />
-                <Legend wrapperStyle={{ fontSize: 11, color: '#64748b', paddingTop: 8 }} />
-                <Bar dataKey="Doanh thu" fill={COLORS.brandLight} radius={[4, 4, 0, 0]} maxBarSize={28} />
-                <Bar dataKey="Chi phí" fill={COLORS.warning} radius={[4, 4, 0, 0]} maxBarSize={28} />
-                <Bar dataKey="Lợi nhuận" fill={COLORS.success} radius={[4, 4, 0, 0]} maxBarSize={28} />
-              </BarChart>
-            </ResponsiveContainer>
+        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+
+          {/* Card 1 — RFQ tháng này */}
+          {isLoading ? (
+            <Skeleton className="h-36" />
           ) : (
-            <EmptyChart height={280} message="Chưa có dữ liệu dòng tiền" />
-          )}
-        </div>
-
-        {/* So sánh cùng kỳ — LineChart YoY */}
-        <div className="bg-white rounded-2xl p-5 shadow-sm border border-slate-100">
-          <SectionHeader
-            title="So sánh doanh thu cùng kỳ (YoY)"
-            subtitle={`${currentYear} vs ${lastYear} — 12 tháng`}
-            icon={<TrendingUp className="h-4 w-4" />}
-          />
-          <ResponsiveContainer width="100%" height={280}>
-            <LineChart data={yoyData} margin={{ top: 4, right: 4, bottom: 0, left: 0 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
-              <XAxis dataKey="name" tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
-              <YAxis tickFormatter={formatBillions} tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false} width={48} />
-              <Tooltip content={<VndTooltip />} />
-              <Legend wrapperStyle={{ fontSize: 11, color: '#64748b', paddingTop: 8 }} />
-              <Line
-                type="monotone"
-                dataKey={String(currentYear)}
-                stroke={COLORS.brand}
-                strokeWidth={2.5}
-                dot={{ fill: COLORS.brand, r: 3, strokeWidth: 0 }}
-                activeDot={{ r: 5 }}
-              />
-              <Line
-                type="monotone"
-                dataKey={String(lastYear)}
-                stroke={COLORS.slate}
-                strokeWidth={2}
-                strokeDasharray="5 4"
-                dot={{ fill: COLORS.slate, r: 3, strokeWidth: 0 }}
-                activeDot={{ r: 5 }}
-              />
-            </LineChart>
-          </ResponsiveContainer>
-        </div>
-      </div>
-
-      {/* ── ROW 3: RFQ Alerts + Maker Pie ───────────────────────── */}
-      <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
-        {/* RFQ sắp hết hạn — col-span 3 */}
-        <div className="lg:col-span-3 bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
-          <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100">
-            <div className="flex items-center gap-2">
-              <div className="w-8 h-8 rounded-xl bg-red-50 flex items-center justify-center">
-                <Clock className="h-4 w-4 text-red-500" />
+            <div className="bg-white rounded-2xl p-5 shadow-sm border border-slate-100 hover:shadow-md transition-shadow">
+              <div className="flex items-start justify-between mb-3">
+                <div className="w-10 h-10 rounded-xl flex items-center justify-center bg-blue-50">
+                  <BarChart3 className="w-5 h-5 text-blue-600" />
+                </div>
+                <span className={cn(
+                  'flex items-center gap-0.5 text-xs font-bold px-2 py-1 rounded-full',
+                  rfqMomPct > 0 ? 'bg-emerald-50 text-emerald-700' :
+                  rfqMomPct < 0 ? 'bg-red-50 text-red-600' : 'bg-slate-50 text-slate-500'
+                )}>
+                  {rfqMomPct > 0 ? <ArrowUpRight className="w-3 h-3" /> :
+                   rfqMomPct < 0 ? <ArrowDownRight className="w-3 h-3" /> :
+                   <Minus className="w-3 h-3" />}
+                  {Math.abs(rfqMomPct).toFixed(1)}%
+                </span>
               </div>
-              <div>
-                <h3 className="text-sm font-bold text-slate-800">RFQ sắp hết hạn</h3>
-                <p className="text-xs text-slate-400">Trong vòng 48 giờ tới — click để điền báo giá</p>
+              <p className="text-3xl font-black text-slate-900 font-mono">{rfqThisMonth.toLocaleString('vi-VN')}</p>
+              <p className="text-xs text-slate-400 font-medium mt-0.5 mb-3">RFQ tháng này</p>
+              <Sparkline data={rfqSpark} color={C.blue} />
+            </div>
+          )}
+
+          {/* Card 2 — Tỷ lệ thắng */}
+          {isLoading ? (
+            <Skeleton className="h-36" />
+          ) : (
+            <div className="bg-white rounded-2xl p-5 shadow-sm border border-slate-100 hover:shadow-md transition-shadow">
+              <div className="flex items-start justify-between mb-3">
+                <div className="w-10 h-10 rounded-xl flex items-center justify-center bg-green-50">
+                  <Target className="w-5 h-5 text-green-600" />
+                </div>
+                <span className={cn(
+                  'flex items-center gap-0.5 text-xs font-bold px-2 py-1 rounded-full',
+                  winRateDelta > 0 ? 'bg-emerald-50 text-emerald-700' :
+                  winRateDelta < 0 ? 'bg-red-50 text-red-600' : 'bg-slate-50 text-slate-500'
+                )}>
+                  {winRateDelta > 0 ? <ArrowUpRight className="w-3 h-3" /> :
+                   winRateDelta < 0 ? <ArrowDownRight className="w-3 h-3" /> :
+                   <Minus className="w-3 h-3" />}
+                  {Math.abs(winRateDelta).toFixed(1)} điểm %
+                </span>
+              </div>
+              <div className="flex items-end gap-3">
+                <div>
+                  <p className="text-3xl font-black text-slate-900 font-mono">{winRate3m.toFixed(1)}%</p>
+                  <p className="text-xs text-slate-400 font-medium mt-0.5">Tỷ lệ thắng 3 tháng</p>
+                  <p className="text-xs text-slate-400 mt-1">{won3m} / {decided3m} RFQ đã quyết</p>
+                </div>
+                <div className="ml-auto">
+                  <RingProgress value={winRate3m} max={100} color={C.green} size={52} />
+                </div>
               </div>
             </div>
-            {urgentRfqs.length > 0 && (
-              <span className="inline-flex items-center gap-1 bg-red-50 text-red-600 text-xs font-bold px-2.5 py-1 rounded-full">
-                <span className="h-1.5 w-1.5 rounded-full bg-red-500 animate-pulse" />
-                {urgentRfqs.length} cần xử lý
-              </span>
+          )}
+
+          {/* Card 3 — Doanh thu tháng */}
+          {isLoading ? (
+            <Skeleton className="h-36" />
+          ) : (
+            <div className="bg-white rounded-2xl p-5 shadow-sm border border-slate-100 hover:shadow-md transition-shadow">
+              <div className="flex items-start justify-between mb-3">
+                <div className="w-10 h-10 rounded-xl flex items-center justify-center bg-purple-50">
+                  <TrendingUp className="w-5 h-5 text-purple-600" />
+                </div>
+                <span className={cn(
+                  'flex items-center gap-0.5 text-xs font-bold px-2 py-1 rounded-full',
+                  revMomPct > 0 ? 'bg-emerald-50 text-emerald-700' :
+                  revMomPct < 0 ? 'bg-red-50 text-red-600' : 'bg-slate-50 text-slate-500'
+                )}>
+                  {revMomPct > 0 ? <ArrowUpRight className="w-3 h-3" /> :
+                   revMomPct < 0 ? <ArrowDownRight className="w-3 h-3" /> :
+                   <Minus className="w-3 h-3" />}
+                  {Math.abs(revMomPct).toFixed(1)}%
+                </span>
+              </div>
+              <p className="text-3xl font-black text-slate-900 font-mono">{fmtVnd(revThisMonth)}</p>
+              <p className="text-xs text-slate-400 font-medium mt-0.5">Doanh thu tháng này (VND)</p>
+              <div className="mt-3 h-9">
+                <Sparkline
+                  data={monthlyRevenue.map((m: any) => m.won_revenue ?? 0)}
+                  color={C.purple}
+                />
+              </div>
+            </div>
+          )}
+
+          {/* Card 4 — Cần xử lý */}
+          {isLoading ? (
+            <Skeleton className="h-36" />
+          ) : (
+            <div className="bg-white rounded-2xl p-5 shadow-sm border border-slate-100 hover:shadow-md transition-shadow">
+              <div className="flex items-start justify-between mb-3">
+                <div className="w-10 h-10 rounded-xl flex items-center justify-center bg-amber-50">
+                  <Clock className="w-5 h-5 text-amber-600" />
+                </div>
+                {rfqOverdue > 0 && (
+                  <span className="flex items-center gap-0.5 text-xs font-bold px-2 py-1 rounded-full bg-red-100 text-red-700">
+                    <AlertTriangle className="w-3 h-3" />
+                    {rfqOverdue} quá hạn
+                  </span>
+                )}
+              </div>
+              <p className="text-3xl font-black text-slate-900 font-mono">{rfqPending.toLocaleString('vi-VN')}</p>
+              <p className="text-xs text-slate-400 font-medium mt-0.5 mb-3">RFQ đang chờ xử lý</p>
+              <div className="flex items-center gap-2">
+                <div className="flex-1 h-2 bg-slate-100 rounded-full overflow-hidden">
+                  <div
+                    className="h-full bg-red-400 rounded-full transition-all"
+                    style={{ width: rfqPending ? `${Math.min((rfqOverdue / rfqPending) * 100, 100)}%` : '0%' }}
+                  />
+                </div>
+                <span className="text-xs text-slate-400 shrink-0">
+                  {rfqPending ? Math.round((rfqOverdue / rfqPending) * 100) : 0}% quá hạn
+                </span>
+              </div>
+            </div>
+          )}
+        </div>
+      </section>
+
+      {/* ═══ SECTION 2: Revenue & Comparison ═════════════════════ */}
+      <section>
+        <SectionHeader
+          title="Doanh thu & So sánh"
+          subtitle="12 tháng gần nhất"
+          icon={<BarChart3 className="w-4 h-4" />}
+        />
+
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+
+          {/* Left — Grouped bar: total_quoted vs won_revenue */}
+          <div className="bg-white rounded-2xl p-5 shadow-sm border border-slate-100">
+            <p className="text-xs font-semibold text-slate-600 mb-4">Báo giá vs Doanh thu chốt (VND)</p>
+            {isLoading ? <Skeleton className="h-56" /> : (
+              <ResponsiveContainer width="100%" height={220}>
+                <BarChart data={revenueChartData} barCategoryGap="30%" barGap={2}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
+                  <XAxis dataKey="name" tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
+                  <YAxis tickFormatter={fmtVnd} tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false} width={44} />
+                  <Tooltip content={<VndTooltip />} />
+                  <Legend wrapperStyle={{ fontSize: 11, paddingTop: 8 }} />
+                  <Bar dataKey="Báo giá"   fill={C.blue}  radius={[3,3,0,0]} />
+                  <Bar dataKey="Chốt được" fill={C.green} radius={[3,3,0,0]} />
+                </BarChart>
+              </ResponsiveContainer>
             )}
           </div>
-          {urgentRfqs.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-12 text-slate-300">
-              <Clock className="h-10 w-10 mb-2" />
-              <p className="text-sm text-slate-400">Không có RFQ nào sắp hết hạn</p>
-            </div>
-          ) : (
-            <div className="divide-y divide-slate-50">
-              {/* Table header */}
-              <div className="grid grid-cols-[1fr_auto_auto_auto] gap-3 px-5 py-2 bg-slate-50">
-                <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Mã RFQ / BQMS</span>
-                <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Deadline</span>
-                <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Còn lại</span>
-                <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Trạng thái</span>
-              </div>
-              {urgentRfqs.map((rfq: any, idx: number) => {
-                const dl = rfq.deadline_dt ?? rfq.deadline ?? rfq.due_date;
-                const urgency = deadlineUrgency(dl);
-                const hrs = hoursUntil(dl);
-                const rfqCode = rfq.rfq_code ?? rfq.rfq_no ?? rfq.code ?? `RFQ-${idx + 1}`;
-                const bqmsCode = rfq.bqms_code ?? rfq.reference ?? '—';
-                const status = rfq.status ?? 'pending';
 
-                return (
-                  <button
-                    key={rfq.id ?? idx}
-                    onClick={() => router.push(`/bqms/quotation/new?rfq_code=${encodeURIComponent(rfqCode)}`)}
-                    className={cn(
-                      'w-full grid grid-cols-[1fr_auto_auto_auto] gap-3 items-center px-5 py-3 text-left transition-all duration-150 hover:bg-slate-50 group',
-                      urgency === 'critical' && 'bg-red-50/60 hover:bg-red-50',
-                      urgency === 'warning' && 'bg-amber-50/50 hover:bg-amber-50',
-                    )}
-                  >
-                    <div className="min-w-0">
-                      <div className="flex items-center gap-2">
-                        {urgency === 'critical' && (
-                          <span className="h-1.5 w-1.5 rounded-full bg-red-500 animate-pulse flex-shrink-0" />
-                        )}
-                        <span className="text-sm font-semibold text-slate-800 font-mono truncate">{rfqCode}</span>
-                      </div>
-                      <span className="text-xs text-slate-400 font-mono">{bqmsCode}</span>
-                    </div>
-                    <span className="text-xs text-slate-600 font-mono whitespace-nowrap">
-                      {formatDate(dl)}
-                    </span>
-                    <span className={cn(
-                      'text-xs font-bold whitespace-nowrap',
-                      urgency === 'critical' ? 'text-red-600' : 'text-amber-600'
-                    )}>
-                      {hrs < 1 ? `${Math.round(hrs * 60)}p` : `${Math.round(hrs)}h`}
-                    </span>
-                    <div className="flex items-center gap-1.5">
-                      <span className={cn(
-                        'text-xs px-2 py-0.5 rounded-full font-medium capitalize',
-                        urgency === 'critical' ? 'bg-red-100 text-red-700' : 'bg-amber-100 text-amber-700'
-                      )}>
-                        {status}
-                      </span>
-                      <ChevronRight className="h-3.5 w-3.5 text-slate-300 group-hover:text-brand-500 transition-colors" />
-                    </div>
-                  </button>
-                );
-              })}
-            </div>
-          )}
-        </div>
-
-        {/* Phân bổ theo Maker — Donut + col-span 2 */}
-        <div className="lg:col-span-2 bg-white rounded-2xl shadow-sm border border-slate-100 p-5">
-          <SectionHeader
-            title="Phân bổ theo Maker"
-            subtitle="Top 5 makers theo RFQ 12 tháng"
-            icon={<Package className="h-4 w-4" />}
-          />
-          {makerPie.length > 0 ? (
-            <div className="flex flex-col items-center">
-              <ResponsiveContainer width="100%" height={200}>
-                <PieChart>
-                  <Pie
-                    data={makerPie}
-                    cx="50%"
-                    cy="50%"
-                    innerRadius={55}
-                    outerRadius={85}
-                    paddingAngle={3}
-                    dataKey="value"
-                  >
-                    {makerPie.map((_: any, i: number) => (
-                      <Cell key={i} fill={MAKER_COLORS[i % MAKER_COLORS.length]} />
-                    ))}
-                  </Pie>
-                  <Tooltip
-                    formatter={(val: any, name: any) => [val, name]}
-                    contentStyle={{ borderRadius: 12, fontSize: 12, border: 'none', boxShadow: '0 4px 20px rgba(0,0,0,0.12)' }}
+          {/* Right — YoY line chart */}
+          <div className="bg-white rounded-2xl p-5 shadow-sm border border-slate-100">
+            <p className="text-xs font-semibold text-slate-600 mb-4">So sánh RFQ năm nay vs năm ngoái</p>
+            {isLoading ? <Skeleton className="h-56" /> : (
+              <ResponsiveContainer width="100%" height={220}>
+                <LineChart data={yoyChartData}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
+                  <XAxis dataKey="name" tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
+                  <YAxis tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false} width={36} />
+                  <Tooltip content={<CountTooltip />} />
+                  <Legend wrapperStyle={{ fontSize: 11, paddingTop: 8 }} />
+                  <Line
+                    dataKey={`Năm ${currentYear}`}
+                    stroke={C.blue} strokeWidth={2.5}
+                    dot={{ r: 3, fill: C.blue }} activeDot={{ r: 5 }}
+                    type="monotone"
                   />
-                </PieChart>
+                  <Line
+                    dataKey={`Năm ${currentYear - 1}`}
+                    stroke="#94a3b8" strokeWidth={2} strokeDasharray="5 3"
+                    dot={{ r: 3, fill: '#94a3b8' }} activeDot={{ r: 5 }}
+                    type="monotone"
+                  />
+                </LineChart>
               </ResponsiveContainer>
-              <div className="w-full space-y-1.5 mt-1">
-                {makerPie.map((m: any, i: number) => {
-                  const total = makerPie.reduce((s: number, x: any) => s + (x.value ?? 0), 0);
-                  const pctVal = total > 0 ? Math.round((m.value / total) * 100) : 0;
+            )}
+          </div>
+        </div>
+      </section>
+
+      {/* ═══ SECTION 3: Funnel + Win Rate Trend ══════════════════ */}
+      <section>
+        <SectionHeader
+          title="Phễu bán hàng & Xu hướng tỷ lệ thắng"
+          subtitle="Chuyển đổi từng giai đoạn"
+          icon={<Zap className="w-4 h-4" />}
+        />
+
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+
+          {/* Left — Funnel */}
+          <div className="bg-white rounded-2xl p-5 shadow-sm border border-slate-100">
+            <p className="text-xs font-semibold text-slate-600 mb-5">Phễu chuyển đổi</p>
+            {isLoading ? <Skeleton className="h-56" /> : (
+              <div className="space-y-3">
+                {funnelStages.map((stage, idx) => {
+                  const widthPct = funnelMax ? Math.max((stage.value / funnelMax) * 100, 4) : 4;
+                  const prevVal  = idx > 0 ? funnelStages[idx - 1].value : null;
+                  const conv     = prevVal !== null ? convPct(prevVal, stage.value) : null;
                   return (
-                    <div key={i} className="flex items-center gap-2">
-                      <span className="h-2.5 w-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: MAKER_COLORS[i % MAKER_COLORS.length] }} />
-                      <span className="text-xs text-slate-600 flex-1 truncate">{m.name}</span>
-                      <span className="text-xs font-bold text-slate-700 font-mono">{pctVal}%</span>
+                    <div key={stage.label}>
+                      {conv && (
+                        <div className="flex items-center gap-1.5 mb-1 ml-1">
+                          <div className="w-px h-3 bg-slate-200" />
+                          <span className="text-xs text-slate-400">{conv} chuyển đổi</span>
+                        </div>
+                      )}
+                      <div className="flex items-center gap-3">
+                        <div className="w-[130px] shrink-0 text-right">
+                          <span className="text-xs text-slate-500 font-medium truncate block">{stage.label}</span>
+                        </div>
+                        <div className="flex-1 h-7 bg-slate-50 rounded-lg overflow-hidden relative">
+                          <div
+                            className="h-full rounded-lg transition-all duration-700 ease-out flex items-center justify-end pr-2"
+                            style={{ width: `${widthPct}%`, backgroundColor: stage.color }}
+                          >
+                            <span className="text-white text-xs font-bold drop-shadow">
+                              {stage.value.toLocaleString('vi-VN')}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
                     </div>
                   );
                 })}
               </div>
-            </div>
-          ) : (
-            <EmptyChart height={200} message="Chưa có dữ liệu maker" />
-          )}
-
-          {/* Win Rate callout */}
-          {winRate > 0 && (
-            <div className="mt-4 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-xl p-3 border border-blue-100">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-medium text-slate-600">BQMS Win Rate</span>
-                <span className={cn(
-                  'text-sm font-bold',
-                  winRate >= 50 ? 'text-emerald-600' : 'text-amber-600'
-                )}>
-                  {winRate.toFixed(1)}%
-                </span>
-              </div>
-              <div className="mt-1.5 h-1.5 bg-white/60 rounded-full overflow-hidden">
-                <div
-                  className={cn('h-full rounded-full transition-all', winRate >= 50 ? 'bg-emerald-500' : 'bg-amber-500')}
-                  style={{ width: `${Math.min(100, winRate)}%` }}
-                />
-              </div>
-              <div className="flex justify-between mt-1">
-                <span className="text-xs text-slate-400">Thắng: {priceOverview?.won_count ?? 0}</span>
-                <span className="text-xs text-slate-400">Tổng: {priceOverview?.total_rfq ?? 0}</span>
-              </div>
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* ── ROW 4: Team Workload + Inventory ────────────────────── */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Workload team */}
-        <div className="bg-white rounded-2xl p-5 shadow-sm border border-slate-100">
-          <SectionHeader
-            title="Workload nhóm"
-            subtitle="Phân công công việc theo thành viên"
-            icon={<Users className="h-4 w-4" />}
-          />
-          {workloadData.length > 0 ? (
-            <ResponsiveContainer width="100%" height={240}>
-              <BarChart
-                layout="vertical"
-                data={workloadData}
-                margin={{ top: 0, right: 40, bottom: 0, left: 80 }}
-                barGap={2}
-              >
-                <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" horizontal={false} />
-                <XAxis type="number" tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
-                <YAxis type="category" dataKey="name" tick={{ fontSize: 11, fill: '#64748b' }} axisLine={false} tickLine={false} width={76} />
-                <Tooltip content={<PctTooltip />} cursor={{ fill: '#f8fafc' }} />
-                <Legend wrapperStyle={{ fontSize: 11, color: '#64748b', paddingTop: 8 }} />
-                <Bar dataKey="tasks" name="Được giao" fill={COLORS.brandLight} radius={[0, 4, 4, 0]} maxBarSize={14} />
-                <Bar dataKey="done" name="Hoàn thành" fill={COLORS.success} radius={[0, 4, 4, 0]} maxBarSize={14} />
-              </BarChart>
-            </ResponsiveContainer>
-          ) : (
-            <EmptyChart height={240} message="Chưa có dữ liệu workload" />
-          )}
-        </div>
-
-        {/* Inventory low-stock alerts */}
-        <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
-          <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100">
-            <div className="flex items-center gap-2">
-              <div className="w-8 h-8 rounded-xl bg-amber-50 flex items-center justify-center">
-                <AlertTriangle className="h-4 w-4 text-amber-500" />
-              </div>
-              <div>
-                <h3 className="text-sm font-bold text-slate-800">Cảnh báo tồn kho</h3>
-                <p className="text-xs text-slate-400">Mặt hàng dưới mức tối thiểu</p>
-              </div>
-            </div>
-            <Link
-              href="/inventory"
-              className="text-xs text-brand-600 hover:text-brand-700 font-semibold flex items-center gap-0.5 transition-colors"
-            >
-              Xem kho
-              <ChevronRight className="h-3.5 w-3.5" />
-            </Link>
+            )}
           </div>
 
-          {/* Inventory KPI row */}
-          {invDash?.total_items != null && (
-            <div className="grid grid-cols-3 gap-px bg-slate-100 border-b border-slate-100">
-              {[
-                { label: 'Tổng SKU', value: invDash?.total_items ?? invDash?.sku_count ?? 0, color: 'text-slate-700' },
-                { label: 'Cảnh báo', value: invDash?.low_stock_count ?? lowStockItems.length, color: 'text-amber-600' },
-                { label: 'Hết hàng', value: invDash?.out_of_stock_count ?? invDash?.out_of_stock ?? 0, color: 'text-red-600' },
-              ].map((s, i) => (
-                <div key={i} className="bg-white px-4 py-2.5 text-center">
-                  <p className={cn('text-lg font-bold font-mono', s.color)}>{s.value}</p>
-                  <p className="text-xs text-slate-400">{s.label}</p>
-                </div>
-              ))}
+          {/* Right — Win rate area trend */}
+          <div className="bg-white rounded-2xl p-5 shadow-sm border border-slate-100">
+            <div className="flex items-center justify-between mb-4">
+              <p className="text-xs font-semibold text-slate-600">Xu hướng tỷ lệ thắng 12 tháng</p>
+              {avgWinRate > 0 && (
+                <span className="text-xs text-slate-400 bg-slate-50 px-2 py-0.5 rounded-full">
+                  TB: {avgWinRate.toFixed(1)}%
+                </span>
+              )}
             </div>
-          )}
-
-          <div className="divide-y divide-slate-50">
-            {lowStockItems.length === 0 ? (
-              <div className="flex flex-col items-center justify-center py-10 text-slate-300">
-                <AlertTriangle className="h-8 w-8 mb-2" />
-                <p className="text-sm text-slate-400">Không có cảnh báo tồn kho</p>
-              </div>
-            ) : (
-              lowStockItems.map((item: any, idx: number) => {
-                const current = item.quantity ?? item.current_stock ?? item.qty ?? 0;
-                const min = item.min_stock ?? item.min_qty ?? 1;
-                const ratio = min > 0 ? current / min : 0;
-                return (
-                  <div key={item.id ?? idx} className="px-5 py-3 hover:bg-slate-50/60 transition-colors">
-                    <div className="flex items-center justify-between mb-1.5">
-                      <div className="min-w-0 flex-1">
-                        <p className="text-sm font-semibold text-slate-700 truncate">
-                          {item.product_name ?? item.name ?? '—'}
-                        </p>
-                        <span className="text-xs font-mono text-slate-400">
-                          {item.product_code ?? item.sku ?? '—'}
-                        </span>
-                      </div>
-                      <div className="text-right flex-shrink-0 ml-3">
-                        <p className={cn('text-sm font-bold font-mono', ratio < 0.3 ? 'text-red-600' : 'text-amber-600')}>
-                          {current}
-                        </p>
-                        <span className="text-xs text-slate-400">/ {min} min</span>
-                      </div>
-                    </div>
-                    <div className="h-1.5 bg-slate-100 rounded-full overflow-hidden">
-                      <div
-                        className={cn(
-                          'h-full rounded-full transition-all',
-                          ratio < 0.3 ? 'bg-red-500' : ratio < 0.6 ? 'bg-amber-500' : 'bg-emerald-500'
-                        )}
-                        style={{ width: `${Math.min(100, ratio * 100)}%` }}
-                      />
-                    </div>
-                  </div>
-                );
-              })
+            {isLoading ? <Skeleton className="h-56" /> : (
+              <ResponsiveContainer width="100%" height={220}>
+                <AreaChart data={winRateChartData}>
+                  <defs>
+                    <linearGradient id="wr-fill" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%"  stopColor={C.green} stopOpacity={0.25} />
+                      <stop offset="95%" stopColor={C.green} stopOpacity={0} />
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
+                  <XAxis dataKey="name" tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
+                  <YAxis
+                    tickFormatter={(v) => `${v}%`}
+                    tick={{ fontSize: 11, fill: '#94a3b8' }}
+                    axisLine={false} tickLine={false} width={36}
+                  />
+                  <Tooltip content={<WinRateTooltip />} />
+                  {avgWinRate > 0 && (
+                    <ReferenceLine
+                      y={avgWinRate} stroke={C.amber}
+                      strokeDasharray="4 3" strokeWidth={1.5}
+                      label={{ value: `TB ${avgWinRate.toFixed(1)}%`, position: 'insideTopRight', fontSize: 10, fill: C.amber }}
+                    />
+                  )}
+                  <Area
+                    type="monotone" dataKey="Tỷ lệ thắng"
+                    stroke={C.green} strokeWidth={2.5}
+                    fill="url(#wr-fill)"
+                    dot={{ r: 3, fill: C.green }} activeDot={{ r: 5 }}
+                  />
+                </AreaChart>
+              </ResponsiveContainer>
             )}
           </div>
         </div>
-      </div>
-    </div>
-  );
-}
+      </section>
 
-// ─── Empty Chart Placeholder ─────────────────────────────────────
+      {/* ═══ SECTION 4: Maker Distribution + Owner Performance ═══ */}
+      <section>
+        <SectionHeader
+          title="Phân tích nhà sản xuất & Hiệu suất nhân viên"
+          subtitle="Dữ liệu tích lũy"
+          icon={<Users className="w-4 h-4" />}
+        />
 
-function EmptyChart({ height, message }: { height: number; message: string }) {
-  return (
-    <div
-      className="flex flex-col items-center justify-center text-slate-300 rounded-xl bg-slate-50/60"
-      style={{ height }}
-    >
-      <BarChart3 className="h-8 w-8 mb-2" />
-      <p className="text-sm text-slate-400">{message}</p>
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+
+          {/* Left — Makers donut */}
+          <div className="bg-white rounded-2xl p-5 shadow-sm border border-slate-100">
+            <p className="text-xs font-semibold text-slate-600 mb-4">Top maker (theo số RFQ)</p>
+            {isLoading ? <Skeleton className="h-64" /> : (
+              <div className="flex items-center gap-4">
+                <div className="relative shrink-0">
+                  <ResponsiveContainer width={180} height={180}>
+                    <PieChart>
+                      <Pie
+                        data={makersChartData}
+                        cx="50%" cy="50%"
+                        innerRadius={52} outerRadius={78}
+                        paddingAngle={2}
+                        dataKey="value"
+                        isAnimationActive
+                      >
+                        {makersChartData.map((_: any, i: number) => (
+                          <Cell key={i} fill={DONUT_COLORS[i % DONUT_COLORS.length]} />
+                        ))}
+                      </Pie>
+                      <Tooltip
+                        formatter={(val: any, name: any, props: any) => [
+                          `${val} RFQ (Win: ${props.payload.rate?.toFixed(1)}%)`, name
+                        ]}
+                      />
+                    </PieChart>
+                  </ResponsiveContainer>
+                  <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
+                    <span className="text-lg font-black text-slate-800">{makers.length}</span>
+                    <span className="text-[10px] text-slate-400 text-center leading-tight">makers</span>
+                  </div>
+                </div>
+                <div className="flex-1 space-y-2 min-w-0">
+                  {makersChartData.slice(0, 8).map((m: any, i: number) => (
+                    <div key={m.name} className="flex items-center gap-2">
+                      <span
+                        className="w-2 h-2 rounded-full shrink-0"
+                        style={{ backgroundColor: DONUT_COLORS[i % DONUT_COLORS.length] }}
+                      />
+                      <span className="text-xs text-slate-700 font-medium truncate flex-1">{m.name}</span>
+                      <span className="text-xs text-slate-400 font-mono shrink-0">{m.value}</span>
+                      <span
+                        className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full shrink-0"
+                        style={{
+                          backgroundColor: m.rate >= 30 ? C.greenFade : C.amberFade,
+                          color: m.rate >= 30 ? C.green : C.amber,
+                        }}
+                      >
+                        {m.rate?.toFixed(0)}%
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Right — Owners horizontal bar */}
+          <div className="bg-white rounded-2xl p-5 shadow-sm border border-slate-100">
+            <p className="text-xs font-semibold text-slate-600 mb-4">Hiệu suất nhân viên (sắp xếp theo tỷ lệ thắng)</p>
+            {isLoading ? <Skeleton className="h-64" /> : (
+              <ResponsiveContainer width="100%" height={Math.max(ownersChartData.length * 36 + 30, 200)}>
+                <BarChart data={ownersChartData} layout="vertical" barCategoryGap="25%" barGap={2}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" horizontal={false} />
+                  <XAxis type="number" tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
+                  <YAxis
+                    type="category" dataKey="name" width={110}
+                    tick={{ fontSize: 11, fill: '#64748b' }} axisLine={false} tickLine={false}
+                  />
+                  <Tooltip content={<CountTooltip />} />
+                  <Legend wrapperStyle={{ fontSize: 11 }} />
+                  <Bar dataKey="Được giao" fill={C.blue}  radius={[0,3,3,0]} />
+                  <Bar dataKey="Đã thắng"  fill={C.green} radius={[0,3,3,0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            )}
+          </div>
+        </div>
+      </section>
+
+      {/* ═══ SECTION 5: Action Required ══════════════════════════ */}
+      <section>
+        <SectionHeader
+          title="Cần xử lý ngay"
+          subtitle="RFQ khẩn cấp cần hành động"
+          icon={<AlertTriangle className="w-4 h-4" />}
+        />
+
+        <div className="grid grid-cols-1 lg:grid-cols-5 gap-4">
+
+          {/* Left 60% — Urgent RFQ table */}
+          <div className="lg:col-span-3 bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
+            <div className="px-5 py-3.5 border-b border-slate-50 flex items-center justify-between">
+              <p className="text-xs font-semibold text-slate-600">Danh sách RFQ khẩn cấp</p>
+              <span className="text-xs text-slate-400">{urgentRfqs.length} mục</span>
+            </div>
+
+            {isLoading ? (
+              <div className="p-5 space-y-3">
+                {[1,2,3].map(i => <Skeleton key={i} className="h-10" />)}
+              </div>
+            ) : urgentRfqs.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-12 text-slate-300">
+                <AlertTriangle className="w-8 h-8 mb-2" />
+                <p className="text-sm">Không có RFQ khẩn cấp</p>
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="bg-slate-50">
+                      <th className="text-left px-4 py-2.5 text-slate-400 font-semibold">Số RFQ</th>
+                      <th className="text-left px-4 py-2.5 text-slate-400 font-semibold">Mã BQMS</th>
+                      <th className="text-left px-4 py-2.5 text-slate-400 font-semibold">Maker</th>
+                      <th className="text-left px-4 py-2.5 text-slate-400 font-semibold">Ngày nhận</th>
+                      <th className="text-left px-4 py-2.5 text-slate-400 font-semibold">Tình trạng</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {urgentRfqs.map((rfq: any, i: number) => {
+                      const days = daysSince(rfq.inquiry_date ?? rfq.created_at ?? '');
+                      const isOverdue = days > 3;
+                      const isWarning = !isOverdue && days > 0;
+                      return (
+                        <tr
+                          key={rfq.rfq_number ?? i}
+                          onClick={() => router.push(`/bqms/quotation/new?rfq_code=${rfq.bqms_code ?? rfq.rfq_number ?? ''}`)}
+                          className={cn(
+                            'border-t border-slate-50 cursor-pointer transition-colors',
+                            isOverdue ? 'bg-red-50 hover:bg-red-100' :
+                            isWarning ? 'bg-amber-50 hover:bg-amber-100' :
+                            'hover:bg-slate-50'
+                          )}
+                        >
+                          <td className="px-4 py-2.5 font-mono font-semibold text-slate-800">
+                            {rfq.rfq_number ?? '—'}
+                          </td>
+                          <td className="px-4 py-2.5 font-mono text-slate-500">
+                            {rfq.bqms_code ?? '—'}
+                          </td>
+                          <td className="px-4 py-2.5">
+                            <span className="font-semibold text-slate-700">{rfq.maker ?? '—'}</span>
+                          </td>
+                          <td className="px-4 py-2.5 text-slate-500">
+                            {rfq.inquiry_date ? new Date(rfq.inquiry_date).toLocaleDateString('vi-VN') : '—'}
+                          </td>
+                          <td className="px-4 py-2.5">
+                            {isOverdue ? (
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-red-100 text-red-700">
+                                <AlertTriangle className="w-2.5 h-2.5" /> Quá hạn
+                              </span>
+                            ) : isWarning ? (
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-700">
+                                <Clock className="w-2.5 h-2.5" /> Sắp hạn
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-100 text-slate-500">
+                                Mới nhận
+                              </span>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+
+          {/* Right 40% — Alert cards */}
+          <div className="lg:col-span-2 space-y-4">
+
+            {/* Pending */}
+            <div className={cn(
+              'rounded-2xl p-5 border',
+              rfqPending > 0 ? 'bg-amber-50 border-amber-100' : 'bg-white border-slate-100'
+            )}>
+              <div className="flex items-start gap-3">
+                <div className="w-10 h-10 rounded-xl flex items-center justify-center bg-amber-100 shrink-0">
+                  <Clock className="w-5 h-5 text-amber-600" />
+                </div>
+                <div>
+                  <p className="text-2xl font-black text-amber-800 font-mono">{rfqPending.toLocaleString('vi-VN')}</p>
+                  <p className="text-sm font-semibold text-amber-700 mt-0.5">RFQ đang chờ xử lý</p>
+                  <p className="text-xs text-amber-500 mt-1">
+                    Cần phân tích & báo giá trong thời gian sớm nhất
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {/* Overdue */}
+            <div className={cn(
+              'rounded-2xl p-5 border',
+              rfqOverdue > 0 ? 'bg-red-50 border-red-100' : 'bg-white border-slate-100'
+            )}>
+              <div className="flex items-start gap-3">
+                <div className="w-10 h-10 rounded-xl flex items-center justify-center bg-red-100 shrink-0">
+                  <AlertTriangle className="w-5 h-5 text-red-600" />
+                </div>
+                <div>
+                  <p className="text-2xl font-black text-red-800 font-mono">{rfqOverdue.toLocaleString('vi-VN')}</p>
+                  <p className="text-sm font-semibold text-red-700 mt-0.5">RFQ quá hạn xử lý</p>
+                  <p className="text-xs text-red-400 mt-1">
+                    Đã vượt quá thời gian phản hồi cho phép
+                  </p>
+                </div>
+              </div>
+              {rfqOverdue > 0 && (
+                <button
+                  onClick={() => router.push('/bqms/quotation?filter=overdue')}
+                  className="mt-3 w-full text-xs font-semibold text-red-600 bg-red-100 hover:bg-red-200 transition-colors py-2 rounded-xl"
+                >
+                  Xem tất cả RFQ quá hạn →
+                </button>
+              )}
+            </div>
+
+            {/* Win rate summary */}
+            <div className="bg-white rounded-2xl p-5 border border-slate-100">
+              <p className="text-xs font-semibold text-slate-500 mb-3">Tổng kết hiệu suất</p>
+              <div className="space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs text-slate-500">Tỷ lệ thắng 3 tháng</span>
+                  <span className="text-sm font-bold text-slate-800 font-mono">{winRate3m.toFixed(1)}%</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-xs text-slate-500">RFQ đã thắng</span>
+                  <span className="text-sm font-bold text-green-700 font-mono">{won3m.toLocaleString('vi-VN')}</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-xs text-slate-500">RFQ đã quyết định</span>
+                  <span className="text-sm font-bold text-slate-800 font-mono">{decided3m.toLocaleString('vi-VN')}</span>
+                </div>
+                <div className="h-px bg-slate-100 my-1" />
+                <div className="flex items-center justify-between">
+                  <span className="text-xs text-slate-500">So kỳ trước</span>
+                  <span className={cn(
+                    'text-xs font-bold',
+                    winRateDelta > 0 ? 'text-green-600' : winRateDelta < 0 ? 'text-red-500' : 'text-slate-400'
+                  )}>
+                    {fmtPct(winRateDelta)}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+          </div>
+        </div>
+      </section>
+
     </div>
   );
 }
