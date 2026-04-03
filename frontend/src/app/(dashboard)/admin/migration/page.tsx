@@ -688,9 +688,28 @@ function OneDriveFileExplorer() {
               <div className="flex items-center justify-between text-xs text-slate-500 flex-wrap gap-2">
                 <span>
                   Hiển thị <strong>{preview.rows.length}</strong> / <strong>{preview.total_rows}</strong> hàng
-                  &nbsp;·&nbsp; Sheet: <span className="font-mono">{preview.active_sheet}</span>
-                  {preview.sheets.length > 1 && (
-                    <span className="text-slate-400"> ({preview.sheets.length} sheets)</span>
+                  {preview.sheets.length > 1 ? (
+                    <span>&nbsp;·&nbsp; Sheet:&nbsp;
+                      <select
+                        className="text-xs border rounded px-1 py-0.5 bg-white"
+                        value={preview.active_sheet}
+                        onChange={async (ev) => {
+                          const sheet = ev.target.value;
+                          try {
+                            const res = await api.get<{ data: FilePreviewData }>(
+                              `/api/v1/data-migration/file-preview?path=${encodeURIComponent(selectedFile!)}&sheet=${encodeURIComponent(sheet)}&rows=30`
+                            );
+                            setPreview(res.data);
+                          } catch {}
+                        }}
+                      >
+                        {preview.sheets.map((s) => (
+                          <option key={s} value={s}>{s}</option>
+                        ))}
+                      </select>
+                    </span>
+                  ) : (
+                    <span>&nbsp;·&nbsp; Sheet: <span className="font-mono">{preview.active_sheet}</span></span>
                   )}
                 </span>
                 {preview.target_table && (
