@@ -584,6 +584,7 @@ async def run_data_quality(
 
 STAGING_DIR = Path("/data/onedrive-staging")
 EXCEL_EXTS = {".xlsx", ".xls", ".xlsm"}
+ALL_FILE_EXTS = {".xlsx", ".xls", ".xlsm", ".pdf", ".docx", ".doc", ".jpg", ".jpeg", ".png", ".pptx", ".ppt", ".csv"}
 
 # ── File → Table mapping (from import_precise.py) ────────────
 FILE_TABLE_MAP: dict[str, str] = {
@@ -629,7 +630,7 @@ async def file_tree(
     for root, dirs, fnames in os.walk(STAGING_DIR):
         for fname in fnames:
             fpath = Path(root) / fname
-            if fpath.suffix.lower() in EXCEL_EXTS and not fname.startswith("~$"):
+            if fpath.suffix.lower() in ALL_FILE_EXTS and not fname.startswith("~$"):
                 try:
                     stat = fpath.stat()
                     rel = str(fpath.relative_to(STAGING_DIR)).replace("\\", "/")
@@ -755,41 +756,18 @@ async def file_tree(
 @router.get("/file-preview")
 async def file_preview(
     path: str = Query(..., description="Relative path in staging dir"),
-    sheet: str | None = Query(None, description="Sheet name, default=first"),
-    rows: int = Query(20, ge=1, le=100),
+    sheet: str | None = Query(None, description="Sheet name (Excel only)"),
+    rows: int = Query(30, ge=1, le=200),
     token_data: TokenData = Depends(require_role("admin")),
     conn: asyncpg.Connection = Depends(get_db),
 ):
-    import python_calamine
-    from python_calamine import CalamineWorkbook
-
+    """Multi-format preview: Excel→table, PDF→url, Image→url, Word→text."""
     full_path = STAGING_DIR / path
     if not full_path.exists() or not full_path.is_file():
         raise HTTPException(404, f"File không tồn tại: {path}")
 
-    wb = CalamineWorkbook.from_path(str(full_path))
-    sheets = wb.sheet_names
-    active = sheet if sheet and sheet in sheets else sheets[0]
-
-    all_rows = wb.get_sheet_by_name(active).to_python()
-
-    # Find header row (first row with >3 non-empty cells)
-    header_idx = 0
-    for i, row in enumerate(all_rows[:10]):
-        non_empty = sum(1 for c in row if c is not None and str(c).strip())
-        if non_empty >= 3:
-            header_idx = i
-            break
-
-    headers = [str(c) if c else f"Col{j}" for j, c in enumerate(all_rows[header_idx])] if header_idx < len(all_rows) else []
-    data_rows = all_rows[header_idx + 1: header_idx + 1 + rows]
-
-    # Convert all values to strings for JSON
-    clean_rows = []
-    for row in data_rows:
-        clean_rows.append([str(c) if c is not None else "" for c in row])
-
-    # Check if this file has a known import mapping (shared with file-tree)
+    stat = full_path.stat()
+    ext = full_path.suffix.lower()
     target_table = _match_file_to_table(full_path.name)
 
     current_count = 0
@@ -799,107 +777,236 @@ async def file_preview(
         except Exception:
             pass
 
-    stat = full_path.stat()
-    return {"data": {
+    base_data = {
         "file_path": path,
         "file_name": full_path.name,
         "size_bytes": stat.st_size,
-        "sheets": sheets,
-        "active_sheet": active,
-        "total_rows": len(all_rows),
-        "headers": headers,
-        "rows": clean_rows,
+        "extension": ext.lstrip("."),
         "target_table": target_table,
         "target_table_count": current_count,
         "recognized": target_table is not None,
-    }}
+    }
+
+    # ── Excel ──────────────────────────────────────────────
+    if ext in EXCEL_EXTS:
+        from python_calamine import CalamineWorkbook
+
+        wb = CalamineWorkbook.from_path(str(full_path))
+        sheets_list = wb.sheet_names
+        active = sheet if sheet and sheet in sheets_list else sheets_list[0]
+        all_rows = wb.get_sheet_by_name(active).to_python()
+
+        header_idx = 0
+        for i, row in enumerate(all_rows[:10]):
+            non_empty = sum(1 for c in row if c is not None and str(c).strip())
+            if non_empty >= 3:
+                header_idx = i
+                break
+
+        headers = [str(c) if c else f"Col{j}" for j, c in enumerate(all_rows[header_idx])] if header_idx < len(all_rows) else []
+        data_rows = [[str(c) if c is not None else "" for c in row] for row in all_rows[header_idx + 1: header_idx + 1 + rows]]
+
+        return {"data": {**base_data, "preview_type": "excel",
+                "sheets": sheets_list, "active_sheet": active,
+                "total_rows": len(all_rows), "headers": headers, "rows": data_rows}}
+
+    # ── PDF ────────────────────────────────────────────────
+    if ext == ".pdf":
+        return {"data": {**base_data, "preview_type": "pdf",
+                "download_url": f"/api/v1/data-migration/file-download/{path}"}}
+
+    # ── Image ──────────────────────────────────────────────
+    if ext in (".jpg", ".jpeg", ".png"):
+        return {"data": {**base_data, "preview_type": "image",
+                "download_url": f"/api/v1/data-migration/file-download/{path}"}}
+
+    # ── Word (.docx) ───────────────────────────────────────
+    if ext == ".docx":
+        text_content = ""
+        try:
+            import zipfile
+            with zipfile.ZipFile(str(full_path)) as z:
+                with z.open("word/document.xml") as doc:
+                    import re
+                    xml = doc.read().decode("utf-8", errors="replace")
+                    # Simple extraction: get text between <w:t> tags
+                    text_parts = re.findall(r"<w:t[^>]*>([^<]+)</w:t>", xml)
+                    text_content = " ".join(text_parts)[:5000]
+        except Exception as exc:
+            text_content = f"Không thể đọc file Word: {exc}"
+
+        return {"data": {**base_data, "preview_type": "word", "text_content": text_content}}
+
+    # ── CSV ────────────────────────────────────────────────
+    if ext == ".csv":
+        try:
+            with open(full_path, "r", encoding="utf-8", errors="replace") as f:
+                lines = [line.strip() for line in f.readlines()[:rows + 1]]
+            headers = lines[0].split(",") if lines else []
+            data_rows = [line.split(",") for line in lines[1:]]
+            return {"data": {**base_data, "preview_type": "csv",
+                    "headers": headers, "rows": data_rows, "total_rows": len(lines) - 1}}
+        except Exception:
+            pass
+
+    # ── Other (no preview, just metadata) ──────────────────
+    return {"data": {**base_data, "preview_type": "unsupported",
+            "download_url": f"/api/v1/data-migration/file-download/{path}"}}
 
 
 # ---------------------------------------------------------------------------
-# POST /file-import — Import a single staging file via import_precise.py
+# GET /file-download/{path} — Serve any file from staging for preview
 # ---------------------------------------------------------------------------
 
-@router.post("/file-import")
+@router.get("/file-download/{file_path:path}")
+async def file_download(
+    file_path: str,
+    token_data: TokenData = Depends(require_role("admin")),
+):
+    """Serve a file from staging directory for inline preview (PDF, images)."""
+    from fastapi.responses import FileResponse
+
+    full_path = STAGING_DIR / file_path
+    if not full_path.exists() or not full_path.is_file():
+        raise HTTPException(404, f"File không tồn tại: {file_path}")
+
+    # Security: ensure path is within staging dir
+    try:
+        full_path.resolve().relative_to(STAGING_DIR.resolve())
+    except ValueError:
+        raise HTTPException(403, "Truy cập không hợp lệ")
+
+    ext = full_path.suffix.lower()
+    media_types = {
+        ".pdf": "application/pdf",
+        ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
+        ".png": "image/png",
+        ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        ".csv": "text/csv",
+    }
+    media_type = media_types.get(ext, "application/octet-stream")
+
+    return FileResponse(str(full_path), media_type=media_type, filename=full_path.name)
+
+
+# ---------------------------------------------------------------------------
+# POST /file-import — NON-BLOCKING: return immediately, run import in background
+# ---------------------------------------------------------------------------
+
+@router.post("/file-import", status_code=202)
 async def file_import(
-    body: dict,  # {"path": "Puplic/BQMS/Thong ke hoi hang BQMS.xlsx"}
+    body: dict,
     token_data: TokenData = Depends(require_role("admin")),
     conn: asyncpg.Connection = Depends(get_db),
 ):
+    """Start importing a file in background. Returns log_id for polling."""
     file_path = body.get("path", "")
     full_path = STAGING_DIR / file_path
     if not full_path.exists():
         raise HTTPException(404, f"File không tồn tại: {file_path}")
 
+    target_table = _match_file_to_table(full_path.name)
+    if not target_table:
+        raise HTTPException(400, f"File '{full_path.name}' không có mapping import. Chỉ xem trước được.")
+
     import threading
 
-    # Create sync log
     log_id = await conn.fetchval(
         "INSERT INTO etl_sync_log (sync_type, status, started_at, source_file) VALUES ('file_import', 'running', NOW(), $1) RETURNING id",
         file_path,
     )
 
-    # Run import in background thread (import_precise is sync code)
-    result_holder: list = [None]
-
-    def _run():
+    def _run_import():
+        """Background thread: run import_precise.py with --table filter."""
         import subprocess
+        import psycopg2
         try:
-            # Run import_precise.py with --source pointing to staging dir
             proc = subprocess.run(
-                ["python", "scripts/import_precise.py", "--source", str(STAGING_DIR)],
+                ["python", "scripts/import_precise.py", "--source", str(STAGING_DIR), "--table", target_table],
                 capture_output=True, text=True, timeout=300, cwd="/app"
             )
-            result_holder[0] = {
-                "stdout": proc.stdout[-2000:] if proc.stdout else "",
-                "stderr": proc.stderr[-1000:] if proc.stderr else "",
-                "returncode": proc.returncode,
-            }
+            # Parse results from output
+            inserted, skipped, errs = 0, 0, 0
+            for line in (proc.stdout or "").split("\n"):
+                ll = line.lower()
+                if "total" in ll and "insert" in ll:
+                    parts = line.split()
+                    for i, p in enumerate(parts):
+                        if "insert" in p.lower() and i > 0:
+                            try: inserted = int(parts[i - 1])
+                            except: pass
+
+            status = "success" if proc.returncode == 0 else "partial"
+            error_msg = (proc.stderr or "")[-500:] if proc.returncode != 0 else ""
+
+            # Update DB
+            c = psycopg2.connect(
+                f"postgresql://{settings.POSTGRES_USER}:{settings.POSTGRES_PASSWORD}@postgres:5432/{settings.POSTGRES_DB}"
+            )
+            with c, c.cursor() as cur:
+                cur.execute(
+                    "UPDATE etl_sync_log SET status=%s, completed_at=NOW(), rows_inserted=%s, rows_skipped=%s, error_message=%s WHERE id=%s",
+                    (status, inserted, skipped, error_msg, log_id),
+                )
+                cur.execute(
+                    """INSERT INTO file_review_status (file_path, status, reviewed_at, last_import_result)
+                       VALUES (%s, %s, NOW(), %s::jsonb)
+                       ON CONFLICT (file_path) DO UPDATE SET status=EXCLUDED.status, reviewed_at=NOW(),
+                       last_import_result=EXCLUDED.last_import_result, updated_at=NOW()""",
+                    (file_path, "imported" if status == "success" else "error",
+                     json.dumps({"inserted": inserted, "skipped": skipped, "errors": errs, "log_id": log_id})),
+                )
+            c.close()
         except Exception as exc:
-            result_holder[0] = {"error": str(exc)}
+            try:
+                c2 = psycopg2.connect(
+                    f"postgresql://{settings.POSTGRES_USER}:{settings.POSTGRES_PASSWORD}@postgres:5432/{settings.POSTGRES_DB}"
+                )
+                with c2, c2.cursor() as cur:
+                    cur.execute(
+                        "UPDATE etl_sync_log SET status='error', completed_at=NOW(), error_message=%s WHERE id=%s",
+                        (str(exc)[:500], log_id),
+                    )
+                c2.close()
+            except Exception:
+                pass
 
-    t = threading.Thread(target=_run, daemon=True)
-    t.start()
-    t.join(timeout=120)  # Wait max 2 min
+    thread = threading.Thread(target=_run_import, daemon=True)
+    thread.start()
 
-    result = result_holder[0] or {"error": "Timeout"}
+    return {"data": {"log_id": log_id, "status": "running", "target_table": target_table},
+            "message": f"Import đang chạy cho {full_path.name} → {target_table}"}
 
-    # Parse result from stdout
-    inserted = 0
-    updated = 0
-    skipped = 0
-    errors = 0
 
-    if result.get("stdout"):
-        for line in result["stdout"].split("\n"):
-            ll = line.lower()
-            if "insert" in ll:
-                try:
-                    n = int(''.join(c for c in line.split("insert")[0].split()[-1] if c.isdigit()) or '0')
-                    inserted += n
-                except Exception:
-                    pass
+# ---------------------------------------------------------------------------
+# GET /file-import/{log_id} — Poll import status
+# ---------------------------------------------------------------------------
 
-    # Update sync log
-    status = "success" if not result.get("error") and errors == 0 else "error"
-    await conn.execute(
-        "UPDATE etl_sync_log SET status=$1, completed_at=NOW(), rows_inserted=$2, rows_skipped=$3, error_message=$4 WHERE id=$5",
-        status, inserted, skipped, result.get("stderr", "")[:500] or result.get("error", ""), log_id,
+@router.get("/file-import/{log_id}")
+async def file_import_status(
+    log_id: int,
+    token_data: TokenData = Depends(require_role("admin")),
+    conn: asyncpg.Connection = Depends(get_db),
+):
+    """Poll the status of a running file import."""
+    row = await conn.fetchrow(
+        "SELECT id, sync_type, status, started_at, completed_at, rows_inserted, rows_skipped, error_message, source_file "
+        "FROM etl_sync_log WHERE id = $1", log_id,
     )
-
-    # Update file review status
-    await conn.execute(
-        """INSERT INTO file_review_status (file_path, status, reviewed_by, reviewed_at, last_import_result)
-           VALUES ($1, $2, $3::uuid, NOW(), $4::jsonb)
-           ON CONFLICT (file_path) DO UPDATE SET status=EXCLUDED.status, reviewed_by=EXCLUDED.reviewed_by, reviewed_at=NOW(), last_import_result=EXCLUDED.last_import_result, updated_at=NOW()""",
-        file_path, "imported" if status == "success" else "error", token_data.user_id,
-        json.dumps({"inserted": inserted, "updated": updated, "skipped": skipped, "errors": errors, "log_id": log_id}),
-    )
+    if not row:
+        raise HTTPException(404, "Import log không tồn tại")
 
     return {"data": {
-        "log_id": log_id, "file_path": file_path, "status": status,
-        "inserted": inserted, "updated": updated, "skipped": skipped, "errors": errors,
-        "output": result.get("stdout", "")[-500:],
-    }, "message": f"Import {'hoàn tất' if status == 'success' else 'có lỗi'}: {inserted} inserted, {skipped} skipped"}
+        "log_id": row["id"],
+        "status": row["status"],
+        "file_path": row["source_file"],
+        "rows_inserted": row["rows_inserted"] or 0,
+        "rows_skipped": row["rows_skipped"] or 0,
+        "error_message": row["error_message"],
+        "started_at": row["started_at"].isoformat() if row["started_at"] else None,
+        "completed_at": row["completed_at"].isoformat() if row["completed_at"] else None,
+    }}
 
 
 # ---------------------------------------------------------------------------

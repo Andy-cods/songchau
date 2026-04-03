@@ -417,21 +417,53 @@ function OneDriveFileExplorer() {
   async function handleImport() {
     if (!selectedFile) return;
     setImportLoading(true);
-    setActionMessage(null);
+    setActionMessage({ type: 'info', text: 'Đang khởi tạo import...' });
     setImportResult(null);
     try {
-      const res = await api.post<{ data: ImportResult; message: string }>(
+      // Step 1: Start import (returns immediately with log_id)
+      const res = await api.post<{ data: { log_id: number; status: string; target_table: string }; message: string }>(
         '/api/v1/data-migration/file-import',
         { path: selectedFile }
       );
-      setImportResult(res?.data ?? null);
-      setActionMessage({ type: 'success', text: res?.message ?? 'Import hoàn tất' });
-      queryClient.invalidateQueries({ queryKey: ['migration-file-tree'] });
-      queryClient.invalidateQueries({ queryKey: ['migration-sync-history'] });
+      const logId = res?.data?.log_id;
+      if (!logId) throw new Error('Không nhận được log_id');
+
+      setActionMessage({ type: 'info', text: `Import đang chạy (${res?.data?.target_table})...` });
+
+      // Step 2: Poll status every 2 seconds
+      const poll = setInterval(async () => {
+        try {
+          const status = await api.get<{ data: { status: string; rows_inserted: number; rows_skipped: number; error_message: string | null } }>(
+            `/api/v1/data-migration/file-import/${logId}`
+          );
+          const s = status?.data;
+          if (s?.status === 'success' || s?.status === 'partial') {
+            clearInterval(poll);
+            setImportLoading(false);
+            setImportResult({ log_id: logId, status: s.status, inserted: s.rows_inserted ?? 0, updated: 0, skipped: s.rows_skipped ?? 0, errors: 0, file_path: selectedFile!, output: '' } as any);
+            setActionMessage({ type: 'success', text: `Import hoàn tất: ${s.rows_inserted ?? 0} rows inserted` });
+            queryClient.invalidateQueries({ queryKey: ['migration-file-tree'] });
+            queryClient.invalidateQueries({ queryKey: ['migration-sync-history'] });
+          } else if (s?.status === 'error') {
+            clearInterval(poll);
+            setImportLoading(false);
+            setActionMessage({ type: 'error', text: `Import lỗi: ${s.error_message ?? 'Unknown'}` });
+          }
+          // else status='running' — keep polling
+        } catch {
+          // Polling error — keep trying
+        }
+      }, 2000);
+
+      // Safety: stop polling after 5 minutes
+      setTimeout(() => {
+        clearInterval(poll);
+        setImportLoading(false);
+      }, 300000);
+
     } catch (err: any) {
-      setActionMessage({ type: 'error', text: err?.message ?? 'Import thất bại' });
-    } finally {
       setImportLoading(false);
+      setActionMessage({ type: 'error', text: err?.detail ?? err?.message ?? 'Import thất bại' });
     }
   }
 
@@ -665,11 +697,15 @@ function OneDriveFileExplorer() {
             <div className={`flex items-center gap-2 text-xs px-3 py-2 rounded-lg ${
               actionMessage.type === 'success'
                 ? 'bg-emerald-50 text-emerald-700 border border-emerald-100'
-                : 'bg-red-50 text-red-600 border border-red-100'
+                : actionMessage.type === 'info'
+                  ? 'bg-blue-50 text-blue-700 border border-blue-100'
+                  : 'bg-red-50 text-red-600 border border-red-100'
             }`}>
               {actionMessage.type === 'success'
                 ? <CheckCircle2 className="h-3.5 w-3.5 flex-shrink-0" />
-                : <XCircle className="h-3.5 w-3.5 flex-shrink-0" />}
+                : actionMessage.type === 'info'
+                  ? <Loader2 className="h-3.5 w-3.5 flex-shrink-0 animate-spin" />
+                  : <XCircle className="h-3.5 w-3.5 flex-shrink-0" />}
               {actionMessage.text}
             </div>
           )}
@@ -682,12 +718,53 @@ function OneDriveFileExplorer() {
             </div>
           )}
 
-          {/* Preview table */}
+          {/* Preview — multi-format */}
           {preview && (
             <div className="space-y-2">
+
+              {/* PDF preview */}
+              {(preview as any).preview_type === 'pdf' && (
+                <iframe
+                  src={`${(preview as any).download_url}#toolbar=1`}
+                  className="w-full h-[500px] rounded-lg border border-slate-200"
+                  title="PDF Preview"
+                />
+              )}
+
+              {/* Image preview */}
+              {(preview as any).preview_type === 'image' && (
+                <div className="flex justify-center bg-slate-50 rounded-lg p-4 border border-slate-200">
+                  <img
+                    src={(preview as any).download_url}
+                    alt={preview.file_name}
+                    className="max-h-[500px] max-w-full object-contain rounded"
+                  />
+                </div>
+              )}
+
+              {/* Word preview */}
+              {(preview as any).preview_type === 'word' && (
+                <div className="bg-white border border-slate-200 rounded-lg p-4 max-h-80 overflow-y-auto">
+                  <p className="text-xs text-slate-400 mb-2">Nội dung Word (text):</p>
+                  <p className="text-sm text-slate-700 whitespace-pre-wrap">{(preview as any).text_content || 'Không có nội dung'}</p>
+                </div>
+              )}
+
+              {/* Unsupported — download link */}
+              {(preview as any).preview_type === 'unsupported' && (
+                <div className="bg-slate-50 border rounded-lg p-4 text-center">
+                  <p className="text-sm text-slate-500 mb-2">Không hỗ trợ xem trước loại file này</p>
+                  <a href={(preview as any).download_url} target="_blank"
+                    className="text-blue-600 text-sm underline">Tải xuống để xem</a>
+                </div>
+              )}
+
+              {/* Excel/CSV preview — table */}
+              {((preview as any).preview_type === 'excel' || (preview as any).preview_type === 'csv' || (preview as any).preview_type === undefined) && (preview.rows ?? []).length > 0 && (
+              <div>
               <div className="flex items-center justify-between text-xs text-slate-500 flex-wrap gap-2">
                 <span>
-                  Hiển thị <strong>{preview.rows.length}</strong> / <strong>{preview.total_rows}</strong> hàng
+                  Hiển thị <strong>{(preview.rows ?? []).length}</strong> / <strong>{preview.total_rows ?? 0}</strong> hàng
                   {preview.sheets.length > 1 ? (
                     <span>&nbsp;·&nbsp; Sheet:&nbsp;
                       <select
@@ -784,9 +861,12 @@ function OneDriveFileExplorer() {
           )}
         </div>
       )}
+        </div>
+      )}
     </div>
   );
 }
+
 
 // ─── Main Page ───────────────────────────────────────────────────────────────
 

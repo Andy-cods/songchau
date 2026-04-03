@@ -49,9 +49,23 @@ SYNC_FOLDERS = [
     "SMT",
 ]
 
-EXCEL_EXTENSIONS = {".xlsx", ".xls", ".xlsm"}
-MAX_FILE_SIZE_MB = 50  # Skip files > 50MB (likely backups/copies)
-SKIP_PATTERNS = ["~$", "Copy", "- Copy", "Backup", "OLD", "test"]
+# ALL file types to sync (not just Excel)
+SYNC_EXTENSIONS = {
+    # Excel
+    ".xlsx", ".xls", ".xlsm",
+    # PDF (hóa đơn, chứng từ, tờ khai)
+    ".pdf",
+    # Word (hợp đồng, công văn)
+    ".docx", ".doc",
+    # Images (biên nhận, ảnh chứng từ)
+    ".jpg", ".jpeg", ".png",
+    # PowerPoint
+    ".pptx", ".ppt",
+    # CSV
+    ".csv",
+}
+MAX_FILE_SIZE_MB = 100  # Skip files > 100MB
+SKIP_PATTERNS = ["~$", "- Copy", "Backup", "OLD", "Thumbs.db", "desktop.ini", ".DS_Store"]
 
 # State file — tracks what we've synced
 STATE_FILE = Path(__file__).parent / ".onedrive_sync_state.json"
@@ -99,16 +113,16 @@ def discover_files(full: bool = False) -> list[Path]:
         if not folder.exists():
             continue
         for f in folder.iterdir():
-            if f.is_file() and f.suffix.lower() in EXCEL_EXTENSIONS and not f.name.startswith("~$"):
+            if f.is_file() and f.suffix.lower() in SYNC_EXTENSIONS and not f.name.startswith("~$"):
                 files.append(f)
             elif f.is_dir():
                 for f2 in f.iterdir():
-                    if f2.is_file() and f2.suffix.lower() in EXCEL_EXTENSIONS and not f2.name.startswith("~$"):
+                    if f2.is_file() and f2.suffix.lower() in SYNC_EXTENSIONS and not f2.name.startswith("~$"):
                         files.append(f2)
 
     # Also scan root-level Excel files
     for f in LOCAL_ONEDRIVE.iterdir():
-        if f.is_file() and f.suffix.lower() in EXCEL_EXTENSIONS and not f.name.startswith("~$"):
+        if f.is_file() and f.suffix.lower() in SYNC_EXTENSIONS and not f.name.startswith("~$"):
             if f not in files:
                 files.append(f)
 
