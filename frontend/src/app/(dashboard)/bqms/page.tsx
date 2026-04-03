@@ -23,6 +23,9 @@ import {
   ExternalLink,
   ChevronLeft,
   Loader2,
+  Download,
+  FileSpreadsheet,
+  CheckCircle,
 } from 'lucide-react';
 import { api } from '@/lib/api';
 import { cn, formatDate } from '@/lib/utils';
@@ -263,6 +266,146 @@ function PriceCell({
 
 // ─── Row Detail Panel ─────────────────────────────────────────────────────────
 
+// ── Inline Create Quotation ──────────────────────────────────
+function InlineCreateQuotation({ item }: { item: RFQItem }) {
+  const queryClient = useQueryClient();
+  const [step, setStep] = useState<'preview' | 'generating' | 'done' | 'error'>('preview');
+  const [result, setResult] = useState<any>(null);
+
+  // Lookup prices for this RFQ
+  const { data: lookupData, isLoading: lookupLoading } = useQuery({
+    queryKey: ['rfq-lookup', item.rfq_number],
+    queryFn: () => api.get<{ data: { items: any[]; total: number } }>(
+      `/api/v1/quotations/lookup?rfq_code=${encodeURIComponent(item.rfq_number ?? '')}`
+    ),
+    enabled: !!item.rfq_number,
+  });
+
+  const lookupItems = Array.isArray(lookupData?.data?.items) ? lookupData.data.items : [];
+
+  const handleGenerate = async () => {
+    setStep('generating');
+    try {
+      const items = lookupItems.length > 0 ? lookupItems : [{
+        bqms: item.bqms_code ?? '', spec: item.specification ?? '',
+        maker: item.maker ?? '', so_luong: item.expected_qty ?? 1,
+        don_vi: item.unit ?? 'EA', don_hang: item.rfq_number ?? '',
+      }];
+      const res = await api.post<{ data: any; message: string }>('/api/v1/quotations/generate', {
+        rfq_no: item.rfq_number ?? '',
+        source_type: 'rfq_code',
+        items,
+      });
+      setResult(res?.data);
+      setStep('done');
+      queryClient.invalidateQueries({ queryKey: ['bqms-rfq-table'] });
+    } catch (err: any) {
+      setResult({ error: err?.detail ?? err?.message ?? 'Lỗi tạo báo giá' });
+      setStep('error');
+    }
+  };
+
+  return (
+    <div className="border-t border-brand-100 pt-3 space-y-3">
+      <div className="flex items-center justify-between">
+        <h4 className="text-xs font-semibold text-brand-700">
+          Tạo báo giá cho {item.rfq_number}
+        </h4>
+        {step === 'preview' && (
+          <span className="text-[11px] text-slate-400">
+            {lookupLoading ? 'Đang tra giá...' : `${lookupItems.length} items tìm thấy`}
+          </span>
+        )}
+      </div>
+
+      {/* Preview items */}
+      {step === 'preview' && lookupItems.length > 0 && (
+        <div className="overflow-x-auto rounded-lg border border-slate-200">
+          <table className="w-full text-[11px]">
+            <thead className="bg-slate-50">
+              <tr>
+                <th className="text-left px-2 py-1.5 font-medium text-slate-500">BQMS Code</th>
+                <th className="text-left px-2 py-1.5 font-medium text-slate-500">Spec</th>
+                <th className="text-left px-2 py-1.5 font-medium text-slate-500">Maker</th>
+                <th className="text-right px-2 py-1.5 font-medium text-slate-500">SL</th>
+                <th className="text-right px-2 py-1.5 font-medium text-slate-500">Giá gợi ý</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {lookupItems.slice(0, 10).map((li: any, i: number) => (
+                <tr key={i} className="hover:bg-slate-50/50">
+                  <td className="px-2 py-1 font-mono text-slate-700">{li.bqms ?? '—'}</td>
+                  <td className="px-2 py-1 text-slate-600 max-w-[200px] truncate">{li.spec ?? '—'}</td>
+                  <td className="px-2 py-1 text-slate-600">{li.maker ?? '—'}</td>
+                  <td className="px-2 py-1 text-right font-mono">{li.so_luong ?? 0}</td>
+                  <td className="px-2 py-1 text-right font-mono text-emerald-600">
+                    {li.suggested_price ? (li.suggested_price ?? 0).toLocaleString('vi-VN') : '—'}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {step === 'preview' && (
+        <button
+          onClick={handleGenerate}
+          disabled={lookupLoading}
+          className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-semibold bg-emerald-600 text-white hover:bg-emerald-700 transition-colors disabled:opacity-50"
+        >
+          <FileSpreadsheet className="h-3.5 w-3.5" />
+          Tạo báo giá ngay ({lookupItems.length || 1} items)
+        </button>
+      )}
+
+      {step === 'generating' && (
+        <div className="flex items-center gap-2 text-xs text-brand-600">
+          <Loader2 className="h-4 w-4 animate-spin" />
+          Đang tạo báo giá...
+        </div>
+      )}
+
+      {step === 'done' && result && (
+        <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-3 space-y-2">
+          <div className="flex items-center gap-2 text-xs font-semibold text-emerald-700">
+            <CheckCircle className="h-4 w-4" />
+            Báo giá đã tạo thành công!
+          </div>
+          <div className="text-[11px] text-emerald-600">
+            {result.total_items ?? 0} items | {result.filled_items ?? 0} đã có giá
+          </div>
+          {result.files && result.files.length > 0 && (
+            <div className="flex gap-2 mt-1">
+              {result.files.map((f: any, i: number) => (
+                <a key={i}
+                  href={`/api/v1/quotations/download/${result.id}/${f.type}`}
+                  className="inline-flex items-center gap-1 px-2 py-1 rounded bg-emerald-600 text-white text-[11px] hover:bg-emerald-700"
+                >
+                  <Download className="h-3 w-3" />
+                  {f.type.includes('pdf') ? 'PDF' : 'Excel'}
+                </a>
+              ))}
+            </div>
+          )}
+          <button onClick={() => setStep('preview')} className="text-[11px] text-emerald-600 underline">
+            Tạo lại
+          </button>
+        </div>
+      )}
+
+      {step === 'error' && (
+        <div className="bg-red-50 border border-red-200 rounded-lg p-3">
+          <div className="text-xs text-red-700">{result?.error ?? 'Lỗi không xác định'}</div>
+          <button onClick={() => setStep('preview')} className="text-[11px] text-red-600 underline mt-1">
+            Thử lại
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function RowDetailPanel({
   item,
   onClose,
@@ -367,16 +510,16 @@ function RowDetailPanel({
 
           {/* Action buttons */}
           <div className="flex items-center gap-2 flex-wrap border-t border-brand-100 pt-2">
-            <Link
-              href={`/bqms/quotation/new${item.rfq_number ? `?rfq=${encodeURIComponent(item.rfq_number)}` : ''}`}
+            <button
+              onClick={() => { setShowCreateForm((v) => !v); setShowHistory(false); }}
               className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-brand-600 text-white hover:bg-brand-700 transition-colors"
             >
               <Plus className="h-3.5 w-3.5" />
-              Tạo báo giá
-            </Link>
+              {showCreateForm ? 'Ẩn tạo BG' : 'Tạo báo giá'}
+            </button>
 
             <button
-              onClick={() => setShowHistory((v) => !v)}
+              onClick={() => { setShowHistory((v) => !v); setShowCreateForm(false); }}
               className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-white border border-slate-200 text-slate-700 hover:bg-slate-50 transition-colors"
             >
               <History className="h-3.5 w-3.5" />
@@ -392,7 +535,7 @@ function RowDetailPanel({
             </button>
 
             <Link
-              href={`/bqms/rfq?id=${item.id}`}
+              href={`/bqms/quotation/new?rfq_code=${encodeURIComponent(item.rfq_number ?? '')}`}
               target="_blank"
               rel="noopener noreferrer"
               className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-white border border-slate-200 text-slate-700 hover:bg-slate-50 transition-colors"
@@ -408,6 +551,11 @@ function RowDetailPanel({
               Đóng
             </button>
           </div>
+
+          {/* Inline Create Quotation Form */}
+          {showCreateForm && (
+            <InlineCreateQuotation item={item} />
+          )}
 
           {/* Quotation history */}
           {showHistory && (
