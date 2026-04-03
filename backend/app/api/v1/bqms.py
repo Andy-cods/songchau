@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import logging
+import math
 from datetime import date, datetime
+from typing import Any
 
 from fastapi import APIRouter, BackgroundTasks, Depends, File, Query, UploadFile
 from fastapi.exceptions import HTTPException
@@ -408,6 +410,273 @@ async def pareto_analysis(
         })
 
     return {"data": data}
+
+
+# ---------------------------------------------------------------------------
+# RFQ Table — Unified BQMS Page (main endpoint)
+# ---------------------------------------------------------------------------
+
+@router.get("/rfq-table")
+async def rfq_table(
+    year: int | None = Query(None, description="Năm lọc (VD: 2026)"),
+    month: int | None = Query(None, description="Tháng lọc (1-12)"),
+    search: str | None = Query(None, description="Tìm theo RFQ No, BQMS Code, tên hàng, maker"),
+    result_filter: str | None = Query(None, description="pending | won | lost | all"),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(100, ge=10, le=500),
+    token_data: TokenData = Depends(require_role("admin", "manager", "staff", "sales")),
+    conn: asyncpg.Connection = Depends(get_db),
+):
+    """
+    Main data endpoint for the unified BQMS table.
+    Queries bqms_rfq (6,473 rows). Returns paginated, filterable, sortable data
+    with KPI summary and month-group metadata.
+    """
+    conditions: list[str] = ["1=1"]
+    params: list[Any] = []
+    idx = 1
+
+    if year is not None:
+        conditions.append(
+            f"EXTRACT(YEAR FROM COALESCE(inquiry_date, created_at::date)) = ${idx}"
+        )
+        params.append(year)
+        idx += 1
+
+    if month is not None:
+        conditions.append(
+            f"EXTRACT(MONTH FROM COALESCE(inquiry_date, created_at::date)) = ${idx}"
+        )
+        params.append(month)
+        idx += 1
+
+    if search:
+        like = f"%{search}%"
+        conditions.append(
+            f"(rfq_number ILIKE ${idx} OR bqms_code ILIKE ${idx} "
+            f"OR specification ILIKE ${idx} OR maker ILIKE ${idx})"
+        )
+        params.append(like)
+        idx += 1
+
+    if result_filter and result_filter.lower() != "all":
+        conditions.append(f"result::text = ${idx}")
+        params.append(result_filter.lower())
+        idx += 1
+
+    where = " AND ".join(conditions)
+
+    # Total count
+    total: int = await conn.fetchval(
+        f"SELECT COUNT(*) FROM bqms_rfq WHERE {where}", *params
+    )
+
+    # KPI for the current filter scope
+    kpi_rows = await conn.fetchrow(
+        f"""
+        SELECT
+            COUNT(*) FILTER (WHERE result::text = 'won')  AS won,
+            COUNT(*) FILTER (WHERE result::text = 'lost') AS lost,
+            COUNT(*) FILTER (
+                WHERE result::text = 'pending' OR result IS NULL
+            ) AS pending
+        FROM bqms_rfq
+        WHERE {where}
+        """,
+        *params,
+    )
+    won_count  = int(kpi_rows["won"]  or 0)
+    lost_count = int(kpi_rows["lost"] or 0)
+    pending_count = int(kpi_rows["pending"] or 0)
+    decided = won_count + lost_count
+    win_rate = round(won_count * 100.0 / decided, 1) if decided > 0 else 0.0
+
+    # Month summary (group headers for the UI)
+    month_rows = await conn.fetch(
+        f"""
+        SELECT
+            EXTRACT(YEAR  FROM COALESCE(inquiry_date, created_at::date))::int AS yr,
+            EXTRACT(MONTH FROM COALESCE(inquiry_date, created_at::date))::int AS mo,
+            COUNT(*)                                                           AS cnt,
+            COUNT(*) FILTER (WHERE result::text = 'won')                      AS won,
+            COUNT(*) FILTER (WHERE result::text = 'lost')                     AS lost
+        FROM bqms_rfq
+        WHERE {where}
+        GROUP BY yr, mo
+        ORDER BY yr DESC, mo DESC
+        LIMIT 24
+        """,
+        *params,
+    )
+    months_data = [
+        {
+            "year": r["yr"],
+            "month": r["mo"],
+            "count": int(r["cnt"] or 0),
+            "won": int(r["won"] or 0),
+            "lost": int(r["lost"] or 0),
+        }
+        for r in month_rows
+    ]
+
+    # Paginated rows
+    offset = (page - 1) * page_size
+    params_paged = params + [page_size, offset]
+    rows = await conn.fetch(
+        f"""
+        SELECT
+            id, rfq_number, bqms_code, specification, maker,
+            expected_qty, unit,
+            purchase_price_rmb, purchase_price_vnd,
+            quoted_price_ama,
+            quoted_price_bqms_v1, quoted_price_bqms_v2,
+            quoted_price_bqms_v3, quoted_price_bqms_v4,
+            supplier_name, result::text AS result, notes, report,
+            person_in_charge_name, inquiry_date,
+            COALESCE(inquiry_date, created_at::date) AS effective_date,
+            created_at
+        FROM bqms_rfq
+        WHERE {where}
+        ORDER BY COALESCE(inquiry_date, created_at::date) DESC, created_at DESC
+        LIMIT ${idx} OFFSET ${idx + 1}
+        """,
+        *params_paged,
+    )
+
+    def _serialize(r: asyncpg.Record) -> dict:
+        d = dict(r)
+        for k, v in d.items():
+            if isinstance(v, (date, datetime)):
+                d[k] = v.isoformat()
+        return d
+
+    return {
+        "data": {
+            "items": [_serialize(r) for r in rows],
+            "total": total,
+            "page": page,
+            "page_size": page_size,
+            "total_pages": math.ceil(total / page_size) if total > 0 else 1,
+            "kpis": {
+                "total_month": total,
+                "won": won_count,
+                "lost": lost_count,
+                "pending": pending_count,
+                "win_rate": win_rate,
+            },
+            "months": months_data,
+        }
+    }
+
+
+# ---------------------------------------------------------------------------
+# RFQ — Inline Price Edit
+# ---------------------------------------------------------------------------
+
+_PRICE_ALLOWED_FIELDS = frozenset({
+    "quoted_price_bqms_v1",
+    "quoted_price_bqms_v2",
+    "quoted_price_bqms_v3",
+    "quoted_price_bqms_v4",
+    "purchase_price_rmb",
+    "purchase_price_vnd",
+    "quoted_price_ama",
+    "notes",
+})
+
+
+@router.patch("/rfq/{rfq_id}/price")
+async def update_rfq_price(
+    rfq_id: int,
+    body: dict,
+    token_data: TokenData = Depends(require_role("admin", "manager", "staff", "sales")),
+    conn: asyncpg.Connection = Depends(get_db),
+):
+    """
+    Inline price/notes edit for a single bqms_rfq row.
+    body: {"field": "quoted_price_bqms_v1", "value": 15000}
+    """
+    field = body.get("field")
+    if field not in _PRICE_ALLOWED_FIELDS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Trường '{field}' không được phép chỉnh sửa. Cho phép: {sorted(_PRICE_ALLOWED_FIELDS)}",
+        )
+
+    value = body.get("value")
+
+    # Validate numeric fields
+    if field != "notes" and value is not None:
+        try:
+            value = float(value)
+        except (TypeError, ValueError):
+            raise HTTPException(
+                status_code=400,
+                detail="Giá trị phải là số",
+            )
+
+    result = await conn.execute(
+        f"UPDATE bqms_rfq SET {field} = $1 WHERE id = $2",
+        value,
+        rfq_id,
+    )
+
+    if result == "UPDATE 0":
+        raise HTTPException(status_code=404, detail=f"Không tìm thấy RFQ #{rfq_id}")
+
+    logger.info(
+        "RFQ price updated: id=%d, field=%s, by=%s", rfq_id, field, token_data.user_id
+    )
+    return {"message": "Đã cập nhật"}
+
+
+# ---------------------------------------------------------------------------
+# RFQ — Quotation History for a specific RFQ row
+# ---------------------------------------------------------------------------
+
+@router.get("/rfq/{rfq_id}/history")
+async def rfq_history(
+    rfq_id: int,
+    token_data: TokenData = Depends(require_role("admin", "manager", "staff", "sales")),
+    conn: asyncpg.Connection = Depends(get_db),
+):
+    """Get quotation history for a specific bqms_rfq row (matched by rfq_number)."""
+    rfq = await conn.fetchrow(
+        "SELECT id, rfq_number FROM bqms_rfq WHERE id = $1", rfq_id
+    )
+    if not rfq:
+        raise HTTPException(status_code=404, detail=f"Không tìm thấy RFQ #{rfq_id}")
+
+    rfq_number = rfq["rfq_number"]
+
+    # Try quotations table first (most common path)
+    try:
+        rows = await conn.fetch(
+            """
+            SELECT id, rfq_no, quotation_number, customer_name,
+                   total_amount, currency, status, created_at, submitted_at
+            FROM quotations
+            WHERE rfq_no = $1
+            ORDER BY created_at DESC
+            LIMIT 50
+            """,
+            rfq_number,
+        )
+    except Exception:
+        rows = []
+
+    def _ser(r: asyncpg.Record) -> dict:
+        d = dict(r)
+        for k, v in d.items():
+            if isinstance(v, (date, datetime)):
+                d[k] = v.isoformat()
+        return d
+
+    return {
+        "data": [_ser(r) for r in rows],
+        "rfq_number": rfq_number,
+        "total": len(rows),
+    }
 
 
 # ---------------------------------------------------------------------------

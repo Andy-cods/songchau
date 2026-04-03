@@ -1,8 +1,7 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { useRouter } from 'next/navigation';
+import { useState, useCallback, useRef, KeyboardEvent } from 'react';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import Link from 'next/link';
 import {
   ClipboardList,
@@ -13,139 +12,176 @@ import {
   ChevronRight,
   Eye,
   History,
-  FileText,
   AlertTriangle,
   Clock,
   TrendingUp,
   Percent,
-  DollarSign,
+  CheckCircle2,
+  XCircle,
   Inbox,
+  Copy,
+  ExternalLink,
+  ChevronLeft,
+  Loader2,
 } from 'lucide-react';
 import { api } from '@/lib/api';
 import { cn, formatDate } from '@/lib/utils';
 
-// ─── Types ──────────────────────────────────────────────────────
+// ─── Types ───────────────────────────────────────────────────────────────────
 
-interface BQMSRecord {
-  id?: number;
-  date?: string;
-  created_at?: string;
-  submitted_at?: string;
-  rfq_no?: string;
-  rfq_code?: string;
-  order_number?: string;
-  bqms_code?: string;
-  reference_number?: string;
-  product_name?: string;
-  project_name?: string;
-  maker?: string;
-  quantity?: number;
-  unit?: string;
-  price_v1?: number;
-  price_v2?: number;
-  price_v3?: number;
-  price_v4?: number;
-  result?: string;
-  status?: string;
-  assignee?: string;
-  person_in_charge?: string;
-  deadline?: string;
+interface RFQItem {
+  id: number;
+  rfq_number: string | null;
+  bqms_code: string | null;
+  specification: string | null;
+  maker: string | null;
+  expected_qty: number | null;
+  unit: string | null;
+  purchase_price_rmb: number | null;
+  purchase_price_vnd: number | null;
+  quoted_price_ama: number | null;
+  quoted_price_bqms_v1: number | null;
+  quoted_price_bqms_v2: number | null;
+  quoted_price_bqms_v3: number | null;
+  quoted_price_bqms_v4: number | null;
+  supplier_name: string | null;
+  result: string | null;
+  notes: string | null;
+  report: string | null;
+  person_in_charge_name: string | null;
+  inquiry_date: string | null;
+  effective_date: string | null;
+  created_at: string | null;
 }
 
-interface OverviewStats {
-  total_rfq?: number;
-  total_bids?: number;
-  processing?: number;
-  win_rate?: number;
-  avg_price?: number;
-  last_synced?: string;
+interface MonthSummary {
+  year: number;
+  month: number;
+  count: number;
+  won: number;
+  lost: number;
 }
 
-// ─── Helpers ────────────────────────────────────────────────────
+interface KPIs {
+  total_month: number;
+  won: number;
+  lost: number;
+  pending: number;
+  win_rate: number;
+}
 
-function fmtVnd(value?: number): string {
+interface RFQTableResponse {
+  data: {
+    items: RFQItem[];
+    total: number;
+    page: number;
+    page_size: number;
+    total_pages: number;
+    kpis: KPIs;
+    months: MonthSummary[];
+  };
+}
+
+interface QuotationHistoryItem {
+  id: number;
+  rfq_no: string | null;
+  quotation_number: string | null;
+  customer_name: string | null;
+  total_amount: number | null;
+  currency: string | null;
+  status: string | null;
+  created_at: string | null;
+  submitted_at: string | null;
+}
+
+interface EditingCell {
+  rowId: number;
+  field: string;
+  currentValue: string;
+}
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+function fmtVnd(value?: number | null): string {
   if (value == null) return '—';
   if (value >= 1_000_000_000)
     return new Intl.NumberFormat('vi-VN').format(Math.round(value / 1_000_000_000)) + ' tỷ';
   if (value >= 1_000_000)
     return new Intl.NumberFormat('vi-VN').format(Math.round(value / 1_000_000)) + ' tr';
-  return new Intl.NumberFormat('vi-VN').format(value) + '₫';
+  return new Intl.NumberFormat('vi-VN').format(value);
 }
 
-function getDeadlineUrgency(deadline?: string): 'red' | 'amber' | 'normal' | null {
-  if (!deadline) return null;
+function fmtNum(value?: number | null): string {
+  if (value == null) return '—';
+  return new Intl.NumberFormat('vi-VN').format(value);
+}
+
+function getUrgency(item: RFQItem): 'red' | 'amber' | null {
+  if (!item.inquiry_date || (item.result && item.result !== 'pending')) return null;
   const now = new Date();
-  const dl = new Date(deadline);
-  const diffHours = (dl.getTime() - now.getTime()) / (1000 * 60 * 60);
-  if (diffHours < 0) return 'red';
-  if (diffHours <= 24) return 'red';
-  if (diffHours <= 48) return 'amber';
-  return 'normal';
+  const d = new Date(item.inquiry_date);
+  const diffDays = (now.getTime() - d.getTime()) / (1000 * 60 * 60 * 24);
+  // inquiry_date is "recent" = within last 7 days from now
+  if (diffDays >= 0 && diffDays < 3) return 'red';
+  if (diffDays >= 0 && diffDays < 7) return 'amber';
+  return null;
 }
 
-function getRecordDate(r: BQMSRecord): string {
-  return r.date ?? r.created_at ?? r.submitted_at ?? '';
+function monthLabel(year: number, month: number) {
+  return `Tháng ${month}/${year}`;
 }
 
-function getMonthKey(dateStr: string): string {
-  if (!dateStr) return 'Không rõ';
-  const d = new Date(dateStr);
-  if (isNaN(d.getTime())) return 'Không rõ';
-  return `Tháng ${d.getMonth() + 1}/${d.getFullYear()}`;
+// ─── Result Badge ─────────────────────────────────────────────────────────────
+
+function ResultBadge({ result }: { result?: string | null }) {
+  const val = (result ?? '').toLowerCase();
+  if (val === 'won')
+    return (
+      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-700 whitespace-nowrap">
+        <CheckCircle2 className="h-3 w-3" />
+        Trúng
+      </span>
+    );
+  if (val === 'lost')
+    return (
+      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold bg-red-100 text-red-700 whitespace-nowrap">
+        <XCircle className="h-3 w-3" />
+        Trượt
+      </span>
+    );
+  return (
+    <span className="inline-flex px-2 py-0.5 rounded-full text-xs font-semibold bg-slate-100 text-slate-500 whitespace-nowrap">
+      Đang XL
+    </span>
+  );
 }
 
-function groupByMonth(records: BQMSRecord[]): Map<string, BQMSRecord[]> {
-  const map = new Map<string, BQMSRecord[]>();
-  for (const r of records) {
-    const key = getMonthKey(getRecordDate(r));
-    const arr = map.get(key) ?? [];
-    arr.push(r);
-    map.set(key, arr);
-  }
-  return map;
-}
-
-// ─── Result Badge ────────────────────────────────────────────────
-
-function ResultBadge({ result, status }: { result?: string; status?: string }) {
-  const val = (result ?? status ?? '').toLowerCase();
-  if (val === 'won' || val === 'win' || val === 'trúng')
-    return <span className="inline-flex px-2 py-0.5 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-700">Trúng</span>;
-  if (val === 'lost' || val === 'lose' || val === 'trượt')
-    return <span className="inline-flex px-2 py-0.5 rounded-full text-xs font-semibold bg-red-100 text-red-700">Trượt</span>;
-  if (val === 'pending' || val === 'processing' || val === 'submitted')
-    return <span className="inline-flex px-2 py-0.5 rounded-full text-xs font-semibold bg-slate-100 text-slate-500">Đang xử lý</span>;
-  if (val === 'draft')
-    return <span className="inline-flex px-2 py-0.5 rounded-full text-xs font-semibold bg-slate-100 text-slate-400">Nháp</span>;
-  return <span className="inline-flex px-2 py-0.5 rounded-full text-xs font-semibold bg-slate-100 text-slate-500">{result ?? status ?? '—'}</span>;
-}
-
-// ─── KPI Card ────────────────────────────────────────────────────
+// ─── KPI Card ─────────────────────────────────────────────────────────────────
 
 function KPICard({
   label,
   value,
   sub,
   icon: Icon,
-  color,
+  colorClass,
   loading,
 }: {
   label: string;
   value: string | number;
   sub?: string;
   icon: React.ElementType;
-  color: string;
+  colorClass: string;
   loading?: boolean;
 }) {
   return (
-    <div className="bg-white rounded-xl shadow-sm border border-slate-100 p-4 flex items-center gap-4">
-      <div className={`p-2.5 rounded-lg ${color}`}>
-        <Icon className="h-5 w-5" />
+    <div className="bg-white rounded-xl shadow-sm border border-slate-100 px-4 py-3 flex items-center gap-3 min-w-0">
+      <div className={`p-2.5 rounded-lg flex-shrink-0 ${colorClass}`}>
+        <Icon className="h-4 w-4" />
       </div>
-      <div className="min-w-0">
+      <div className="min-w-0 flex-1">
         <p className="text-xs text-slate-500 truncate">{label}</p>
         {loading ? (
-          <div className="h-6 w-20 bg-slate-200 rounded animate-pulse mt-1" />
+          <div className="h-6 w-16 bg-slate-200 rounded animate-pulse mt-1" />
         ) : (
           <p className="text-xl font-bold font-mono text-slate-900 leading-tight">{value}</p>
         )}
@@ -155,625 +191,994 @@ function KPICard({
   );
 }
 
-// ─── Table Skeleton ──────────────────────────────────────────────
+// ─── Inline Price Cell ────────────────────────────────────────────────────────
 
-function TableSkeleton() {
-  return (
-    <div className="p-4 space-y-3">
-      {Array.from({ length: 8 }).map((_, i) => (
-        <div key={i} className="flex items-center gap-3">
-          <div className="h-4 w-8 bg-slate-200 rounded animate-pulse" />
-          <div className="h-4 w-20 bg-slate-200 rounded animate-pulse" />
-          <div className="h-4 w-28 bg-slate-200 rounded animate-pulse" />
-          <div className="h-4 w-32 bg-slate-200 rounded animate-pulse flex-1" />
-          <div className="h-4 w-20 bg-slate-200 rounded animate-pulse" />
-          <div className="h-4 w-16 bg-slate-200 rounded animate-pulse" />
-          <div className="h-4 w-16 bg-slate-200 rounded animate-pulse" />
-          <div className="h-4 w-16 bg-slate-200 rounded animate-pulse" />
-          <div className="h-4 w-16 bg-slate-200 rounded animate-pulse" />
-          <div className="h-5 w-16 bg-slate-200 rounded-full animate-pulse" />
-        </div>
-      ))}
-    </div>
-  );
-}
-
-// ─── Inline Action Bar ───────────────────────────────────────────
-
-function InlineActionBar({
-  record,
-  onClose,
+function PriceCell({
+  item,
+  field,
+  value,
+  editingCell,
+  onStartEdit,
+  onSave,
+  onCancel,
 }: {
-  record: BQMSRecord;
-  onClose: () => void;
+  item: RFQItem;
+  field: string;
+  value: number | null;
+  editingCell: EditingCell | null;
+  onStartEdit: (cell: EditingCell) => void;
+  onSave: (rowId: number, field: string, value: string) => void;
+  onCancel: () => void;
 }) {
-  const router = useRouter();
-  const rfqCode = record.rfq_no ?? record.rfq_code ?? record.order_number ?? '';
-  const id = record.id;
+  const isEditing =
+    editingCell?.rowId === item.id && editingCell?.field === field;
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  const handleDoubleClick = () => {
+    onStartEdit({
+      rowId: item.id,
+      field,
+      currentValue: value != null ? String(value) : '',
+    });
+    // Focus on next tick after render
+    setTimeout(() => inputRef.current?.focus(), 0);
+  };
+
+  const handleKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter') {
+      onSave(item.id, field, inputRef.current?.value ?? '');
+    }
+    if (e.key === 'Escape') {
+      onCancel();
+    }
+  };
+
+  if (isEditing) {
+    return (
+      <td className="px-2 py-1.5 text-right">
+        <input
+          ref={inputRef}
+          defaultValue={editingCell?.currentValue ?? ''}
+          onKeyDown={handleKeyDown}
+          onBlur={() => onCancel()}
+          className="w-24 text-xs text-right font-mono border border-brand-400 rounded px-1.5 py-0.5 outline-none focus:ring-1 focus:ring-brand-500"
+          autoFocus
+        />
+      </td>
+    );
+  }
 
   return (
     <td
-      colSpan={15}
-      className="px-4 py-2 bg-brand-50/60 border-t border-brand-100"
-      onClick={(e) => e.stopPropagation()}
+      className="px-2 py-2 text-right cursor-text group"
+      onDoubleClick={handleDoubleClick}
+      title="Double-click để sửa"
     >
-      <div className="flex items-center gap-2 flex-wrap">
-        <span className="text-xs text-slate-500 mr-1">Hành động:</span>
-        <Link
-          href={`/bqms/quotation/new${rfqCode ? `?rfq=${rfqCode}` : ''}`}
-          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-brand-600 text-white hover:bg-brand-700 transition-colors"
-        >
-          <Plus className="h-3.5 w-3.5" />
-          Tạo báo giá
-        </Link>
-        {rfqCode && (
-          <Link
-            href={`/bqms/quotation/history?rfq=${rfqCode}`}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-white border border-slate-200 text-slate-700 hover:bg-slate-50 transition-colors"
-          >
-            <History className="h-3.5 w-3.5" />
-            Xem lịch sử
-          </Link>
-        )}
-        {id && (
-          <button
-            onClick={() => router.push(`/bqms/quotation/${id}`)}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-white border border-slate-200 text-slate-700 hover:bg-slate-50 transition-colors"
-          >
-            <Eye className="h-3.5 w-3.5" />
-            Xem chi tiết
-          </button>
-        )}
-        <button
-          onClick={onClose}
-          className="ml-auto text-xs text-slate-400 hover:text-slate-600 px-2 py-1"
-        >
-          Đóng
-        </button>
-      </div>
+      <span className="text-xs font-mono text-slate-600 group-hover:text-brand-600 transition-colors">
+        {fmtVnd(value)}
+      </span>
     </td>
   );
 }
 
-// ─── Month Group ─────────────────────────────────────────────────
+// ─── Row Detail Panel ─────────────────────────────────────────────────────────
 
-function MonthGroup({
-  monthKey,
-  records,
-  selectedRowId,
-  onRowClick,
+function RowDetailPanel({
+  item,
+  onClose,
 }: {
-  monthKey: string;
-  records: BQMSRecord[];
-  selectedRowId: string | null;
-  onRowClick: (key: string) => void;
+  item: RFQItem;
+  onClose: () => void;
 }) {
-  const [collapsed, setCollapsed] = useState(false);
+  const [showHistory, setShowHistory] = useState(false);
+  const [showCreateForm, setShowCreateForm] = useState(false);
+  const [copied, setCopied] = useState(false);
+
+  const { data: historyData, isLoading: historyLoading } = useQuery({
+    queryKey: ['rfq-history', item.id],
+    queryFn: () => api.get<{ data: QuotationHistoryItem[]; total: number }>(`/api/v1/bqms/rfq/${item.id}/history`),
+    enabled: showHistory,
+    staleTime: 30_000,
+  });
+
+  const history: QuotationHistoryItem[] = historyData?.data ?? [];
+
+  const handleCopyRFQ = () => {
+    const code = item.rfq_number ?? item.bqms_code ?? '';
+    if (code) {
+      navigator.clipboard.writeText(code).then(() => {
+        setCopied(true);
+        setTimeout(() => setCopied(false), 1500);
+      });
+    }
+  };
 
   return (
-    <>
-      {/* Month header */}
-      <tr
-        className="bg-slate-50 border-y border-slate-200 cursor-pointer select-none"
-        onClick={() => setCollapsed((c) => !c)}
-      >
-        <td colSpan={15} className="px-4 py-2">
-          <div className="flex items-center gap-2">
-            {collapsed ? (
-              <ChevronRight className="h-3.5 w-3.5 text-slate-400" />
-            ) : (
-              <ChevronDown className="h-3.5 w-3.5 text-slate-400" />
+    <tr className="border-b border-brand-100 bg-brand-50/30">
+      <td colSpan={15} className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
+        <div className="flex flex-col gap-3">
+          {/* Info grid */}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs">
+            <div>
+              <span className="text-slate-400 block">RFQ No.</span>
+              <span className="font-mono font-semibold text-brand-700">{item.rfq_number ?? '—'}</span>
+            </div>
+            <div>
+              <span className="text-slate-400 block">BQMS Code</span>
+              <span className="font-mono text-slate-700">{item.bqms_code ?? '—'}</span>
+            </div>
+            <div>
+              <span className="text-slate-400 block">Tên hàng / Spec</span>
+              <span className="text-slate-700 line-clamp-2">{item.specification ?? '—'}</span>
+            </div>
+            <div>
+              <span className="text-slate-400 block">Maker</span>
+              <span className="text-slate-700">{item.maker ?? '—'}</span>
+            </div>
+            <div>
+              <span className="text-slate-400 block">Số lượng</span>
+              <span className="font-mono text-slate-700">
+                {fmtNum(item.expected_qty)} {item.unit ?? ''}
+              </span>
+            </div>
+            <div>
+              <span className="text-slate-400 block">Giá mua RMB</span>
+              <span className="font-mono text-slate-700">{fmtVnd(item.purchase_price_rmb)}</span>
+            </div>
+            <div>
+              <span className="text-slate-400 block">Giá mua VND</span>
+              <span className="font-mono text-slate-700">{fmtVnd(item.purchase_price_vnd)}</span>
+            </div>
+            <div>
+              <span className="text-slate-400 block">Giá AMA</span>
+              <span className="font-mono text-slate-700">{fmtVnd(item.quoted_price_ama)}</span>
+            </div>
+            <div>
+              <span className="text-slate-400 block">Nhà cung cấp</span>
+              <span className="text-slate-700">{item.supplier_name ?? '—'}</span>
+            </div>
+            <div>
+              <span className="text-slate-400 block">Người phụ trách</span>
+              <span className="text-slate-700">{item.person_in_charge_name ?? '—'}</span>
+            </div>
+            <div>
+              <span className="text-slate-400 block">Ngày inquiry</span>
+              <span className="text-slate-700">
+                {item.inquiry_date ? formatDate(item.inquiry_date) : '—'}
+              </span>
+            </div>
+            <div>
+              <span className="text-slate-400 block">Kết quả</span>
+              <ResultBadge result={item.result} />
+            </div>
+            {item.notes && (
+              <div className="col-span-2 md:col-span-4">
+                <span className="text-slate-400 block">Ghi chú</span>
+                <span className="text-slate-700">{item.notes}</span>
+              </div>
             )}
-            <span className="text-xs font-semibold text-slate-600 uppercase tracking-wider">
-              {monthKey}
-            </span>
-            <span className="text-xs text-slate-400 ml-1">({records.length} bản ghi)</span>
+            {item.report && (
+              <div className="col-span-2 md:col-span-4">
+                <span className="text-slate-400 block">Báo cáo</span>
+                <span className="text-slate-700">{item.report}</span>
+              </div>
+            )}
           </div>
-        </td>
-      </tr>
 
-      {!collapsed &&
-        records.map((record, idx) => {
-          const rowKey = String(record.id ?? `${monthKey}-${idx}`);
-          const isSelected = selectedRowId === rowKey;
-          const urgency = getDeadlineUrgency(record.deadline);
-          const dateStr = getRecordDate(record);
+          {/* Action buttons */}
+          <div className="flex items-center gap-2 flex-wrap border-t border-brand-100 pt-2">
+            <Link
+              href={`/bqms/quotation/new${item.rfq_number ? `?rfq=${encodeURIComponent(item.rfq_number)}` : ''}`}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-brand-600 text-white hover:bg-brand-700 transition-colors"
+            >
+              <Plus className="h-3.5 w-3.5" />
+              Tạo báo giá
+            </Link>
 
-          return (
-            <>
-              <tr
-                key={rowKey}
-                onClick={() => onRowClick(isSelected ? '' : rowKey)}
-                className={cn(
-                  'border-b border-slate-100 transition-colors cursor-pointer',
-                  isSelected ? 'bg-brand-50/40' : 'hover:bg-slate-50/60',
-                  urgency === 'red' ? 'bg-red-50/30' : '',
-                  urgency === 'amber' && !isSelected ? 'bg-amber-50/20' : ''
-                )}
-              >
-                {/* STT */}
-                <td className="px-3 py-2.5 text-xs text-slate-400 tabular-nums">{idx + 1}</td>
-                {/* Ngày */}
-                <td className="px-3 py-2.5 text-xs text-slate-500 whitespace-nowrap">
-                  {dateStr ? formatDate(dateStr) : '—'}
-                </td>
-                {/* RFQ No */}
-                <td className="px-3 py-2.5">
-                  <div className="flex items-center gap-1">
-                    {urgency === 'red' && (
-                      <AlertTriangle className="h-3 w-3 text-red-500 flex-shrink-0" />
-                    )}
-                    {urgency === 'amber' && !urgency && (
-                      <Clock className="h-3 w-3 text-amber-500 flex-shrink-0" />
-                    )}
-                    <span className="text-xs font-mono text-brand-600 whitespace-nowrap">
-                      {record.rfq_no ?? record.rfq_code ?? record.order_number ?? '—'}
-                    </span>
-                  </div>
-                </td>
-                {/* BQMS Code */}
-                <td className="px-3 py-2.5">
-                  <span className="text-xs font-mono text-slate-600">
-                    {record.bqms_code ?? record.reference_number ?? '—'}
-                  </span>
-                </td>
-                {/* Tên hàng */}
-                <td className="px-3 py-2.5 max-w-[180px]">
-                  <span className="text-xs text-slate-800 truncate block">
-                    {record.product_name ?? record.project_name ?? '—'}
-                  </span>
-                </td>
-                {/* Maker */}
-                <td className="px-3 py-2.5">
-                  <span className="text-xs text-slate-600">{record.maker ?? '—'}</span>
-                </td>
-                {/* SL */}
-                <td className="px-3 py-2.5 text-right">
-                  <span className="text-xs font-mono text-slate-700">
-                    {record.quantity != null
-                      ? Number(record.quantity).toLocaleString('vi-VN')
-                      : '—'}
-                  </span>
-                </td>
-                {/* Đơn vị */}
-                <td className="px-3 py-2.5">
-                  <span className="text-xs text-slate-500">{record.unit ?? '—'}</span>
-                </td>
-                {/* Giá v1–v4 */}
-                <td className="px-3 py-2.5 text-right">
-                  <span className="text-xs font-mono text-slate-600">{fmtVnd(record.price_v1)}</span>
-                </td>
-                <td className="px-3 py-2.5 text-right">
-                  <span className="text-xs font-mono text-slate-600">{fmtVnd(record.price_v2)}</span>
-                </td>
-                <td className="px-3 py-2.5 text-right">
-                  <span className="text-xs font-mono text-slate-600">{fmtVnd(record.price_v3)}</span>
-                </td>
-                <td className="px-3 py-2.5 text-right">
-                  <span className="text-xs font-mono text-slate-600">{fmtVnd(record.price_v4)}</span>
-                </td>
-                {/* Kết quả */}
-                <td className="px-3 py-2.5">
-                  <ResultBadge result={record.result} status={record.status} />
-                </td>
-                {/* Deadline */}
-                <td className="px-3 py-2.5 whitespace-nowrap">
-                  {record.deadline ? (
-                    <span
-                      className={cn(
-                        'text-xs font-medium',
-                        urgency === 'red' ? 'text-red-600' : urgency === 'amber' ? 'text-amber-600' : 'text-slate-500'
-                      )}
-                    >
-                      {urgency === 'red' && <AlertTriangle className="inline h-3 w-3 mr-0.5 -mt-0.5" />}
-                      {urgency === 'amber' && <Clock className="inline h-3 w-3 mr-0.5 -mt-0.5" />}
-                      {formatDate(record.deadline)}
-                    </span>
-                  ) : (
-                    <span className="text-xs text-slate-300">—</span>
-                  )}
-                </td>
-                {/* Người phụ trách */}
-                <td className="px-3 py-2.5">
-                  <span className="text-xs text-slate-500">
-                    {record.assignee ?? record.person_in_charge ?? '—'}
-                  </span>
-                </td>
-              </tr>
-              {isSelected && (
-                <tr key={`action-${rowKey}`} className="border-b border-brand-100">
-                  <InlineActionBar record={record} onClose={() => onRowClick('')} />
-                </tr>
+            <button
+              onClick={() => setShowHistory((v) => !v)}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-white border border-slate-200 text-slate-700 hover:bg-slate-50 transition-colors"
+            >
+              <History className="h-3.5 w-3.5" />
+              {showHistory ? 'Ẩn lịch sử BG' : 'Xem lịch sử BG'}
+            </button>
+
+            <button
+              onClick={handleCopyRFQ}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-white border border-slate-200 text-slate-700 hover:bg-slate-50 transition-colors"
+            >
+              <Copy className="h-3.5 w-3.5" />
+              {copied ? 'Đã copy!' : 'Copy RFQ code'}
+            </button>
+
+            <Link
+              href={`/bqms/rfq?id=${item.id}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-white border border-slate-200 text-slate-700 hover:bg-slate-50 transition-colors"
+            >
+              <ExternalLink className="h-3.5 w-3.5" />
+              Mở tab mới
+            </Link>
+
+            <button
+              onClick={onClose}
+              className="ml-auto text-xs text-slate-400 hover:text-slate-600 px-2 py-1 rounded hover:bg-slate-100 transition-colors"
+            >
+              Đóng
+            </button>
+          </div>
+
+          {/* Quotation history */}
+          {showHistory && (
+            <div className="border-t border-brand-100 pt-2">
+              {historyLoading ? (
+                <div className="flex items-center gap-2 text-xs text-slate-400 py-2">
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  Đang tải lịch sử...
+                </div>
+              ) : history.length === 0 ? (
+                <p className="text-xs text-slate-400 py-2">Chưa có báo giá nào cho RFQ này.</p>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="text-xs w-full">
+                    <thead>
+                      <tr className="text-slate-400 border-b border-slate-100">
+                        <th className="text-left py-1 pr-4 font-medium">Số BG</th>
+                        <th className="text-left py-1 pr-4 font-medium">Khách hàng</th>
+                        <th className="text-right py-1 pr-4 font-medium">Giá trị</th>
+                        <th className="text-left py-1 pr-4 font-medium">Trạng thái</th>
+                        <th className="text-left py-1 font-medium">Ngày tạo</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-50">
+                      {history.map((h) => (
+                        <tr key={h.id} className="hover:bg-white transition-colors">
+                          <td className="py-1 pr-4 font-mono text-brand-600">
+                            {h.quotation_number ?? `#${h.id}`}
+                          </td>
+                          <td className="py-1 pr-4 text-slate-700">{h.customer_name ?? '—'}</td>
+                          <td className="py-1 pr-4 text-right font-mono text-slate-700">
+                            {h.total_amount != null
+                              ? `${fmtVnd(h.total_amount)} ${h.currency ?? ''}`
+                              : '—'}
+                          </td>
+                          <td className="py-1 pr-4">
+                            <span className="px-1.5 py-0.5 rounded bg-slate-100 text-slate-600">
+                              {h.status ?? '—'}
+                            </span>
+                          </td>
+                          <td className="py-1 text-slate-500">
+                            {h.created_at ? formatDate(h.created_at) : '—'}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               )}
-            </>
+            </div>
+          )}
+        </div>
+      </td>
+    </tr>
+  );
+}
+
+// ─── Month Group Header ───────────────────────────────────────────────────────
+
+function MonthGroupHeader({
+  summary,
+  collapsed,
+  onToggle,
+}: {
+  summary: MonthSummary;
+  collapsed: boolean;
+  onToggle: () => void;
+}) {
+  return (
+    <tr
+      className="bg-slate-50 border-y border-slate-200 cursor-pointer select-none sticky top-[41px] z-10"
+      onClick={onToggle}
+    >
+      <td colSpan={15} className="px-4 py-2">
+        <div className="flex items-center gap-2">
+          {collapsed ? (
+            <ChevronRight className="h-3.5 w-3.5 text-slate-400" />
+          ) : (
+            <ChevronDown className="h-3.5 w-3.5 text-slate-400" />
+          )}
+          <span className="text-xs font-bold text-slate-700 uppercase tracking-wide">
+            {monthLabel(summary.year, summary.month)}
+          </span>
+          <span className="text-xs text-slate-400 ml-1">
+            — {summary.count.toLocaleString('vi-VN')} RFQ
+          </span>
+          {summary.won > 0 && (
+            <span className="text-xs text-emerald-600 font-medium">
+              ({summary.won} trúng
+            </span>
+          )}
+          {summary.won > 0 && summary.lost > 0 && (
+            <span className="text-xs text-red-500 font-medium">, {summary.lost} trượt)</span>
+          )}
+          {summary.won > 0 && summary.lost === 0 && (
+            <span className="text-xs text-emerald-600 font-medium">)</span>
+          )}
+          {summary.won === 0 && summary.lost > 0 && (
+            <span className="text-xs text-red-500 font-medium">({summary.lost} trượt)</span>
+          )}
+        </div>
+      </td>
+    </tr>
+  );
+}
+
+// ─── Table Skeleton ───────────────────────────────────────────────────────────
+
+function TableSkeleton() {
+  return (
+    <tbody>
+      {Array.from({ length: 12 }).map((_, i) => (
+        <tr key={i} className="border-b border-slate-100">
+          {Array.from({ length: 14 }).map((_, j) => (
+            <td key={j} className="px-3 py-2.5">
+              <div
+                className="h-3.5 bg-slate-200 rounded animate-pulse"
+                style={{ width: `${40 + ((i * 7 + j * 13) % 60)}%`, opacity: 0.6 + (j % 4) * 0.1 }}
+              />
+            </td>
+          ))}
+        </tr>
+      ))}
+    </tbody>
+  );
+}
+
+// ─── Main Page ────────────────────────────────────────────────────────────────
+
+export default function BQMSPage() {
+  const queryClient = useQueryClient();
+
+  // ── Filter state
+  const currentYear = new Date().getFullYear();
+  const [year, setYear] = useState<number | null>(currentYear);
+  const [month, setMonth] = useState<number | null>(null);
+  const [search, setSearch] = useState('');
+  const [searchInput, setSearchInput] = useState('');
+  const [resultFilter, setResultFilter] = useState<string>('all');
+  const [page, setPage] = useState(1);
+
+  // ── UI state
+  const [expandedRowId, setExpandedRowId] = useState<number | null>(null);
+  const [editingCell, setEditingCell] = useState<EditingCell | null>(null);
+  const [collapsedMonths, setCollapsedMonths] = useState<Set<string>>(new Set());
+
+  // ── Build query string
+  const buildParams = useCallback(() => {
+    const p = new URLSearchParams();
+    if (year) p.set('year', String(year));
+    if (month) p.set('month', String(month));
+    if (search) p.set('search', search);
+    if (resultFilter && resultFilter !== 'all') p.set('result_filter', resultFilter);
+    p.set('page', String(page));
+    p.set('page_size', '100');
+    return p.toString();
+  }, [year, month, search, resultFilter, page]);
+
+  // ── Data query
+  const { data, isLoading, isFetching, error } = useQuery({
+    queryKey: ['bqms-rfq-table', year, month, search, resultFilter, page],
+    queryFn: () =>
+      api.get<RFQTableResponse>(`/api/v1/bqms/rfq-table?${buildParams()}`),
+    staleTime: 30_000,
+    refetchInterval: 30_000,
+    retry: 2,
+  });
+
+  const items: RFQItem[] = Array.isArray(data?.data?.items) ? data!.data.items : [];
+  const total = data?.data?.total ?? 0;
+  const totalPages = data?.data?.total_pages ?? 1;
+  const kpis = data?.data?.kpis;
+  const months: MonthSummary[] = Array.isArray(data?.data?.months) ? data!.data.months : [];
+
+  // ── Inline price update mutation
+  const priceMutation = useMutation({
+    mutationFn: ({ rowId, field, value }: { rowId: number; field: string; value: string }) =>
+      api.patch<{ message: string }>(`/api/v1/bqms/rfq/${rowId}/price`, { field, value: value === '' ? null : Number(value) }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['bqms-rfq-table'] });
+      setEditingCell(null);
+    },
+    onError: () => {
+      setEditingCell(null);
+    },
+  });
+
+  const handleSaveCell = useCallback(
+    (rowId: number, field: string, value: string) => {
+      priceMutation.mutate({ rowId, field, value });
+    },
+    [priceMutation]
+  );
+
+  const handleCancelCell = useCallback(() => {
+    setEditingCell(null);
+  }, []);
+
+  // ── Month collapse
+  const toggleMonth = useCallback((key: string) => {
+    setCollapsedMonths((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }, []);
+
+  // ── Group items by month using the months metadata from API
+  // Build a map: "YYYY-M" -> items[]
+  const itemsByMonth = new Map<string, RFQItem[]>();
+  for (const item of items) {
+    const d = item.effective_date ?? item.inquiry_date ?? item.created_at ?? '';
+    if (!d) {
+      const key = 'unknown';
+      itemsByMonth.set(key, [...(itemsByMonth.get(key) ?? []), item]);
+      continue;
+    }
+    const dt = new Date(d);
+    const key = isNaN(dt.getTime()) ? 'unknown' : `${dt.getFullYear()}-${dt.getMonth() + 1}`;
+    itemsByMonth.set(key, [...(itemsByMonth.get(key) ?? []), item]);
+  }
+
+  // ── Search submit
+  const handleSearchSubmit = () => {
+    setSearch(searchInput);
+    setPage(1);
+  };
+
+  // ── Filter change resets page
+  const handleYearChange = (v: number | null) => { setYear(v); setPage(1); };
+  const handleMonthChange = (v: number | null) => { setMonth(v); setPage(1); };
+  const handleResultChange = (v: string) => { setResultFilter(v); setPage(1); };
+
+  // ── Row click
+  const handleRowClick = (id: number) => {
+    setExpandedRowId((prev) => (prev === id ? null : id));
+  };
+
+  // ── Global row counter (for # column)
+  let rowCounter = (page - 1) * 100;
+
+  return (
+    <div className="flex flex-col gap-4 min-h-0 pb-8">
+      {/* ── Page Header */}
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <div className="p-2 bg-brand-100 rounded-lg">
+            <ClipboardList className="h-5 w-5 text-brand-600" />
+          </div>
+          <div>
+            <h1 className="text-lg font-bold text-slate-900">BQMS — Quản lý RFQ Samsung</h1>
+            <p className="text-xs text-slate-500">
+              Bảng tổng hợp RFQ · {total.toLocaleString('vi-VN')} bản ghi
+              {isFetching && !isLoading && (
+                <span className="ml-2 text-brand-500">
+                  <Loader2 className="inline h-3 w-3 animate-spin mr-0.5" />
+                  Đang cập nhật...
+                </span>
+              )}
+            </p>
+          </div>
+        </div>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => queryClient.invalidateQueries({ queryKey: ['bqms-rfq-table'] })}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-white border border-slate-200 text-slate-600 hover:bg-slate-50 transition-colors"
+          >
+            <RefreshCw className={cn('h-3.5 w-3.5', isFetching && 'animate-spin')} />
+            Làm mới
+          </button>
+          <Link
+            href="/bqms/quotation/new"
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-brand-600 text-white hover:bg-brand-700 transition-colors shadow-sm"
+          >
+            <Plus className="h-3.5 w-3.5" />
+            Tạo báo giá
+          </Link>
+        </div>
+      </div>
+
+      {/* ── KPI Bar */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+        <KPICard
+          label="Tổng RFQ (bộ lọc)"
+          value={(kpis?.total_month ?? total).toLocaleString('vi-VN')}
+          icon={ClipboardList}
+          colorClass="bg-brand-100 text-brand-600"
+          loading={isLoading}
+        />
+        <KPICard
+          label="Trúng thầu"
+          value={(kpis?.won ?? 0).toLocaleString('vi-VN')}
+          icon={CheckCircle2}
+          colorClass="bg-emerald-100 text-emerald-600"
+          loading={isLoading}
+        />
+        <KPICard
+          label="Trượt thầu"
+          value={(kpis?.lost ?? 0).toLocaleString('vi-VN')}
+          icon={XCircle}
+          colorClass="bg-red-100 text-red-600"
+          loading={isLoading}
+        />
+        <KPICard
+          label="Đang xử lý"
+          value={(kpis?.pending ?? 0).toLocaleString('vi-VN')}
+          icon={Clock}
+          colorClass="bg-amber-100 text-amber-600"
+          loading={isLoading}
+        />
+        <KPICard
+          label="Win rate"
+          value={`${kpis?.win_rate ?? 0}%`}
+          icon={Percent}
+          colorClass="bg-violet-100 text-violet-600"
+          loading={isLoading}
+          sub={kpis ? `${kpis.won}/${kpis.won + kpis.lost} đã xử lý` : undefined}
+        />
+      </div>
+
+      {/* ── Filter Bar */}
+      <div className="bg-white rounded-xl shadow-sm border border-slate-100 px-4 py-3 flex flex-wrap items-center gap-3">
+        {/* Year */}
+        <div className="flex items-center gap-1.5">
+          <span className="text-xs text-slate-500 whitespace-nowrap">Năm:</span>
+          <select
+            value={year ?? ''}
+            onChange={(e) => handleYearChange(e.target.value ? Number(e.target.value) : null)}
+            className="text-xs border border-slate-200 rounded-lg px-2.5 py-1.5 bg-white text-slate-700 focus:outline-none focus:ring-1 focus:ring-brand-500"
+          >
+            <option value="">Tất cả</option>
+            {[2026, 2025, 2024, 2023].map((y) => (
+              <option key={y} value={y}>{y}</option>
+            ))}
+          </select>
+        </div>
+
+        {/* Month */}
+        <div className="flex items-center gap-1.5">
+          <span className="text-xs text-slate-500 whitespace-nowrap">Tháng:</span>
+          <select
+            value={month ?? ''}
+            onChange={(e) => handleMonthChange(e.target.value ? Number(e.target.value) : null)}
+            className="text-xs border border-slate-200 rounded-lg px-2.5 py-1.5 bg-white text-slate-700 focus:outline-none focus:ring-1 focus:ring-brand-500"
+          >
+            <option value="">Tất cả</option>
+            {Array.from({ length: 12 }, (_, i) => i + 1).map((m) => (
+              <option key={m} value={m}>Tháng {m}</option>
+            ))}
+          </select>
+        </div>
+
+        {/* Result filter */}
+        <div className="flex items-center gap-1 rounded-lg border border-slate-200 overflow-hidden">
+          {[
+            { val: 'all', label: 'Tất cả' },
+            { val: 'pending', label: 'Đang xử lý' },
+            { val: 'won', label: 'Trúng' },
+            { val: 'lost', label: 'Trượt' },
+          ].map(({ val, label }) => (
+            <button
+              key={val}
+              onClick={() => handleResultChange(val)}
+              className={cn(
+                'px-3 py-1.5 text-xs font-medium transition-colors',
+                resultFilter === val
+                  ? 'bg-brand-600 text-white'
+                  : 'bg-white text-slate-600 hover:bg-slate-50'
+              )}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+
+        {/* Search */}
+        <div className="flex items-center gap-1.5 flex-1 min-w-[200px]">
+          <div className="relative flex-1">
+            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400" />
+            <input
+              type="text"
+              placeholder="RFQ No, BQMS Code, tên hàng, maker..."
+              value={searchInput}
+              onChange={(e) => setSearchInput(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && handleSearchSubmit()}
+              className="w-full pl-8 pr-3 py-1.5 text-xs border border-slate-200 rounded-lg bg-white text-slate-700 placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-brand-500"
+            />
+          </div>
+          <button
+            onClick={handleSearchSubmit}
+            className="px-3 py-1.5 text-xs font-medium bg-brand-600 text-white rounded-lg hover:bg-brand-700 transition-colors"
+          >
+            Tìm
+          </button>
+          {search && (
+            <button
+              onClick={() => { setSearch(''); setSearchInput(''); setPage(1); }}
+              className="px-2.5 py-1.5 text-xs text-slate-500 border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors"
+            >
+              Xóa
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* ── Main Table */}
+      <div className="bg-white rounded-xl shadow-sm border border-slate-100 overflow-hidden">
+        {error ? (
+          <div className="flex flex-col items-center justify-center py-16 gap-2">
+            <AlertTriangle className="h-8 w-8 text-red-400" />
+            <p className="text-sm text-slate-600">Không thể tải dữ liệu. Vui lòng thử lại.</p>
+            <button
+              onClick={() => queryClient.invalidateQueries({ queryKey: ['bqms-rfq-table'] })}
+              className="mt-1 text-xs text-brand-600 hover:underline"
+            >
+              Thử lại
+            </button>
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full border-collapse text-xs">
+              {/* Sticky header */}
+              <thead className="sticky top-0 z-20">
+                <tr className="bg-slate-800 text-slate-200">
+                  <th className="text-center px-3 py-2.5 font-semibold whitespace-nowrap w-10">#</th>
+                  <th className="text-left px-3 py-2.5 font-semibold whitespace-nowrap">Ngày</th>
+                  <th className="text-left px-3 py-2.5 font-semibold whitespace-nowrap">Người PT</th>
+                  <th className="text-left px-3 py-2.5 font-semibold whitespace-nowrap">RFQ No.</th>
+                  <th className="text-left px-3 py-2.5 font-semibold whitespace-nowrap">BQMS Code</th>
+                  <th className="text-left px-3 py-2.5 font-semibold">Tên hàng</th>
+                  <th className="text-left px-3 py-2.5 font-semibold whitespace-nowrap">Maker</th>
+                  <th className="text-right px-3 py-2.5 font-semibold whitespace-nowrap">SL</th>
+                  <th className="text-right px-2 py-2.5 font-semibold whitespace-nowrap">Giá V1</th>
+                  <th className="text-right px-2 py-2.5 font-semibold whitespace-nowrap">Giá V2</th>
+                  <th className="text-right px-2 py-2.5 font-semibold whitespace-nowrap">Giá V3</th>
+                  <th className="text-right px-2 py-2.5 font-semibold whitespace-nowrap">Giá V4</th>
+                  <th className="text-center px-3 py-2.5 font-semibold whitespace-nowrap">Kết quả</th>
+                  <th className="text-left px-3 py-2.5 font-semibold whitespace-nowrap">NCC</th>
+                </tr>
+              </thead>
+
+              {isLoading ? (
+                <TableSkeleton />
+              ) : items.length === 0 ? (
+                <tbody>
+                  <tr>
+                    <td colSpan={14} className="py-16 text-center">
+                      <div className="flex flex-col items-center gap-2 text-slate-300">
+                        <Inbox className="h-10 w-10" />
+                        <p className="text-sm text-slate-400">Không có dữ liệu phù hợp</p>
+                        {(search || resultFilter !== 'all' || year || month) && (
+                          <button
+                            onClick={() => {
+                              setSearch('');
+                              setSearchInput('');
+                              setResultFilter('all');
+                              setYear(null);
+                              setMonth(null);
+                              setPage(1);
+                            }}
+                            className="text-xs text-brand-600 hover:underline mt-1"
+                          >
+                            Xóa bộ lọc
+                          </button>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                </tbody>
+              ) : (
+                <tbody className="divide-y divide-slate-100">
+                  {months.length > 0
+                    ? // Render with month group headers
+                      months.map((ms) => {
+                        const monthKey = `${ms.year}-${ms.month}`;
+                        const monthItems = itemsByMonth.get(monthKey) ?? [];
+                        if (monthItems.length === 0) return null;
+                        const collapsed = collapsedMonths.has(monthKey);
+
+                        return (
+                          <MonthGroupSection
+                            key={monthKey}
+                            summary={ms}
+                            items={monthItems}
+                            collapsed={collapsed}
+                            onToggle={() => toggleMonth(monthKey)}
+                            expandedRowId={expandedRowId}
+                            onRowClick={handleRowClick}
+                            editingCell={editingCell}
+                            onStartEdit={setEditingCell}
+                            onSaveCell={handleSaveCell}
+                            onCancelCell={handleCancelCell}
+                            rowCounterStart={rowCounter}
+                          />
+                        );
+                      })
+                    : // Fallback: flat list without month headers
+                      items.map((item, idx) => {
+                        rowCounter++;
+                        const urgency = getUrgency(item);
+                        const isExpanded = expandedRowId === item.id;
+                        return (
+                          <DataRow
+                            key={item.id}
+                            item={item}
+                            idx={rowCounter}
+                            urgency={urgency}
+                            isExpanded={isExpanded}
+                            onRowClick={handleRowClick}
+                            editingCell={editingCell}
+                            onStartEdit={setEditingCell}
+                            onSaveCell={handleSaveCell}
+                            onCancelCell={handleCancelCell}
+                          />
+                        );
+                      })}
+                </tbody>
+              )}
+            </table>
+          </div>
+        )}
+
+        {/* ── Pagination */}
+        {!isLoading && totalPages > 1 && (
+          <div className="flex items-center justify-between px-4 py-3 border-t border-slate-100 bg-slate-50/50">
+            <p className="text-xs text-slate-500">
+              Trang {page}/{totalPages} · {total.toLocaleString('vi-VN')} bản ghi
+            </p>
+            <div className="flex items-center gap-1">
+              <button
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+                disabled={page === 1}
+                className="p-1.5 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+              >
+                <ChevronLeft className="h-4 w-4" />
+              </button>
+              {/* Page number buttons (show up to 7) */}
+              {(() => {
+                const start = Math.max(1, page - 3);
+                const end = Math.min(totalPages, start + 6);
+                return Array.from({ length: end - start + 1 }, (_, i) => start + i).map((p) => (
+                  <button
+                    key={p}
+                    onClick={() => setPage(p)}
+                    className={cn(
+                      'w-7 h-7 rounded-lg text-xs font-medium transition-colors border',
+                      p === page
+                        ? 'bg-brand-600 text-white border-brand-600'
+                        : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
+                    )}
+                  >
+                    {p}
+                  </button>
+                ));
+              })()}
+              <button
+                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                disabled={page === totalPages}
+                className="p-1.5 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+              >
+                <ChevronDown className="h-4 w-4 rotate-[-90deg]" />
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* ── Double-click tip */}
+      <p className="text-xs text-slate-400 text-center">
+        Double-click vào ô Giá V1–V4 để chỉnh sửa trực tiếp · Enter để lưu · Escape để hủy
+      </p>
+    </div>
+  );
+}
+
+// ─── Month Group Section (extracted for clean rendering) ──────────────────────
+
+function MonthGroupSection({
+  summary,
+  items,
+  collapsed,
+  onToggle,
+  expandedRowId,
+  onRowClick,
+  editingCell,
+  onStartEdit,
+  onSaveCell,
+  onCancelCell,
+  rowCounterStart,
+}: {
+  summary: MonthSummary;
+  items: RFQItem[];
+  collapsed: boolean;
+  onToggle: () => void;
+  expandedRowId: number | null;
+  onRowClick: (id: number) => void;
+  editingCell: EditingCell | null;
+  onStartEdit: (cell: EditingCell) => void;
+  onSaveCell: (rowId: number, field: string, value: string) => void;
+  onCancelCell: () => void;
+  rowCounterStart: number;
+}) {
+  return (
+    <>
+      <MonthGroupHeader summary={summary} collapsed={collapsed} onToggle={onToggle} />
+      {!collapsed &&
+        items.map((item, idx) => {
+          const urgency = getUrgency(item);
+          const isExpanded = expandedRowId === item.id;
+          return (
+            <DataRow
+              key={item.id}
+              item={item}
+              idx={rowCounterStart + idx + 1}
+              urgency={urgency}
+              isExpanded={isExpanded}
+              onRowClick={onRowClick}
+              editingCell={editingCell}
+              onStartEdit={onStartEdit}
+              onSaveCell={onSaveCell}
+              onCancelCell={onCancelCell}
+            />
           );
         })}
     </>
   );
 }
 
-// ─── Quotation History ───────────────────────────────────────────
+// ─── Data Row ─────────────────────────────────────────────────────────────────
 
-function QuotationHistory() {
-  const { data, isLoading } = useQuery({
-    queryKey: ['quotation-history'],
-    queryFn: () => api.get<any>('/api/v1/quotations/history?page=1'),
-    retry: 1,
-  });
-
-  const items: any[] = data?.data ?? data?.items ?? [];
-
-  return (
-    <div className="bg-white rounded-xl shadow-sm border border-slate-100 overflow-hidden">
-      <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100">
-        <div className="flex items-center gap-2">
-          <History className="h-4 w-4 text-brand-500" />
-          <h3 className="text-sm font-semibold text-slate-700">Lịch sử báo giá gần đây</h3>
-        </div>
-        <Link
-          href="/bqms/quotation/history"
-          className="text-xs text-brand-600 hover:underline"
-        >
-          Xem tất cả
-        </Link>
-      </div>
-      {isLoading ? (
-        <div className="p-4 space-y-2">
-          {Array.from({ length: 5 }).map((_, i) => (
-            <div key={i} className="flex gap-3">
-              <div className="h-4 w-28 bg-slate-200 rounded animate-pulse" />
-              <div className="h-4 w-40 bg-slate-200 rounded animate-pulse flex-1" />
-              <div className="h-4 w-20 bg-slate-200 rounded animate-pulse" />
-              <div className="h-5 w-16 bg-slate-200 rounded-full animate-pulse" />
-            </div>
-          ))}
-        </div>
-      ) : items.length === 0 ? (
-        <div className="flex flex-col items-center justify-center py-10 text-slate-300">
-          <Inbox className="h-10 w-10 mb-2" />
-          <p className="text-sm text-slate-400">Chưa có báo giá nào</p>
-        </div>
-      ) : (
-        <div className="overflow-x-auto">
-          <table className="w-full">
-            <thead>
-              <tr className="bg-slate-50/50">
-                <th className="text-left text-xs font-mono uppercase tracking-wider text-slate-400 px-4 py-2">Ngày</th>
-                <th className="text-left text-xs font-mono uppercase tracking-wider text-slate-400 px-4 py-2">Số BG</th>
-                <th className="text-left text-xs font-mono uppercase tracking-wider text-slate-400 px-4 py-2">Khách hàng</th>
-                <th className="text-right text-xs font-mono uppercase tracking-wider text-slate-400 px-4 py-2">Giá trị</th>
-                <th className="text-left text-xs font-mono uppercase tracking-wider text-slate-400 px-4 py-2">Trạng thái</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
-              {items.slice(0, 10).map((item: any, i: number) => (
-                <tr key={item.id ?? i} className="hover:bg-slate-50/50 transition-colors">
-                  <td className="px-4 py-2.5 text-xs text-slate-500 whitespace-nowrap">
-                    {formatDate(item.date ?? item.created_at ?? item.submitted_at)}
-                  </td>
-                  <td className="px-4 py-2.5">
-                    <span className="text-xs font-mono text-brand-600">
-                      {item.quotation_number ?? item.quote_no ?? item.id ?? '—'}
-                    </span>
-                  </td>
-                  <td className="px-4 py-2.5 text-xs text-slate-700 max-w-[180px] truncate">
-                    {item.customer_name ?? item.client ?? '—'}
-                  </td>
-                  <td className="px-4 py-2.5 text-right text-xs font-mono text-slate-700">
-                    {fmtVnd(item.total_amount ?? item.amount)}
-                  </td>
-                  <td className="px-4 py-2.5">
-                    <ResultBadge result={item.result} status={item.status} />
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-    </div>
-  );
-}
-
-// ─── Main Page ───────────────────────────────────────────────────
-
-export default function BQMSUnifiedPage() {
-  const queryClient = useQueryClient();
-  const currentDate = new Date();
-  const [selectedMonth, setSelectedMonth] = useState(currentDate.getMonth() + 1);
-  const [selectedYear, setSelectedYear] = useState(currentDate.getFullYear());
-  const [searchQuery, setSearchQuery] = useState('');
-  const [statusFilter, setStatusFilter] = useState('all');
-  const [selectedRowId, setSelectedRowId] = useState<string | null>(null);
-
-  // Build year options (current year and past 2)
-  const yearOptions = [currentDate.getFullYear(), currentDate.getFullYear() - 1, currentDate.getFullYear() - 2];
-  const monthOptions = Array.from({ length: 12 }, (_, i) => i + 1);
-
-  // Auto-refresh every 30s
-  const refetchAll = useCallback(() => {
-    queryClient.invalidateQueries({ queryKey: ['bqms-records'] });
-    queryClient.invalidateQueries({ queryKey: ['bqms-overview'] });
-  }, [queryClient]);
-
-  useEffect(() => {
-    const interval = setInterval(refetchAll, 30000);
-    return () => clearInterval(interval);
-  }, [refetchAll]);
-
-  // Fetch records
-  const { data: recordsRaw, isLoading: recordsLoading, dataUpdatedAt } = useQuery({
-    queryKey: ['bqms-records'],
-    queryFn: () => api.get<any>('/api/v1/bqms/records'),
-    retry: 1,
-  });
-
-  // Fetch overview stats
-  const { data: overviewRaw, isLoading: overviewLoading } = useQuery({
-    queryKey: ['bqms-overview'],
-    queryFn: () => api.get<any>('/api/v1/price-analytics/overview?months=12'),
-    retry: 1,
-  });
-
-  const allRecords: BQMSRecord[] = recordsRaw?.data ?? recordsRaw?.items ?? [];
-  const overviewData: OverviewStats = overviewRaw?.data ?? overviewRaw ?? {};
-
-  // Filter by selected month/year
-  const filteredByPeriod = allRecords.filter((r) => {
-    const d = new Date(getRecordDate(r));
-    if (isNaN(d.getTime())) return true; // include records without date
-    return d.getMonth() + 1 === selectedMonth && d.getFullYear() === selectedYear;
-  });
-
-  // Filter by search + status
-  const filtered = filteredByPeriod.filter((r) => {
-    const q = searchQuery.toLowerCase();
-    const matchSearch =
-      !q ||
-      (r.rfq_no ?? r.rfq_code ?? r.order_number ?? '').toLowerCase().includes(q) ||
-      (r.bqms_code ?? r.reference_number ?? '').toLowerCase().includes(q) ||
-      (r.product_name ?? r.project_name ?? '').toLowerCase().includes(q) ||
-      (r.maker ?? '').toLowerCase().includes(q);
-
-    const matchStatus =
-      statusFilter === 'all' ||
-      (r.result ?? r.status ?? '').toLowerCase() === statusFilter;
-
-    return matchSearch && matchStatus;
-  });
-
-  // Group by month for display (when showing across all months, group; otherwise flat)
-  const grouped = groupByMonth(filtered);
-
-  // KPI data
-  const totalRFQ = overviewData.total_rfq ?? overviewData.total_bids ?? allRecords.length;
-  const processing =
-    overviewData.processing ??
-    allRecords.filter((r) => {
-      const s = (r.result ?? r.status ?? '').toLowerCase();
-      return s === 'pending' || s === 'processing' || s === 'submitted' || s === 'draft';
-    }).length;
-  const winRate = Number(overviewData.win_rate ?? 0);
-  const avgPrice = overviewData.avg_price;
+function DataRow({
+  item,
+  idx,
+  urgency,
+  isExpanded,
+  onRowClick,
+  editingCell,
+  onStartEdit,
+  onSaveCell,
+  onCancelCell,
+}: {
+  item: RFQItem;
+  idx: number;
+  urgency: 'red' | 'amber' | null;
+  isExpanded: boolean;
+  onRowClick: (id: number) => void;
+  editingCell: EditingCell | null;
+  onStartEdit: (cell: EditingCell) => void;
+  onSaveCell: (rowId: number, field: string, value: string) => void;
+  onCancelCell: () => void;
+}) {
+  const dateStr = item.effective_date ?? item.inquiry_date ?? item.created_at ?? '';
 
   return (
-    <div>
-      {/* ── Header ────────────────────────────────────────────── */}
-      <div className="flex items-center justify-between mb-5">
-        <div>
-          <h2 className="text-xl font-display font-bold text-slate-900">BQMS Thống nhất</h2>
-          <p className="text-sm text-slate-500 mt-0.5">
-            Quản lý RFQ, báo giá, lịch sử và template
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          <Link
-            href="/bqms/rfq"
-            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-600 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors"
-          >
-            <FileText className="h-3.5 w-3.5" />
-            RFQ
-          </Link>
-          <Link
-            href="/bqms/quotation/templates"
-            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-600 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors"
-          >
-            <ClipboardList className="h-3.5 w-3.5" />
-            Template
-          </Link>
-          <Link
-            href="/bqms/quotation/new"
-            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white bg-brand-600 rounded-lg hover:bg-brand-700 transition-colors"
-          >
-            <Plus className="h-3.5 w-3.5" />
-            Tạo báo giá
-          </Link>
-          <button
-            onClick={refetchAll}
-            className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs text-slate-500 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors"
-            title="Làm mới"
-          >
-            <RefreshCw className="h-3.5 w-3.5" />
-            <span className="hidden sm:inline text-slate-400">
-              {dataUpdatedAt ? new Date(dataUpdatedAt).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }) : ''}
-            </span>
-          </button>
-        </div>
-      </div>
-
-      {/* ── KPI Bar ───────────────────────────────────────────── */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-5">
-        <KPICard
-          label="Tổng RFQ"
-          value={totalRFQ}
-          icon={ClipboardList}
-          color="bg-brand-50 text-brand-600"
-          loading={overviewLoading}
-        />
-        <KPICard
-          label="Đang xử lý"
-          value={processing}
-          sub="chờ báo giá"
-          icon={Clock}
-          color="bg-amber-50 text-amber-600"
-          loading={overviewLoading}
-        />
-        <KPICard
-          label="Win rate"
-          value={winRate > 0 ? `${winRate.toFixed(1)}%` : '—'}
-          icon={Percent}
-          color="bg-emerald-50 text-emerald-600"
-          loading={overviewLoading}
-        />
-        <KPICard
-          label="Giá trung bình"
-          value={fmtVnd(avgPrice)}
-          icon={DollarSign}
-          color="bg-cyan-50 text-cyan-600"
-          loading={overviewLoading}
-        />
-      </div>
-
-      {/* ── Filter Bar ────────────────────────────────────────── */}
-      <div className="bg-white rounded-xl shadow-sm border border-slate-100 px-4 py-3 mb-5">
-        <div className="flex flex-wrap items-center gap-3">
-          {/* Month/Year selectors */}
-          <div className="flex items-center gap-2">
-            <label className="text-xs text-slate-500 whitespace-nowrap">Tháng:</label>
-            <select
-              value={selectedMonth}
-              onChange={(e) => setSelectedMonth(Number(e.target.value))}
-              className="border border-slate-200 rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-brand-400 bg-white"
-            >
-              {monthOptions.map((m) => (
-                <option key={m} value={m}>
-                  {m}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div className="flex items-center gap-2">
-            <label className="text-xs text-slate-500 whitespace-nowrap">Năm:</label>
-            <select
-              value={selectedYear}
-              onChange={(e) => setSelectedYear(Number(e.target.value))}
-              className="border border-slate-200 rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-brand-400 bg-white"
-            >
-              {yearOptions.map((y) => (
-                <option key={y} value={y}>
-                  {y}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          {/* Divider */}
-          <div className="h-5 w-px bg-slate-200" />
-
-          {/* Search */}
-          <div className="relative flex-1 min-w-[200px]">
-            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400" />
-            <input
-              type="text"
-              placeholder="Tìm theo RFQ / BQMS code / tên hàng..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="pl-8 pr-3 py-1.5 border border-slate-200 rounded-lg text-xs bg-white focus:outline-none focus:ring-2 focus:ring-brand-400 w-full"
-            />
-          </div>
-
-          {/* Status filter */}
-          <select
-            value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value)}
-            className="border border-slate-200 rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-brand-400 bg-white"
-          >
-            <option value="all">Tất cả trạng thái</option>
-            <option value="pending">Đang xử lý</option>
-            <option value="won">Trúng</option>
-            <option value="lost">Trượt</option>
-            <option value="draft">Nháp</option>
-          </select>
-
-          <span className="text-xs text-slate-400 ml-auto whitespace-nowrap">
-            {filtered.length} bản ghi
-          </span>
-        </div>
-      </div>
-
-      {/* ── Main Table ────────────────────────────────────────── */}
-      <div className="bg-white rounded-xl shadow-sm border border-slate-100 overflow-hidden mb-6">
-        <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100">
-          <div className="flex items-center gap-2">
-            <TrendingUp className="h-4 w-4 text-brand-500" />
-            <h3 className="text-sm font-semibold text-slate-700">
-              Danh sách BQMS — Tháng {selectedMonth}/{selectedYear}
-            </h3>
-          </div>
-          <div className="flex items-center gap-2 text-xs text-slate-400">
-            <span className="flex items-center gap-1">
-              <span className="inline-block w-2.5 h-2.5 rounded-sm bg-red-200" />
-              Quá hạn/&lt;24h
-            </span>
-            <span className="flex items-center gap-1">
-              <span className="inline-block w-2.5 h-2.5 rounded-sm bg-amber-100" />
-              &lt;48h
-            </span>
-          </div>
-        </div>
-
-        {recordsLoading ? (
-          <TableSkeleton />
-        ) : filtered.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-16 text-slate-300">
-            <Inbox className="h-12 w-12 mb-3" />
-            <p className="text-sm text-slate-400 font-medium">
-              Không có dữ liệu cho kỳ này
-            </p>
-            <p className="text-xs text-slate-300 mt-1">
-              Thử thay đổi bộ lọc tháng/năm hoặc tìm kiếm
-            </p>
-          </div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-left min-w-[1100px]">
-              <thead>
-                <tr className="bg-slate-50/70 border-b border-slate-200">
-                  <th className="px-3 py-2.5 text-xs font-mono uppercase tracking-wider text-slate-400 w-10">STT</th>
-                  <th className="px-3 py-2.5 text-xs font-mono uppercase tracking-wider text-slate-400">Ngày</th>
-                  <th className="px-3 py-2.5 text-xs font-mono uppercase tracking-wider text-slate-400">RFQ No.</th>
-                  <th className="px-3 py-2.5 text-xs font-mono uppercase tracking-wider text-slate-400">BQMS Code</th>
-                  <th className="px-3 py-2.5 text-xs font-mono uppercase tracking-wider text-slate-400">Tên hàng</th>
-                  <th className="px-3 py-2.5 text-xs font-mono uppercase tracking-wider text-slate-400">Maker</th>
-                  <th className="px-3 py-2.5 text-xs font-mono uppercase tracking-wider text-slate-400 text-right">SL</th>
-                  <th className="px-3 py-2.5 text-xs font-mono uppercase tracking-wider text-slate-400">ĐVT</th>
-                  <th className="px-3 py-2.5 text-xs font-mono uppercase tracking-wider text-slate-400 text-right">Giá v1</th>
-                  <th className="px-3 py-2.5 text-xs font-mono uppercase tracking-wider text-slate-400 text-right">Giá v2</th>
-                  <th className="px-3 py-2.5 text-xs font-mono uppercase tracking-wider text-slate-400 text-right">Giá v3</th>
-                  <th className="px-3 py-2.5 text-xs font-mono uppercase tracking-wider text-slate-400 text-right">Giá v4</th>
-                  <th className="px-3 py-2.5 text-xs font-mono uppercase tracking-wider text-slate-400">Kết quả</th>
-                  <th className="px-3 py-2.5 text-xs font-mono uppercase tracking-wider text-slate-400">Deadline</th>
-                  <th className="px-3 py-2.5 text-xs font-mono uppercase tracking-wider text-slate-400">Phụ trách</th>
-                </tr>
-              </thead>
-              <tbody>
-                {Array.from(grouped.entries()).map(([monthKey, recs]) => (
-                  <MonthGroup
-                    key={monthKey}
-                    monthKey={monthKey}
-                    records={recs}
-                    selectedRowId={selectedRowId}
-                    onRowClick={setSelectedRowId}
-                  />
-                ))}
-              </tbody>
-            </table>
-          </div>
+    <>
+      <tr
+        onClick={() => onRowClick(item.id)}
+        className={cn(
+          'border-b border-slate-100 transition-colors cursor-pointer text-xs',
+          isExpanded ? 'bg-brand-50/50' : 'hover:bg-slate-50/70',
+          urgency === 'red' && !isExpanded ? 'bg-red-50/40' : '',
+          urgency === 'amber' && !isExpanded ? 'bg-amber-50/25' : ''
         )}
-      </div>
+      >
+        {/* # */}
+        <td className="px-3 py-2 text-center text-slate-400 tabular-nums w-10 select-none">
+          {idx}
+        </td>
 
-      {/* ── Quotation History ─────────────────────────────────── */}
-      <QuotationHistory />
-    </div>
+        {/* Ngày */}
+        <td className="px-3 py-2 text-slate-500 whitespace-nowrap">
+          <div className="flex items-center gap-1">
+            {urgency === 'red' && <AlertTriangle className="h-3 w-3 text-red-500 flex-shrink-0" />}
+            {urgency === 'amber' && <Clock className="h-3 w-3 text-amber-500 flex-shrink-0" />}
+            {dateStr ? formatDate(dateStr) : '—'}
+          </div>
+        </td>
+
+        {/* Người PT */}
+        <td className="px-3 py-2 text-slate-600 whitespace-nowrap max-w-[100px]">
+          <span className="truncate block">{item.person_in_charge_name ?? '—'}</span>
+        </td>
+
+        {/* RFQ No. */}
+        <td className="px-3 py-2 whitespace-nowrap">
+          <span className="font-mono text-brand-600 font-medium">{item.rfq_number ?? '—'}</span>
+        </td>
+
+        {/* BQMS Code */}
+        <td className="px-3 py-2 whitespace-nowrap">
+          <span className="font-mono text-slate-600">{item.bqms_code ?? '—'}</span>
+        </td>
+
+        {/* Tên hàng */}
+        <td className="px-3 py-2 max-w-[200px]">
+          <span className="text-slate-800 truncate block" title={item.specification ?? ''}>
+            {item.specification ?? '—'}
+          </span>
+        </td>
+
+        {/* Maker */}
+        <td className="px-3 py-2 whitespace-nowrap">
+          <span className="text-slate-600">{item.maker ?? '—'}</span>
+        </td>
+
+        {/* SL */}
+        <td className="px-3 py-2 text-right tabular-nums text-slate-700">
+          {item.expected_qty != null ? Number(item.expected_qty).toLocaleString('vi-VN') : '—'}
+          {item.unit ? <span className="text-slate-400 ml-0.5">{item.unit}</span> : null}
+        </td>
+
+        {/* Giá V1 */}
+        <PriceCell
+          item={item}
+          field="quoted_price_bqms_v1"
+          value={item.quoted_price_bqms_v1}
+          editingCell={editingCell}
+          onStartEdit={onStartEdit}
+          onSave={onSaveCell}
+          onCancel={onCancelCell}
+        />
+
+        {/* Giá V2 */}
+        <PriceCell
+          item={item}
+          field="quoted_price_bqms_v2"
+          value={item.quoted_price_bqms_v2}
+          editingCell={editingCell}
+          onStartEdit={onStartEdit}
+          onSave={onSaveCell}
+          onCancel={onCancelCell}
+        />
+
+        {/* Giá V3 */}
+        <PriceCell
+          item={item}
+          field="quoted_price_bqms_v3"
+          value={item.quoted_price_bqms_v3}
+          editingCell={editingCell}
+          onStartEdit={onStartEdit}
+          onSave={onSaveCell}
+          onCancel={onCancelCell}
+        />
+
+        {/* Giá V4 */}
+        <PriceCell
+          item={item}
+          field="quoted_price_bqms_v4"
+          value={item.quoted_price_bqms_v4}
+          editingCell={editingCell}
+          onStartEdit={onStartEdit}
+          onSave={onSaveCell}
+          onCancel={onCancelCell}
+        />
+
+        {/* Kết quả */}
+        <td className="px-3 py-2 text-center whitespace-nowrap">
+          <ResultBadge result={item.result} />
+        </td>
+
+        {/* NCC */}
+        <td className="px-3 py-2 text-slate-600 whitespace-nowrap max-w-[120px]">
+          <span className="truncate block">{item.supplier_name ?? '—'}</span>
+        </td>
+      </tr>
+
+      {/* Expanded detail panel */}
+      {isExpanded && (
+        <RowDetailPanel item={item} onClose={() => onRowClick(item.id)} />
+      )}
+    </>
   );
 }
