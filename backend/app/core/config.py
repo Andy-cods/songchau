@@ -46,6 +46,10 @@ class Settings(BaseSettings):
     M365_CLIENT_SECRET: str = ""
     M365_DRIVE_ID: str = ""
 
+    # File Browser / OneDrive Cache
+    ONEDRIVE_CACHE_PATH: str = "/data/files/onedrive-cache"
+    ONEDRIVE_CACHE_MAX_GB: int = 20
+
     @property
     def async_database_url(self) -> str:
         if self.DATABASE_URL:

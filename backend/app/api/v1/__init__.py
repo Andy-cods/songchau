@@ -157,3 +157,8 @@ v1_router.include_router(calendar_router, prefix="/calendar", tags=["calendar"])
 from app.api.v1.pwa_settings import router as pwa_settings_router
 
 v1_router.include_router(pwa_settings_router, prefix="/pwa", tags=["pwa"])
+
+# ── File Browser Module ──
+from app.api.v1.file_browser import router as file_browser_router
+
+v1_router.include_router(file_browser_router, prefix="/file-browser", tags=["file-browser"])

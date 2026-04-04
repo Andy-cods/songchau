@@ -17,3 +17,4 @@ from app.tasks import notifications   # noqa: F401 — registers send_email_noti
 from app.tasks import onedrive_sync   # noqa: F401 — registers onedrive_delta_sync (mỗi 4 giờ)
 from app.tasks import report_generation  # noqa: F401 — registers generate_scheduled_reports (daily 07:00)
 from app.tasks import smart_classify     # noqa: F401 — registers batch_classify_rfq
+from app.tasks import file_index_crawler # noqa: F401 — registers file_index_crawl (mỗi 6 giờ)

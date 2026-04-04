@@ -289,6 +289,230 @@ class OneDriveClient:
             logger.error("OneDrive drive info failed: %s", e)
             return {"error": str(e)}
 
+    async def list_children_paginated(
+        self,
+        folder_id: str = "root",
+        top: int = 200,
+    ) -> list[dict[str, Any]]:
+        """
+        List ALL items (files + folders) in a folder with pagination.
+
+        Unlike delta_sync, this does NOT filter by extension — returns everything.
+        Used by the file index crawler to build the complete file tree.
+
+        Args:
+            folder_id: The Graph item ID of the parent folder, or "root".
+            top: Number of items per page (max 200).
+
+        Returns:
+            List of item dicts with: id, name, size, folder (bool),
+            mimeType, parentReference, lastModifiedDateTime, createdDateTime, eTag.
+        """
+        client = self._ensure_client()
+        headers = await self._auth_headers()
+
+        if not self._drive_id:
+            raise OneDriveError("M365_DRIVE_ID chưa được cấu hình")
+
+        if folder_id == "root":
+            url = f"{self.GRAPH_URL}/drives/{self._drive_id}/root/children?$top={top}"
+        else:
+            url = (
+                f"{self.GRAPH_URL}/drives/{self._drive_id}/items/{folder_id}"
+                f"/children?$top={top}"
+            )
+
+        all_items: list[dict[str, Any]] = []
+
+        while url:
+            try:
+                resp = await client.get(url, headers=headers)
+                resp.raise_for_status()
+            except httpx.HTTPStatusError as e:
+                raise OneDriveAPIError(
+                    f"List children thất bại (folder={folder_id}): HTTP {e.response.status_code}",
+                    status_code=e.response.status_code,
+                ) from e
+
+            data = resp.json()
+
+            for item in data.get("value", []):
+                is_folder = "folder" in item
+                name = item.get("name", "")
+                ext = ""
+                if not is_folder and "." in name:
+                    ext = "." + name.rsplit(".", 1)[-1].lower()
+
+                parent_ref = item.get("parentReference", {})
+                parent_path = parent_ref.get("path", "")
+                # Strip the drive prefix: /drives/{id}/root: → ""
+                if "root:" in parent_path:
+                    parent_path = parent_path.split("root:")[-1]
+
+                file_path = f"{parent_path}/{name}" if parent_path else f"/{name}"
+
+                all_items.append({
+                    "id": item["id"],
+                    "name": name,
+                    "file_path": file_path,
+                    "file_extension": ext,
+                    "size": item.get("size", 0),
+                    "is_folder": is_folder,
+                    "mime_type": item.get("file", {}).get("mimeType", "") if not is_folder else None,
+                    "parent_id": parent_ref.get("id"),
+                    "created_at": item.get("createdDateTime"),
+                    "modified_at": item.get("lastModifiedDateTime"),
+                    "etag": item.get("eTag"),
+                    "child_count": item.get("folder", {}).get("childCount", 0) if is_folder else 0,
+                })
+
+            url = data.get("@odata.nextLink")
+
+        return all_items
+
+    async def upload_file(
+        self,
+        content: bytes,
+        remote_path: str,
+    ) -> dict[str, Any]:
+        """
+        Upload a file to OneDrive (simple upload for <4MB, resumable for larger).
+
+        Args:
+            content: File content as bytes.
+            remote_path: Full path on OneDrive, e.g. "/BQMS/RFQ/file.pdf"
+
+        Returns:
+            Graph API response dict with the created item info.
+        """
+        client = self._ensure_client()
+        headers = await self._auth_headers()
+
+        if not self._drive_id:
+            raise OneDriveError("M365_DRIVE_ID chưa được cấu hình")
+
+        # Simple upload for files under 4MB
+        if len(content) < 4 * 1024 * 1024:
+            url = (
+                f"{self.GRAPH_URL}/drives/{self._drive_id}"
+                f"/root:{remote_path}:/content"
+            )
+            headers["Content-Type"] = "application/octet-stream"
+            try:
+                resp = await client.put(url, headers=headers, content=content)
+                resp.raise_for_status()
+                return resp.json()
+            except httpx.HTTPStatusError as e:
+                raise OneDriveAPIError(
+                    f"Upload thất bại ({remote_path}): HTTP {e.response.status_code}",
+                    status_code=e.response.status_code,
+                ) from e
+        else:
+            # Resumable upload session for larger files
+            session_url = (
+                f"{self.GRAPH_URL}/drives/{self._drive_id}"
+                f"/root:{remote_path}:/createUploadSession"
+            )
+            try:
+                resp = await client.post(session_url, headers=headers, json={
+                    "item": {"@microsoft.graph.conflictBehavior": "replace"},
+                })
+                resp.raise_for_status()
+                upload_url = resp.json()["uploadUrl"]
+            except httpx.HTTPStatusError as e:
+                raise OneDriveAPIError(
+                    f"Tạo upload session thất bại ({remote_path}): HTTP {e.response.status_code}",
+                    status_code=e.response.status_code,
+                ) from e
+
+            # Upload in 3.5MB chunks
+            chunk_size = 3_500_000
+            total = len(content)
+            result = {}
+            for offset in range(0, total, chunk_size):
+                chunk = content[offset:offset + chunk_size]
+                end = offset + len(chunk) - 1
+                chunk_headers = {
+                    "Content-Length": str(len(chunk)),
+                    "Content-Range": f"bytes {offset}-{end}/{total}",
+                }
+                resp = await client.put(upload_url, headers=chunk_headers, content=chunk)
+                resp.raise_for_status()
+                if resp.status_code in (200, 201):
+                    result = resp.json()
+
+            return result
+
+    async def create_folder(
+        self,
+        parent_path: str,
+        folder_name: str,
+    ) -> dict[str, Any]:
+        """
+        Create a folder on OneDrive.
+
+        Args:
+            parent_path: Parent folder path, e.g. "/BQMS/RFQ"
+            folder_name: Name of the new folder.
+
+        Returns:
+            Graph API response dict with the created folder info.
+        """
+        client = self._ensure_client()
+        headers = await self._auth_headers()
+
+        if not self._drive_id:
+            raise OneDriveError("M365_DRIVE_ID chưa được cấu hình")
+
+        if parent_path == "/" or not parent_path:
+            url = f"{self.GRAPH_URL}/drives/{self._drive_id}/root/children"
+        else:
+            url = f"{self.GRAPH_URL}/drives/{self._drive_id}/root:{parent_path}:/children"
+
+        body = {
+            "name": folder_name,
+            "folder": {},
+            "@microsoft.graph.conflictBehavior": "fail",
+        }
+
+        try:
+            resp = await client.post(url, headers=headers, json=body)
+            resp.raise_for_status()
+            return resp.json()
+        except httpx.HTTPStatusError as e:
+            raise OneDriveAPIError(
+                f"Tạo folder thất bại ({parent_path}/{folder_name}): HTTP {e.response.status_code}",
+                status_code=e.response.status_code,
+            ) from e
+
+    async def delete_item(self, item_id: str) -> bool:
+        """
+        Delete a file or folder from OneDrive.
+
+        Args:
+            item_id: The Graph item ID to delete.
+
+        Returns:
+            True if deleted successfully.
+        """
+        client = self._ensure_client()
+        headers = await self._auth_headers()
+
+        if not self._drive_id:
+            raise OneDriveError("M365_DRIVE_ID chưa được cấu hình")
+
+        url = f"{self.GRAPH_URL}/drives/{self._drive_id}/items/{item_id}"
+
+        try:
+            resp = await client.delete(url, headers=headers)
+            resp.raise_for_status()
+            return True
+        except httpx.HTTPStatusError as e:
+            raise OneDriveAPIError(
+                f"Xóa item thất bại (id={item_id}): HTTP {e.response.status_code}",
+                status_code=e.response.status_code,
+            ) from e
+
     async def list_folder(self, folder_path: str = "/") -> list[dict[str, Any]]:
         """List items in a specific folder (for debugging)."""
         client = self._ensure_client()

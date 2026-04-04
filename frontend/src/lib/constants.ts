@@ -105,6 +105,7 @@ const NAV_MAIN: SidebarItem[] = [
   { key: 'dashboard', label: 'Tổng quan', href: '/dashboard', icon: LayoutDashboard },
   { key: 'kho-hang', label: 'Kho hàng', href: '/inventory', icon: Package },
   { key: 'documents', label: 'Tài liệu', href: '/documents', icon: FolderOpen },
+  { key: 'file-browser', label: 'Duyệt file OneDrive', href: '/documents/browser', icon: HardDrive },
   { key: 'help', label: 'Hướng dẫn', href: '/help', icon: HelpCircle },
   // Ẩn: Đơn mua hàng, Vận chuyển, Phê duyệt
 ];
@@ -196,6 +197,7 @@ export function getSidebarConfig(role: UserRole): SidebarSection[] {
           items: [
             { key: 'dashboard', label: 'Tổng quan', href: '/dashboard', icon: LayoutDashboard },
             { key: 'documents', label: 'Tài liệu', href: '/documents', icon: FolderOpen },
+            { key: 'file-browser', label: 'Duyệt file OneDrive', href: '/documents/browser', icon: HardDrive },
             { key: 'help', label: 'Hướng dẫn', href: '/help', icon: HelpCircle },
           ],
         },
@@ -211,6 +213,7 @@ export function getSidebarConfig(role: UserRole): SidebarSection[] {
             { key: 'giao-hang', label: 'Giao hàng', href: '/bqms/deliveries', icon: Truck },
             { key: 'inventory', label: 'Kho hàng', href: '/inventory', icon: Package },
             { key: 'documents', label: 'Tài liệu', href: '/documents', icon: FolderOpen },
+            { key: 'file-browser', label: 'Duyệt file OneDrive', href: '/documents/browser', icon: HardDrive },
           ],
         },
         {
@@ -231,6 +234,7 @@ export function getSidebarConfig(role: UserRole): SidebarSection[] {
             { key: 'bqms', label: 'BQMS', href: '/bqms', icon: ClipboardList },
             { key: 'giao-hang', label: 'Giao hàng', href: '/bqms/deliveries', icon: Truck },
             { key: 'documents', label: 'Tài liệu', href: '/documents', icon: FolderOpen },
+            { key: 'file-browser', label: 'Duyệt file OneDrive', href: '/documents/browser', icon: HardDrive },
           ],
         },
         { title: 'Khách hàng', items: NAV_CRM },
@@ -250,6 +254,7 @@ export function getSidebarConfig(role: UserRole): SidebarSection[] {
           items: [
             { key: 'dashboard', label: 'Tổng quan', href: '/dashboard', icon: LayoutDashboard },
             { key: 'documents', label: 'Tài liệu', href: '/documents', icon: FolderOpen },
+            { key: 'file-browser', label: 'Duyệt file OneDrive', href: '/documents/browser', icon: HardDrive },
             { key: 'help', label: 'Hướng dẫn', href: '/help', icon: HelpCircle },
           ],
         },

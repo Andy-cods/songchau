@@ -35,7 +35,7 @@ export function formatCurrency(
 
 /**
  * Format a date string or Date object to Vietnamese date format.
- * Example: "29/03/2026"
+ * Example: "29/03/26"
  */
 export function formatDate(date: string | Date | null | undefined): string {
   if (!date) return '—';
@@ -44,11 +44,10 @@ export function formatDate(date: string | Date | null | undefined): string {
 
   if (isNaN(d.getTime())) return '—';
 
-  return new Intl.DateTimeFormat('vi-VN', {
-    day: '2-digit',
-    month: '2-digit',
-    year: 'numeric',
-  }).format(d);
+  const dd = String(d.getDate()).padStart(2, '0');
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const yy = String(d.getFullYear()).slice(-2);
+  return `${dd}/${mm}/${yy}`;
 }
 
 /**
@@ -87,4 +86,30 @@ export function formatRelativeTime(date: string | Date | null | undefined): stri
 export function truncate(text: string, maxLength: number): string {
   if (text.length <= maxLength) return text;
   return text.slice(0, maxLength) + '...';
+}
+
+/**
+ * Append JWT access token to a URL as query parameter.
+ * Used for authenticated file downloads/previews in <a href>, <iframe>, <img>.
+ */
+export function withToken(url: string): string {
+  if (typeof window === 'undefined') return url;
+  const token = localStorage.getItem('access_token') ?? '';
+  const sep = url.includes('?') ? '&' : '?';
+  return `${url}${sep}token=${encodeURIComponent(token)}`;
+}
+
+/**
+ * Format file size in human-readable format.
+ */
+export function formatFileSize(bytes: number): string {
+  if (bytes === 0) return '—';
+  const units = ['B', 'KB', 'MB', 'GB'];
+  let i = 0;
+  let size = bytes;
+  while (size >= 1024 && i < units.length - 1) {
+    size /= 1024;
+    i++;
+  }
+  return `${size.toFixed(i === 0 ? 0 : 1)} ${units[i]}`;
 }
