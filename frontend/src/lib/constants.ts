@@ -23,7 +23,6 @@ import {
   Bell,
   Activity,
   AlertTriangle,
-  RefreshCw,
   RotateCcw,
   Server,
   HardDrive,
@@ -31,7 +30,6 @@ import {
   FolderOpen,
   Shield,
   Eye,
-  HelpCircle,
   BookOpen,
   CreditCard,
   Banknote,
@@ -103,26 +101,27 @@ export interface SidebarSection {
 
 const NAV_MAIN: SidebarItem[] = [
   { key: 'dashboard', label: 'Tổng quan', href: '/dashboard', icon: LayoutDashboard },
-  { key: 'kho-hang', label: 'Kho hàng', href: '/inventory', icon: Package },
-  { key: 'documents', label: 'Tài liệu', href: '/documents', icon: FolderOpen },
-  { key: 'file-browser', label: 'Duyệt file OneDrive', href: '/documents/browser', icon: HardDrive },
-  { key: 'help', label: 'Hướng dẫn', href: '/help', icon: HelpCircle },
-  // Ẩn: Đơn mua hàng, Vận chuyển, Phê duyệt
+  { key: 'documents', label: 'Quản lý tài liệu', href: '/documents/browser', icon: FolderOpen },
+  // Ẩn: Kho hàng, Đơn mua hàng, Vận chuyển, Phê duyệt
 ];
 
 const NAV_BQMS: SidebarItem[] = [
   { key: 'bqms', label: 'BQMS', href: '/bqms', icon: ClipboardList },
   { key: 'giao-hang', label: 'Giao hàng', href: '/bqms/deliveries', icon: Truck },
+  { key: 'market-prices', label: 'Tra cứu giá XNK', href: '/market-prices', icon: ClipboardList },
   // Gộp: Tạo BG, Lịch sử BG, Template, RFQ → tất cả trong mục BQMS
   // Ẩn: Lọc đơn AI, Báo cáo (chờ phát triển)
+];
+
+const NAV_PROCUREMENT: SidebarItem[] = [
+  { key: 'procurement', label: 'Mua hàng', href: '/procurement', icon: ShoppingCart },
 ];
 
 const NAV_FINANCE: SidebarItem[] = [
   { key: 'tai-chinh', label: 'Tài chính tổng hợp', href: '/finance/overview', icon: DollarSign },
   { key: 'invoices', label: 'Hóa đơn', href: '/invoices', icon: Receipt },
+  { key: 'quarterly-invoices', label: 'Bảng kê HĐ quý', href: '/finance/quarterly-invoices', icon: Receipt },
   { key: 'finance-reports', label: 'Báo cáo TC', href: '/finance/reports', icon: PieChart },
-  // Gộp: Công nợ trả + Công nợ thu + Sổ quỹ → "Tài chính tổng hợp"
-  // OCR tích hợp trong Hóa đơn
 ];
 
 const NAV_CRM: SidebarItem[] = [
@@ -154,7 +153,7 @@ const NAV_ADMIN: SidebarItem[] = [
   { key: 'language', label: 'Ngôn ngữ', href: '/settings/language', icon: Globe },
   { key: 'performance', label: 'Hiệu suất', href: '/admin/performance', icon: Activity },
   { key: 'errors', label: 'Lỗi hệ thống', href: '/admin/errors', icon: AlertTriangle },
-  { key: 'migration', label: 'Đồng bộ dữ liệu', href: '/admin/migration', icon: RefreshCw },
+  { key: 'migration', label: 'Quản lý tài liệu', href: '/documents/browser', icon: FolderOpen },
   { key: 'containers', label: 'Containers', href: '/admin/containers', icon: Server },
   { key: 'backups', label: 'Backup', href: '/admin/backups', icon: HardDrive },
   { key: 'data-quality', label: 'Chất lượng DL', href: '/admin/data-quality', icon: ShieldCheck },
@@ -170,6 +169,7 @@ export function getSidebarConfig(role: UserRole): SidebarSection[] {
       return [
         { title: 'Chính', items: NAV_MAIN },
         { title: 'BQMS Samsung', items: NAV_BQMS },
+        { title: 'Mua hàng', items: NAV_PROCUREMENT },
         { title: 'Tài chính', items: NAV_FINANCE },
         { title: 'Khách hàng', items: NAV_CRM },
         { title: 'Phân tích', items: NAV_ANALYTICS },
@@ -183,6 +183,7 @@ export function getSidebarConfig(role: UserRole): SidebarSection[] {
       return [
         { title: 'Chính', items: NAV_MAIN },
         { title: 'BQMS Samsung', items: NAV_BQMS },
+        { title: 'Mua hàng', items: NAV_PROCUREMENT },
         { title: 'Tài chính', items: NAV_FINANCE },
         { title: 'Khách hàng', items: NAV_CRM },
         { title: 'Phân tích', items: NAV_ANALYTICS },
@@ -197,8 +198,7 @@ export function getSidebarConfig(role: UserRole): SidebarSection[] {
           items: [
             { key: 'dashboard', label: 'Tổng quan', href: '/dashboard', icon: LayoutDashboard },
             { key: 'documents', label: 'Tài liệu', href: '/documents', icon: FolderOpen },
-            { key: 'file-browser', label: 'Duyệt file OneDrive', href: '/documents/browser', icon: HardDrive },
-            { key: 'help', label: 'Hướng dẫn', href: '/help', icon: HelpCircle },
+            { key: 'documents', label: 'Quản lý tài liệu', href: '/documents/browser', icon: FolderOpen },
           ],
         },
         { title: 'Tài chính', items: NAV_FINANCE },
@@ -213,7 +213,7 @@ export function getSidebarConfig(role: UserRole): SidebarSection[] {
             { key: 'giao-hang', label: 'Giao hàng', href: '/bqms/deliveries', icon: Truck },
             { key: 'inventory', label: 'Kho hàng', href: '/inventory', icon: Package },
             { key: 'documents', label: 'Tài liệu', href: '/documents', icon: FolderOpen },
-            { key: 'file-browser', label: 'Duyệt file OneDrive', href: '/documents/browser', icon: HardDrive },
+            { key: 'documents', label: 'Quản lý tài liệu', href: '/documents/browser', icon: FolderOpen },
           ],
         },
         {
@@ -234,7 +234,7 @@ export function getSidebarConfig(role: UserRole): SidebarSection[] {
             { key: 'bqms', label: 'BQMS', href: '/bqms', icon: ClipboardList },
             { key: 'giao-hang', label: 'Giao hàng', href: '/bqms/deliveries', icon: Truck },
             { key: 'documents', label: 'Tài liệu', href: '/documents', icon: FolderOpen },
-            { key: 'file-browser', label: 'Duyệt file OneDrive', href: '/documents/browser', icon: HardDrive },
+            { key: 'documents', label: 'Quản lý tài liệu', href: '/documents/browser', icon: FolderOpen },
           ],
         },
         { title: 'Khách hàng', items: NAV_CRM },
@@ -254,8 +254,7 @@ export function getSidebarConfig(role: UserRole): SidebarSection[] {
           items: [
             { key: 'dashboard', label: 'Tổng quan', href: '/dashboard', icon: LayoutDashboard },
             { key: 'documents', label: 'Tài liệu', href: '/documents', icon: FolderOpen },
-            { key: 'file-browser', label: 'Duyệt file OneDrive', href: '/documents/browser', icon: HardDrive },
-            { key: 'help', label: 'Hướng dẫn', href: '/help', icon: HelpCircle },
+            { key: 'documents', label: 'Quản lý tài liệu', href: '/documents/browser', icon: FolderOpen },
           ],
         },
       ];

@@ -162,3 +162,23 @@ v1_router.include_router(pwa_settings_router, prefix="/pwa", tags=["pwa"])
 from app.api.v1.file_browser import router as file_browser_router
 
 v1_router.include_router(file_browser_router, prefix="/file-browser", tags=["file-browser"])
+
+# ── Procurement (Vendor Bidding Admin) ──
+from app.api.v1.procurement import router as procurement_router
+
+v1_router.include_router(procurement_router, prefix="/procurement", tags=["procurement"])
+
+# ── CRM Pipeline Kanban ──
+from app.api.v1.crm_pipeline import router as crm_pipeline_router
+
+v1_router.include_router(crm_pipeline_router, prefix="/crm/pipeline", tags=["crm-pipeline"])
+
+# ── Quarterly Invoices (Bảng kê hóa đơn theo quý) ──
+from app.api.v1.quarterly_invoices import router as quarterly_invoices_router
+
+v1_router.include_router(quarterly_invoices_router, prefix="/quarterly-invoices", tags=["quarterly-invoices"])
+
+# ── Market Prices (M05 — Tra cứu giá XNK) ──
+from app.api.v1.market_prices import router as market_prices_router
+
+v1_router.include_router(market_prices_router, prefix="/market-prices", tags=["market-prices"])
