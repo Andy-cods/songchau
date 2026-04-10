@@ -315,6 +315,10 @@ def _process_changed_files(
             import_file_sheet,
             DATA_SOURCE,
         )
+        from scripts.xnk_lookup_import import (
+            matches_xnk_lookup_workbook,
+            rebuild_xnk_price_lookup,
+        )
         import asyncpg
 
         async def _run_imports():
@@ -363,6 +367,30 @@ def _process_changed_files(
                                     fpath.name, sheet_name, exc,
                                 )
                                 result["errors"] += 1
+
+                    if matches_xnk_lookup_workbook(fpath):
+                        try:
+                            r = await rebuild_xnk_price_lookup(
+                                conn,
+                                fpath,
+                                data_source=DATA_SOURCE,
+                                truncate_existing=True,
+                                dry_run=False,
+                            )
+                            result["rows_inserted"] += r.get("rows_inserted", 0)
+                            result["errors"] += r.get("errors", 0)
+                            result["files_processed"] += 1
+                            logger.info(
+                                "onedrive_sync: rebuilt xnk_price_lookup from %s (%s rows)",
+                                fpath.name,
+                                r.get("rows_inserted", 0),
+                            )
+                        except Exception as exc:
+                            logger.warning(
+                                "onedrive_sync: lỗi rebuild xnk lookup %s: %s",
+                                fpath.name, exc,
+                            )
+                            result["errors"] += 1
             finally:
                 await conn.close()
 

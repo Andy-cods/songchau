@@ -70,11 +70,12 @@ async def search_xnk(
     params.extend([limit, (page - 1) * limit])
     rows = await conn.fetch(f"""
         SELECT id, rfq_date, quotation_no, bqms_code, item_name, item_explain,
-               item_type, maker, unit, quantity, hs_code,
-               price_usd, price_vnd, total_usd, buyer_name, seller_name, quoted_date
+               item_type, maker, notes, notes2, unit, quantity, quote_deadline,
+               quoted_date, bqms_code3, hs_code, price_usd, price_vnd, total_usd,
+               buyer_name, seller_name, source, raw_data
         FROM xnk_price_lookup
         WHERE {where}
-        ORDER BY rfq_date DESC NULLS LAST, id DESC
+        ORDER BY id DESC
         LIMIT ${idx} OFFSET ${idx + 1}
     """, *params)
 
@@ -94,11 +95,13 @@ async def get_by_bqms(
 ):
     """Lấy lịch sử giá theo mã BQMS — dùng khi báo giá để tham khảo."""
     rows = await conn.fetch("""
-        SELECT id, rfq_date, quotation_no, item_name, maker, quantity, unit,
-               price_usd, price_vnd, total_usd, buyer_name, seller_name
+        SELECT id, rfq_date, quotation_no, bqms_code, item_name, item_explain,
+               item_type, maker, notes, notes2, unit, quantity, quote_deadline,
+               quoted_date, bqms_code3, hs_code, price_usd, price_vnd, total_usd,
+               buyer_name, seller_name, source, raw_data
         FROM xnk_price_lookup
         WHERE bqms_code = $1
-        ORDER BY rfq_date DESC NULLS LAST
+        ORDER BY id DESC
         LIMIT 50
     """, bqms_code)
 

@@ -592,6 +592,7 @@ FILE_TABLE_MAP: dict[str, str] = {
     "thong ke hoi hang bqms": "bqms_rfq",
     "thong ke dat hang": "bqms_orders",
     "thong ke giao hang": "bqms_deliveries",
+    "tt xnk bqms 2026": "xnk_price_lookup",
     "tt xnk bqms": "import_export_tracking",
     "tt xnk 2023": "import_export_tracking",
     "gia cong": "bqms_orders",
