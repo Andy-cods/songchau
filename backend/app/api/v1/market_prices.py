@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import Any, Literal
 
 import asyncpg
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -15,6 +15,23 @@ from app.core.security import TokenData
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
+EXCEL_ROW_ORDER_SQL = """
+CASE
+    WHEN COALESCE(raw_data->>'_excel_row_number', '') ~ '^[0-9]+$'
+        THEN (raw_data->>'_excel_row_number')::int
+    ELSE id
+END
+""".strip()
+
+SEARCH_SORT_SQL: dict[str, str] = {
+    "rfq_desc": f"rfq_date DESC NULLS LAST, {EXCEL_ROW_ORDER_SQL} DESC, id DESC",
+    "rfq_asc": f"rfq_date ASC NULLS FIRST, {EXCEL_ROW_ORDER_SQL} ASC, id ASC",
+    "excel_desc": f"{EXCEL_ROW_ORDER_SQL} DESC, rfq_date DESC NULLS LAST, id DESC",
+    "excel_asc": f"{EXCEL_ROW_ORDER_SQL} ASC, rfq_date ASC NULLS FIRST, id ASC",
+    "price_desc": f"price_usd DESC NULLS LAST, rfq_date DESC NULLS LAST, {EXCEL_ROW_ORDER_SQL} DESC",
+    "seller": f"seller_name ASC NULLS LAST, rfq_date DESC NULLS LAST, {EXCEL_ROW_ORDER_SQL} DESC",
+}
+
 
 @router.get("/search")
 async def search_xnk(
@@ -23,6 +40,10 @@ async def search_xnk(
     hs: str = Query("", description="Filter theo mã HS"),
     seller: str = Query("", description="Filter theo bên bán"),
     year: int | None = Query(None, ge=2020, le=2030),
+    sort: Literal["rfq_desc", "rfq_asc", "excel_desc", "excel_asc", "price_desc", "seller"] = Query(
+        "rfq_desc",
+        description="Server-side sort before pagination",
+    ),
     page: int = Query(1, ge=1),
     limit: int = Query(50, ge=1, le=200),
     token_data: TokenData = Depends(require_role("staff", "manager", "admin", "procurement")),
@@ -67,6 +88,7 @@ async def search_xnk(
         f"SELECT COUNT(*) FROM xnk_price_lookup WHERE {where}", *params
     )
 
+    order_by = SEARCH_SORT_SQL[sort]
     params.extend([limit, (page - 1) * limit])
     rows = await conn.fetch(f"""
         SELECT id, rfq_date, quotation_no, bqms_code, item_name, item_explain,
@@ -75,7 +97,7 @@ async def search_xnk(
                buyer_name, seller_name, source, raw_data
         FROM xnk_price_lookup
         WHERE {where}
-        ORDER BY id DESC
+        ORDER BY {order_by}
         LIMIT ${idx} OFFSET ${idx + 1}
     """, *params)
 
@@ -84,6 +106,7 @@ async def search_xnk(
         "total": total,
         "page": page,
         "limit": limit,
+        "sort": sort,
     }
 
 
@@ -101,7 +124,13 @@ async def get_by_bqms(
                buyer_name, seller_name, source, raw_data
         FROM xnk_price_lookup
         WHERE bqms_code = $1
-        ORDER BY id DESC
+        ORDER BY rfq_date DESC NULLS LAST,
+                 CASE
+                     WHEN COALESCE(raw_data->>'_excel_row_number', '') ~ '^[0-9]+$'
+                         THEN (raw_data->>'_excel_row_number')::int
+                     ELSE id
+                 END DESC,
+                 id DESC
         LIMIT 50
     """, bqms_code)
 

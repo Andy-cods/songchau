@@ -75,7 +75,7 @@ interface HistoryStats {
   latest_rfq?: string;
 }
 
-type SortMode = 'excel_desc' | 'excel_asc' | 'rfq_desc' | 'price_desc' | 'seller';
+type SortMode = 'rfq_desc' | 'rfq_asc' | 'excel_desc' | 'excel_asc' | 'price_desc' | 'seller';
 
 const TABS = [
   { key: 'search', label: 'Tra cứu giá' },
@@ -165,13 +165,6 @@ function getRawValue(row: XnkRow, key: string): string | number | null | undefin
     }
   }
   return row.raw_data[key];
-}
-
-function getExcelOrder(row: XnkRow): number {
-  const rawOrder = getRawValue(row, '_excel_row_number');
-  if (typeof rawOrder === 'number') return rawOrder;
-  if (typeof rawOrder === 'string' && rawOrder.trim()) return Number(rawOrder);
-  return row.id;
 }
 
 function formatCellValue(value: string | number | null | undefined, key: string): string {
@@ -333,7 +326,7 @@ function SearchTab({
   const [draft, setDraft] = useState({ q: '', bqms: '', hs: '', seller: '', year: '' });
   const [applied, setApplied] = useState({ q: '', bqms: '', hs: '', seller: '', year: '' });
   const [page, setPage] = useState(1);
-  const [sortMode, setSortMode] = useState<SortMode>('excel_desc');
+  const [sortMode, setSortMode] = useState<SortMode>('rfq_desc');
   const [selected, setSelected] = useState<XnkRow | null>(null);
 
   const queryString = useMemo(() => {
@@ -343,28 +336,18 @@ function SearchTab({
     if (applied.hs) params.set('hs', applied.hs);
     if (applied.seller) params.set('seller', applied.seller);
     if (applied.year) params.set('year', applied.year);
+    params.set('sort', sortMode);
     params.set('page', String(page));
     params.set('limit', '50');
     return params.toString();
-  }, [applied, page]);
+  }, [applied, page, sortMode]);
 
   const { data, isLoading, isFetching } = useQuery({
-    queryKey: ['xnk-search', applied, page],
+    queryKey: ['xnk-search', applied, page, sortMode],
     queryFn: () => api.get<{ data: XnkRow[]; total: number }>(`/api/v1/market-prices/search?${queryString}`),
   });
 
-  const rows = useMemo(() => {
-    const base = [...(data?.data ?? [])];
-    base.sort((a, b) => {
-      if (sortMode === 'excel_desc') return getExcelOrder(b) - getExcelOrder(a);
-      if (sortMode === 'excel_asc') return getExcelOrder(a) - getExcelOrder(b);
-      if (sortMode === 'rfq_desc') return new Date(b.rfq_date ?? 0).getTime() - new Date(a.rfq_date ?? 0).getTime();
-      if (sortMode === 'price_desc') return (b.price_usd ?? -1) - (a.price_usd ?? -1);
-      if (sortMode === 'seller') return (a.seller_name ?? '').localeCompare(b.seller_name ?? '');
-      return getExcelOrder(b) - getExcelOrder(a);
-    });
-    return base;
-  }, [data?.data, sortMode]);
+  const rows = data?.data ?? [];
 
   const total = data?.total ?? 0;
   const medianUsd = getMedian(rows.map((row) => row.price_usd).filter((v): v is number => typeof v === 'number' && v > 0));
@@ -465,12 +448,22 @@ function SearchTab({
           <div className="flex flex-col gap-3 border-b border-slate-200 px-4 py-4 lg:flex-row lg:items-center lg:justify-between">
             <div>
               <div className="text-sm font-semibold text-slate-900">Kết quả tra cứu</div>
-              <div className="mt-1 text-xs text-slate-500">{fmtNum(total, 0)} bản ghi. Mặc định lấy dòng ở cuối file Excel lên trước, và click 1 dòng để xem đủ tất cả cột bên phải.</div>
+              <div className="mt-1 text-xs text-slate-500">
+                {fmtNum(total, 0)} bản ghi. Mặc định ưu tiên ngày RFQ mới nhất trên toàn bộ dữ liệu; nếu trùng ngày thì lấy dòng ở cuối file Excel lên trước.
+              </div>
             </div>
-            <select value={sortMode} onChange={(event) => setSortMode(event.target.value as SortMode)} className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-sky-200">
+            <select
+              value={sortMode}
+              onChange={(event) => {
+                setSortMode(event.target.value as SortMode);
+                setPage(1);
+              }}
+              className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-sky-200"
+            >
+              <option value="rfq_desc">Ngày RFQ mới nhất</option>
+              <option value="rfq_asc">Ngày RFQ cũ nhất</option>
               <option value="excel_desc">Dòng Excel mới nhất</option>
               <option value="excel_asc">Dòng Excel cũ nhất</option>
-              <option value="rfq_desc">Ngày RFQ mới nhất</option>
               <option value="price_desc">Giá USD giảm dần</option>
               <option value="seller">Theo tên đối thủ</option>
             </select>
@@ -507,7 +500,7 @@ function SearchTab({
                   rows.map((row) => (
                     <tr key={row.id} onClick={() => setSelected(row)} className={cn('cursor-pointer transition hover:bg-slate-50', selected?.id === row.id && 'bg-sky-50/70')}>
                       <td className="px-2 py-2 font-mono text-slate-500">{formatCellValue(getRawValue(row, '_excel_row_number'), '_excel_row_number')}</td>
-                      <td className="px-2 py-2 text-slate-600">{formatCellValue(getRawValue(row, 'Ngày Tháng'), 'Ngày Tháng')}</td>
+                      <td className="px-2 py-2 text-slate-600">{formatDate(row.rfq_date ?? String(getRawValue(row, 'Ngày Tháng') ?? ''))}</td>
                       <td className="px-2 py-2 font-mono text-slate-600">{formatCellValue(getRawValue(row, 'Đơn hàng'), 'Đơn hàng')}</td>
                       <td className="px-2 py-2 font-mono font-semibold text-sky-700">{formatCellValue(getRawValue(row, 'BMSQ'), 'BMSQ')}</td>
                       <td className="px-2 py-2"><div className="max-w-[200px] truncate font-medium text-slate-800">{formatCellValue(getRawValue(row, 'Tên hàng hóa'), 'Tên hàng hóa')}</div></td>
@@ -515,7 +508,7 @@ function SearchTab({
                       <td className="px-2 py-2 text-slate-600">{formatCellValue(getRawValue(row, 'Loại hàng'), 'Loại hàng')}</td>
                       <td className="px-2 py-2"><div className="max-w-[120px] truncate text-slate-600">{formatCellValue(getRawValue(row, 'Maker 업체'), 'Maker 업체')}</div></td>
                       <td className="px-2 py-2"><div className="max-w-[160px] truncate text-slate-500">{formatCellValue(getRawValue(row, 'Ghi chú'), 'Ghi chú')}</div></td>
-                      <td className="px-2 py-2 text-slate-600">{formatCellValue(getRawValue(row, 'Ngày'), 'Ngày')}</td>
+                      <td className="px-2 py-2 text-slate-600">{formatDate(row.quoted_date ?? String(getRawValue(row, 'Ngày') ?? ''))}</td>
                       <td className="px-2 py-2 font-mono text-slate-600">{formatCellValue(getRawValue(row, 'Mã HS'), 'Mã HS')}</td>
                       <td className="px-2 py-2 text-slate-500">{formatCellValue(getRawValue(row, 'ĐVT'), 'ĐVT')}</td>
                       <td className="px-2 py-2 text-right font-mono text-slate-600">{formatCellValue(getRawValue(row, 'SL'), 'SL')}</td>
