@@ -160,6 +160,23 @@ interface DashboardRecentRecords extends DashboardWidgetState {
   }>;
 }
 
+interface SearchSection {
+  year: number;
+  total: number;
+  loaded: number;
+  has_more: boolean;
+  rows: XnkRow[];
+}
+
+interface SearchSectionsData {
+  sections: SearchSection[];
+  available_years: number[];
+  total: number;
+  rows_per_year: number;
+  unknown_year_total: number;
+  grouping_rule: string;
+}
+
 interface DashboardData {
   filters: {
     q: string;
@@ -176,8 +193,6 @@ interface DashboardData {
   recent_records: DashboardRecentRecords;
   generated_at: string;
 }
-
-type SortMode = 'rfq_desc' | 'rfq_asc' | 'excel_desc' | 'excel_asc' | 'price_desc' | 'seller';
 
 const TABS = [
   { key: 'search', label: 'Tra cứu giá' },
@@ -406,6 +421,96 @@ function CoverageBar({ label, value }: { label: string; value: number }) {
   );
 }
 
+function SearchResultsTable({
+  rows,
+  selectedId,
+  onSelect,
+}: {
+  rows: XnkRow[];
+  selectedId?: number | null;
+  onSelect: (row: XnkRow) => void;
+}) {
+  return (
+    <div className="overflow-x-auto">
+      <table className="min-w-[2600px] text-[11px] leading-4">
+        <thead className="bg-slate-50 text-[10px] uppercase tracking-[0.14em] text-slate-500">
+          <tr>
+            <th className="px-2 py-2 text-left font-medium">Dòng</th>
+            <th className="px-2 py-2 text-left font-medium">Ngày tháng</th>
+            <th className="px-2 py-2 text-left font-medium">Đơn hàng</th>
+            <th className="px-2 py-2 text-left font-medium">BMSQ</th>
+            <th className="px-2 py-2 text-left font-medium">Tên hàng hóa</th>
+            <th className="px-2 py-2 text-left font-medium">Explain</th>
+            <th className="px-2 py-2 text-left font-medium">Loại hàng</th>
+            <th className="px-2 py-2 text-left font-medium">Maker</th>
+            <th className="px-2 py-2 text-left font-medium">Ghi chú</th>
+            <th className="px-2 py-2 text-left font-medium">Ngày báo giá</th>
+            <th className="px-2 py-2 text-left font-medium">Mã HS</th>
+            <th className="px-2 py-2 text-left font-medium">ĐVT</th>
+            <th className="px-2 py-2 text-right font-medium">SL</th>
+            <th className="px-2 py-2 text-right font-medium">Giá USD</th>
+            <th className="px-2 py-2 text-right font-medium">Tổng USD</th>
+            <th className="px-2 py-2 text-left font-medium">Bên mua</th>
+            <th className="px-2 py-2 text-left font-medium">Bên bán</th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-slate-100">
+          {rows.map((row) => (
+            <tr key={row.id} onClick={() => onSelect(row)} className={cn('cursor-pointer transition hover:bg-slate-50', selectedId === row.id && 'bg-sky-50/70')}>
+              <td className="px-2 py-2 font-mono text-slate-500">{formatCellValue(getRawValue(row, '_excel_row_number'), '_excel_row_number')}</td>
+              <td className="px-2 py-2 text-slate-600">{formatDate(row.rfq_date ?? String(getRawValue(row, 'Ngày Tháng') ?? ''))}</td>
+              <td className="px-2 py-2 font-mono text-slate-600">{formatCellValue(getRawValue(row, 'Đơn hàng'), 'Đơn hàng')}</td>
+              <td className="px-2 py-2 font-mono font-semibold text-sky-700">{formatCellValue(getRawValue(row, 'BMSQ'), 'BMSQ')}</td>
+              <td className="px-2 py-2"><div className="max-w-[200px] truncate font-medium text-slate-800">{formatCellValue(getRawValue(row, 'Tên hàng hóa'), 'Tên hàng hóa')}</div></td>
+              <td className="px-2 py-2"><div className="max-w-[220px] truncate text-slate-500">{formatCellValue(getRawValue(row, 'Explain for detail? (Có thể viết tiếng việt)'), 'Explain for detail? (Có thể viết tiếng việt)')}</div></td>
+              <td className="px-2 py-2 text-slate-600">{formatCellValue(getRawValue(row, 'Loại hàng'), 'Loại hàng')}</td>
+              <td className="px-2 py-2"><div className="max-w-[120px] truncate text-slate-600">{formatCellValue(getRawValue(row, 'Maker 업체'), 'Maker 업체')}</div></td>
+              <td className="px-2 py-2"><div className="max-w-[160px] truncate text-slate-500">{formatCellValue(getRawValue(row, 'Ghi chú'), 'Ghi chú')}</div></td>
+              <td className="px-2 py-2 text-slate-600">{formatDate(row.quoted_date ?? String(getRawValue(row, 'Ngày') ?? ''))}</td>
+              <td className="px-2 py-2 font-mono text-slate-600">{formatCellValue(getRawValue(row, 'Mã HS'), 'Mã HS')}</td>
+              <td className="px-2 py-2 text-slate-500">{formatCellValue(getRawValue(row, 'ĐVT'), 'ĐVT')}</td>
+              <td className="px-2 py-2 text-right font-mono text-slate-600">{formatCellValue(getRawValue(row, 'SL'), 'SL')}</td>
+              <td className="px-2 py-2 text-right font-semibold text-slate-900">{formatCellValue(getRawValue(row, 'Đơn giá USD'), 'Đơn giá USD')}</td>
+              <td className="px-2 py-2 text-right font-mono text-slate-700">{formatCellValue(getRawValue(row, 'Tổng cộng USD'), 'Tổng cộng USD')}</td>
+              <td className="px-2 py-2"><div className="max-w-[150px] truncate text-slate-600">{formatCellValue(getRawValue(row, 'Bên mua'), 'Bên mua')}</div></td>
+              <td className="px-2 py-2"><div className="max-w-[150px] truncate text-slate-700">{formatCellValue(getRawValue(row, 'Bên bán'), 'Bên bán')}</div></td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function SearchResultsSection({
+  year,
+  summary,
+  rows,
+  selectedId,
+  onSelect,
+  action,
+}: {
+  year: number;
+  summary: string;
+  rows: XnkRow[];
+  selectedId?: number | null;
+  onSelect: (row: XnkRow) => void;
+  action?: ReactNode;
+}) {
+  return (
+    <section className="rounded-[20px] border border-slate-200 bg-white/90">
+      <div className="flex flex-col gap-3 border-b border-slate-200 px-4 py-3 lg:flex-row lg:items-center lg:justify-between">
+        <div className="flex items-center gap-3">
+          <div className="rounded-full bg-slate-900 px-3 py-1 text-[11px] font-semibold text-white">{year}</div>
+          <div className="text-xs text-slate-500">{summary}</div>
+        </div>
+        {action}
+      </div>
+      <SearchResultsTable rows={rows} selectedId={selectedId} onSelect={onSelect} />
+    </section>
+  );
+}
+
 export default function MarketPricesPage() {
   const [activeTab, setActiveTab] = useState<'search' | 'sellers'>('search');
   const [sellerPreset, setSellerPreset] = useState('');
@@ -482,8 +587,9 @@ function SearchTab({
   const [draft, setDraft] = useState({ q: '', bqms: '', hs: '', seller: '', year: '' });
   const [applied, setApplied] = useState({ q: '', bqms: '', hs: '', seller: '', year: '' });
   const [page, setPage] = useState(1);
-  const [sortMode, setSortMode] = useState<SortMode>('rfq_desc');
+  const [trendYear, setTrendYear] = useState('');
   const [selected, setSelected] = useState<XnkRow | null>(null);
+  const singleYearMode = Boolean(applied.year);
 
   const filterQueryString = useMemo(() => {
     const params = new URLSearchParams();
@@ -495,34 +601,57 @@ function SearchTab({
     return params.toString();
   }, [applied]);
 
-  const queryString = useMemo(() => {
+  const dashboardQueryString = useMemo(() => {
     const params = new URLSearchParams(filterQueryString);
-    params.set('sort', sortMode);
+    if (trendYear) params.set('trend_year', trendYear);
+    return params.toString();
+  }, [filterQueryString, trendYear]);
+
+  const groupedQueryString = useMemo(() => {
+    const params = new URLSearchParams(filterQueryString);
+    params.set('rows_per_year', '8');
+    return params.toString();
+  }, [filterQueryString]);
+
+  const singleYearQueryString = useMemo(() => {
+    const params = new URLSearchParams(filterQueryString);
+    params.set('sort', 'excel_desc');
     params.set('page', String(page));
     params.set('limit', '50');
     return params.toString();
-  }, [filterQueryString, page, sortMode]);
+  }, [filterQueryString, page]);
 
   const { data: dashboardData, isLoading: dashboardLoading } = useQuery({
-    queryKey: ['xnk-dashboard', applied],
-    queryFn: () => api.get<{ data: DashboardData }>(`/api/v1/market-prices/dashboard?${filterQueryString}`),
+    queryKey: ['xnk-dashboard', applied, trendYear],
+    queryFn: () => api.get<{ data: DashboardData }>(`/api/v1/market-prices/dashboard?${dashboardQueryString}`),
   });
 
-  const { data, isLoading, isFetching } = useQuery({
-    queryKey: ['xnk-search', applied, page, sortMode],
-    queryFn: () => api.get<{ data: XnkRow[]; total: number }>(`/api/v1/market-prices/search?${queryString}`),
+  const { data: groupedData, isLoading: groupedLoading, isFetching: groupedFetching } = useQuery({
+    queryKey: ['xnk-search-sections', applied],
+    queryFn: () => api.get<{ data: SearchSectionsData }>(`/api/v1/market-prices/search-sections?${groupedQueryString}`),
+    enabled: !singleYearMode,
+  });
+
+  const { data: singleYearData, isLoading: singleYearLoading, isFetching: singleYearFetching } = useQuery({
+    queryKey: ['xnk-search', applied, page],
+    queryFn: () => api.get<{ data: XnkRow[]; total: number }>(`/api/v1/market-prices/search?${singleYearQueryString}`),
+    enabled: singleYearMode,
   });
 
   const dashboard = dashboardData?.data;
-  const rows = data?.data ?? [];
-
-  const total = data?.total ?? 0;
-  const medianUsd = getMedian(rows.map((row) => row.price_usd).filter((v): v is number => typeof v === 'number' && v > 0));
-  const totalUsd = rows.reduce((sum, row) => sum + (row.total_usd ?? 0), 0);
+  const groupedResults = groupedData?.data;
+  const singleYearRows = singleYearData?.data ?? [];
+  const resultSections = groupedResults?.sections ?? [];
+  const rowsForSelection = singleYearMode ? singleYearRows : resultSections.flatMap((section) => section.rows);
+  const total = singleYearMode ? (singleYearData?.total ?? 0) : (groupedResults?.total ?? 0);
+  const medianUsd = getMedian(rowsForSelection.map((row) => row.price_usd).filter((v): v is number => typeof v === 'number' && v > 0));
+  const totalUsd = rowsForSelection.reduce((sum, row) => sum + (row.total_usd ?? 0), 0);
+  const resultsLoading = singleYearMode ? singleYearLoading : groupedLoading;
+  const resultsFetching = singleYearMode ? singleYearFetching : groupedFetching;
 
   useEffect(() => {
-    setSelected((current) => rows.find((row) => row.id === current?.id) ?? rows[0] ?? null);
-  }, [rows]);
+    setSelected((current) => rowsForSelection.find((row) => row.id === current?.id) ?? rowsForSelection[0] ?? null);
+  }, [rowsForSelection]);
 
   useEffect(() => {
     if (!sellerPreset) return;
@@ -531,6 +660,17 @@ function SearchTab({
     setPage(1);
     onPresetConsumed();
   }, [sellerPreset, onPresetConsumed]);
+
+  useEffect(() => {
+    if (!dashboard?.trend.available_years.length) {
+      if (trendYear) setTrendYear('');
+      return;
+    }
+    const fallbackYear = String(dashboard.trend.display_years[0] ?? dashboard.trend.available_years[0]);
+    if (!trendYear || !dashboard.trend.available_years.includes(Number(trendYear))) {
+      setTrendYear(fallbackYear);
+    }
+  }, [dashboard?.trend.available_years, dashboard?.trend.display_years, trendYear]);
 
   const { data: historyData, isFetching: historyLoading } = useQuery({
     queryKey: ['xnk-history', selected?.bqms_code],
@@ -548,10 +688,8 @@ function SearchTab({
   const priceSnapshot = dashboard?.price_snapshot;
   const trend = dashboard?.trend;
   const topSellers = dashboard?.top_sellers;
-  const recentRecords = dashboard?.recent_records;
   const topSellerMaxDealCount = Math.max(...(topSellers?.rows.map((row) => row.deal_count) ?? [1]), 1);
-  const trendSections = trend?.sections ?? [];
-  const recentSections = recentRecords?.sections ?? [];
+  const activeTrendSection = trend?.sections?.[0];
 
   const applySellerFilter = (sellerName: string) => {
     setDraft((current) => ({ ...current, seller: sellerName }));
@@ -653,76 +791,88 @@ function SearchTab({
 
           <WidgetCard
             title="Xu hướng báo giá theo tháng"
-            subtitle="Tách riêng từng năm để anh theo dõi rõ hơn. Các khối năm được xếp mới đến cũ: 2026 ở trên, tiếp đến 2025, 2024..."
+            subtitle="Chọn một năm để xem đủ 12 tháng của riêng năm đó. Không trộn nhiều năm trong cùng một biểu đồ."
             status={trend?.status ?? (dashboardLoading ? 'limited' : 'empty')}
             reason={trend?.reason}
             className="xl:col-span-7"
           >
-            {trendSections.length > 0 ? (
+            {activeTrendSection ? (
               <div className="space-y-3">
-                <div className="grid gap-2 sm:grid-cols-2">
+                <div className="grid gap-2 lg:grid-cols-[minmax(0,1fr)_200px]">
                   <div className="rounded-[16px] border border-slate-100 bg-slate-50/80 px-3 py-2 text-[11px] leading-5 text-slate-600">
                     <span className="font-semibold text-slate-900">Cơ sở ngày:</span> {trend?.date_basis}
                   </div>
-                  <div className="rounded-[16px] border border-slate-100 bg-slate-50/80 px-3 py-2 text-[11px] leading-5 text-slate-600">
-                    <span className="font-semibold text-slate-900">Thứ tự bảng:</span> {trend?.table_ordering}
+                  <label className="rounded-[16px] border border-slate-100 bg-white px-3 py-2 text-[11px] text-slate-600">
+                    <div className="mb-1 font-semibold uppercase tracking-[0.12em] text-slate-500">Năm biểu đồ</div>
+                    <select
+                      value={trendYear}
+                      onChange={(event) => setTrendYear(event.target.value)}
+                      className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-sky-200"
+                    >
+                      {(trend?.available_years ?? []).map((availableYear) => (
+                        <option key={availableYear} value={availableYear}>
+                          {availableYear}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                </div>
+                <div className="rounded-[18px] border border-slate-200 bg-white/80 p-3">
+                  <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                    <div className="flex items-center gap-2">
+                      <div className="rounded-full bg-sky-700 px-3 py-1 text-[11px] font-semibold text-white">{activeTrendSection.year}</div>
+                      <div className="text-[12px] text-slate-500">
+                        {fmtNum(activeTrendSection.summary.total_rows, 0)} dòng • {fmtNum(activeTrendSection.summary.months_with_data, 0)} tháng có dữ liệu
+                      </div>
+                    </div>
+                    <div className={cn(
+                      'rounded-full border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.12em]',
+                      activeTrendSection.status === 'ready'
+                        ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+                        : activeTrendSection.status === 'limited'
+                          ? 'border-amber-200 bg-amber-50 text-amber-700'
+                          : 'border-slate-200 bg-slate-100 text-slate-500'
+                    )}>
+                      {activeTrendSection.status === 'ready' ? 'Đủ dữ liệu' : activeTrendSection.status === 'limited' ? 'Ít tháng dữ liệu' : 'Chưa có dữ liệu'}
+                    </div>
+                  </div>
+                  <div className="mb-2 rounded-[14px] bg-slate-50 px-3 py-2 text-[11px] leading-5 text-slate-600">
+                    <span className="font-semibold text-slate-900">Thứ tự kết quả tra cứu:</span> {trend?.table_ordering}
+                  </div>
+                  {activeTrendSection.reason && activeTrendSection.status !== 'ready' && (
+                    <div className="mb-2 rounded-[14px] bg-slate-50 px-3 py-2 text-[11px] leading-5 text-slate-600">{activeTrendSection.reason}</div>
+                  )}
+                  <div className="h-32 rounded-[16px] border border-slate-100 bg-slate-50/70 p-2">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <AreaChart data={activeTrendSection.points} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
+                        <defs>
+                          <linearGradient id={`xnkDashboardTrend${activeTrendSection.year}`} x1="0" x2="0" y1="0" y2="1">
+                            <stop offset="0%" stopColor="#0f4c81" stopOpacity={0.18} />
+                            <stop offset="100%" stopColor="#0f4c81" stopOpacity={0.02} />
+                          </linearGradient>
+                        </defs>
+                        <CartesianGrid stroke="#e2e8f0" strokeDasharray="3 3" vertical={false} />
+                        <XAxis dataKey="period_label" tick={{ fontSize: 9, fill: '#64748b' }} tickLine={false} axisLine={false} />
+                        <YAxis tick={{ fontSize: 9, fill: '#64748b' }} tickLine={false} axisLine={false} width={34} />
+                        <Tooltip
+                          formatter={(value: number, key: string) => key === 'count' ? fmtNum(value, 0) : compactUsd(value)}
+                          labelFormatter={(label) => `Kỳ: ${label}`}
+                          contentStyle={{ borderRadius: 16, borderColor: '#dbe3f0' }}
+                        />
+                        <Area type="monotone" dataKey="count" stroke="#0f4c81" fill={`url(#xnkDashboardTrend${activeTrendSection.year})`} strokeWidth={2} />
+                      </AreaChart>
+                    </ResponsiveContainer>
+                  </div>
+                  <div className="mt-2 grid gap-2 sm:grid-cols-3">
+                    {activeTrendSection.points.filter((point) => point.count > 0).slice(-3).map((point) => (
+                      <div key={`${activeTrendSection.year}-${point.period_date}`} className="rounded-[14px] border border-slate-100 bg-slate-50/80 px-3 py-2 text-[11px] text-slate-600">
+                        <div className="font-semibold text-slate-900">{point.period_label}</div>
+                        <div>{fmtNum(point.count, 0)} dòng</div>
+                        <div>Giá TB: {fmtUsd(point.avg_usd)}</div>
+                      </div>
+                    ))}
                   </div>
                 </div>
-                {trendSections.map((section) => (
-                  <div key={section.year} className="rounded-[18px] border border-slate-200 bg-white/80 p-3">
-                    <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-                      <div className="flex items-center gap-2">
-                        <div className="rounded-full bg-sky-700 px-3 py-1 text-[11px] font-semibold text-white">{section.year}</div>
-                        <div className="text-[12px] text-slate-500">
-                          {fmtNum(section.summary.total_rows, 0)} dòng • {fmtNum(section.summary.months_with_data, 0)} tháng có dữ liệu
-                        </div>
-                      </div>
-                      <div className={cn(
-                        'rounded-full border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.12em]',
-                        section.status === 'ready'
-                          ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
-                          : section.status === 'limited'
-                            ? 'border-amber-200 bg-amber-50 text-amber-700'
-                            : 'border-slate-200 bg-slate-100 text-slate-500'
-                      )}>
-                        {section.status === 'ready' ? 'Đủ dữ liệu' : section.status === 'limited' ? 'Ít tháng dữ liệu' : 'Chưa có dữ liệu'}
-                      </div>
-                    </div>
-                    {section.reason && section.status !== 'ready' && (
-                      <div className="mb-2 rounded-[14px] bg-slate-50 px-3 py-2 text-[11px] leading-5 text-slate-600">{section.reason}</div>
-                    )}
-                    <div className="h-28 rounded-[16px] border border-slate-100 bg-slate-50/70 p-2">
-                      <ResponsiveContainer width="100%" height="100%">
-                        <AreaChart data={section.points} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
-                          <defs>
-                            <linearGradient id={`xnkDashboardTrend${section.year}`} x1="0" x2="0" y1="0" y2="1">
-                              <stop offset="0%" stopColor="#0f4c81" stopOpacity={0.18} />
-                              <stop offset="100%" stopColor="#0f4c81" stopOpacity={0.02} />
-                            </linearGradient>
-                          </defs>
-                          <CartesianGrid stroke="#e2e8f0" strokeDasharray="3 3" vertical={false} />
-                          <XAxis dataKey="period_label" tick={{ fontSize: 9, fill: '#64748b' }} tickLine={false} axisLine={false} />
-                          <YAxis tick={{ fontSize: 9, fill: '#64748b' }} tickLine={false} axisLine={false} width={34} />
-                          <Tooltip
-                            formatter={(value: number, key: string) => key === 'count' ? fmtNum(value, 0) : compactUsd(value)}
-                            labelFormatter={(label) => `Kỳ: ${label}`}
-                            contentStyle={{ borderRadius: 16, borderColor: '#dbe3f0' }}
-                          />
-                          <Area type="monotone" dataKey="count" stroke="#0f4c81" fill={`url(#xnkDashboardTrend${section.year})`} strokeWidth={2} />
-                        </AreaChart>
-                      </ResponsiveContainer>
-                    </div>
-                    <div className="mt-2 grid gap-2 sm:grid-cols-3">
-                      {section.points.filter((point) => point.count > 0).slice(-3).map((point) => (
-                        <div key={`${section.year}-${point.period_date}`} className="rounded-[14px] border border-slate-100 bg-slate-50/80 px-3 py-2 text-[11px] text-slate-600">
-                          <div className="font-semibold text-slate-900">{point.period_label}</div>
-                          <div>{fmtNum(point.count, 0)} dòng</div>
-                          <div>Giá TB: {fmtUsd(point.avg_usd)}</div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                ))}
               </div>
             ) : (
               <div className="h-52 animate-pulse rounded-2xl bg-slate-100" />
@@ -774,65 +924,6 @@ function SearchTab({
               </div>
             ) : (
               <div className="h-52 animate-pulse rounded-2xl bg-slate-100" />
-            )}
-          </WidgetCard>
-
-          <WidgetCard
-            title="Dòng dữ liệu mới nhất"
-            subtitle="Tách theo từng năm và xếp mới đến cũ. Trong mỗi năm, các dòng được lấy từ cuối file Excel lên trước."
-            status={recentRecords?.status ?? (dashboardLoading ? 'limited' : 'empty')}
-            reason={recentRecords?.reason}
-            className="xl:col-span-12"
-          >
-            {recentSections.some((section) => section.rows.length > 0) ? (
-              <div className="space-y-3">
-                {recentSections.map((section) => (
-                  <div key={`recent-section-${section.year}`} className="rounded-[18px] border border-slate-200 bg-white/80 p-3">
-                    <div className="mb-2 flex items-center justify-between gap-2">
-                      <div className="rounded-full bg-slate-900 px-3 py-1 text-[11px] font-semibold text-white">{section.year}</div>
-                      <div className="text-[11px] text-slate-500">
-                        {section.rows.length > 0 ? `${fmtNum(section.rows.length, 0)} dòng mới nhất của năm ${section.year}` : `Chưa có dòng hiển thị cho năm ${section.year}`}
-                      </div>
-                    </div>
-                    {section.rows.length > 0 ? (
-                      <div className="overflow-x-auto">
-                        <table className="min-w-full text-[12px]">
-                          <thead className="text-[10px] uppercase tracking-[0.14em] text-slate-500">
-                            <tr>
-                              <th className="px-2 py-2 text-left font-medium">Ngày</th>
-                              <th className="px-2 py-2 text-left font-medium">Đơn hàng</th>
-                              <th className="px-2 py-2 text-left font-medium">BQMS</th>
-                              <th className="px-2 py-2 text-left font-medium">Tên hàng</th>
-                              <th className="px-2 py-2 text-left font-medium">Đối thủ</th>
-                              <th className="px-2 py-2 text-right font-medium">Giá USD</th>
-                            </tr>
-                          </thead>
-                          <tbody className="divide-y divide-slate-100">
-                            {section.rows.map((row) => (
-                              <tr key={`recent-${section.year}-${row.id}`} onClick={() => setSelected(row)} className="cursor-pointer hover:bg-slate-50/80">
-                                <td className="px-2 py-2 text-slate-600">{formatDate(row.rfq_date ?? row.quoted_date)}</td>
-                                <td className="px-2 py-2 font-mono text-slate-500">{row.quotation_no ?? '—'}</td>
-                                <td className="px-2 py-2 font-mono font-semibold text-sky-700">{row.bqms_code ?? '—'}</td>
-                                <td className="px-2 py-2 text-slate-800">
-                                  <div className="max-w-[460px] truncate">{row.item_name ?? '—'}</div>
-                                </td>
-                                <td className="px-2 py-2 text-slate-600">{row.seller_name ?? 'Chưa có'}</td>
-                                <td className="px-2 py-2 text-right font-semibold text-slate-900">{fmtUsd(row.price_usd)}</td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
-                    ) : (
-                      <div className="rounded-[14px] bg-slate-50 px-3 py-3 text-sm text-slate-500">
-                        {section.reason ?? 'Không có dòng dữ liệu phù hợp trong năm này.'}
-                      </div>
-                    )}
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <div className="h-28 animate-pulse rounded-2xl bg-slate-100" />
             )}
           </WidgetCard>
         </section>
@@ -906,86 +997,88 @@ function SearchTab({
             <div>
               <div className="text-sm font-semibold text-slate-900">Kết quả tra cứu</div>
               <div className="mt-1 text-xs text-slate-500">
-                {fmtNum(total, 0)} bản ghi. Mặc định ưu tiên ngày RFQ mới nhất trên toàn bộ dữ liệu; nếu trùng ngày thì lấy dòng ở cuối file Excel lên trước.
+                {singleYearMode
+                  ? `${fmtNum(total, 0)} bản ghi của năm ${applied.year}. Trong năm này, hệ thống lấy dòng ở cuối Excel lên trước.`
+                  : `${fmtNum(total, 0)} bản ghi. Kết quả được tách theo năm 2026 -> 2025 -> 2024..., và trong từng năm lấy dòng ở cuối Excel lên trước.`}
               </div>
             </div>
-            <select
-              value={sortMode}
-              onChange={(event) => {
-                setSortMode(event.target.value as SortMode);
-                setPage(1);
-              }}
-              className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-sky-200"
-            >
-              <option value="rfq_desc">Ngày RFQ mới nhất</option>
-              <option value="rfq_asc">Ngày RFQ cũ nhất</option>
-              <option value="excel_desc">Dòng Excel mới nhất</option>
-              <option value="excel_asc">Dòng Excel cũ nhất</option>
-              <option value="price_desc">Giá USD giảm dần</option>
-              <option value="seller">Theo tên đối thủ</option>
-            </select>
-          </div>
-          <div className="overflow-x-auto">
-            <table className="min-w-[2600px] text-[11px] leading-4">
-              <thead className="bg-slate-50 text-[10px] uppercase tracking-[0.14em] text-slate-500">
-                <tr>
-                  <th className="px-2 py-2 text-left font-medium">Dòng</th>
-                  <th className="px-2 py-2 text-left font-medium">Ngày tháng</th>
-                  <th className="px-2 py-2 text-left font-medium">Đơn hàng</th>
-                  <th className="px-2 py-2 text-left font-medium">BMSQ</th>
-                  <th className="px-2 py-2 text-left font-medium">Tên hàng hóa</th>
-                  <th className="px-2 py-2 text-left font-medium">Explain</th>
-                  <th className="px-2 py-2 text-left font-medium">Loại hàng</th>
-                  <th className="px-2 py-2 text-left font-medium">Maker</th>
-                  <th className="px-2 py-2 text-left font-medium">Ghi chú</th>
-                  <th className="px-2 py-2 text-left font-medium">Ngày báo giá</th>
-                  <th className="px-2 py-2 text-left font-medium">Mã HS</th>
-                  <th className="px-2 py-2 text-left font-medium">ĐVT</th>
-                  <th className="px-2 py-2 text-right font-medium">SL</th>
-                  <th className="px-2 py-2 text-right font-medium">Giá USD</th>
-                  <th className="px-2 py-2 text-right font-medium">Tổng USD</th>
-                  <th className="px-2 py-2 text-left font-medium">Bên mua</th>
-                  <th className="px-2 py-2 text-left font-medium">Bên bán</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {isLoading ? (
-                  Array.from({ length: 6 }).map((_, index) => <tr key={index}><td className="px-4 py-4" colSpan={17}><div className="h-12 animate-pulse rounded-2xl bg-slate-100" /></td></tr>)
-                ) : rows.length === 0 ? (
-                  <tr><td colSpan={17}><EmptyState icon={PackageSearch} heading="Chưa có kết quả phù hợp" description="Thử tìm theo tên hàng, HS code, BQMS hoặc đối thủ." actionLabel="Xóa bộ lọc" onAction={() => { const next = { q: '', bqms: '', hs: '', seller: '', year: '' }; setDraft(next); setApplied(next); setPage(1); }} className="py-14" /></td></tr>
-                ) : (
-                  rows.map((row) => (
-                    <tr key={row.id} onClick={() => setSelected(row)} className={cn('cursor-pointer transition hover:bg-slate-50', selected?.id === row.id && 'bg-sky-50/70')}>
-                      <td className="px-2 py-2 font-mono text-slate-500">{formatCellValue(getRawValue(row, '_excel_row_number'), '_excel_row_number')}</td>
-                      <td className="px-2 py-2 text-slate-600">{formatDate(row.rfq_date ?? String(getRawValue(row, 'Ngày Tháng') ?? ''))}</td>
-                      <td className="px-2 py-2 font-mono text-slate-600">{formatCellValue(getRawValue(row, 'Đơn hàng'), 'Đơn hàng')}</td>
-                      <td className="px-2 py-2 font-mono font-semibold text-sky-700">{formatCellValue(getRawValue(row, 'BMSQ'), 'BMSQ')}</td>
-                      <td className="px-2 py-2"><div className="max-w-[200px] truncate font-medium text-slate-800">{formatCellValue(getRawValue(row, 'Tên hàng hóa'), 'Tên hàng hóa')}</div></td>
-                      <td className="px-2 py-2"><div className="max-w-[220px] truncate text-slate-500">{formatCellValue(getRawValue(row, 'Explain for detail? (Có thể viết tiếng việt)'), 'Explain for detail? (Có thể viết tiếng việt)')}</div></td>
-                      <td className="px-2 py-2 text-slate-600">{formatCellValue(getRawValue(row, 'Loại hàng'), 'Loại hàng')}</td>
-                      <td className="px-2 py-2"><div className="max-w-[120px] truncate text-slate-600">{formatCellValue(getRawValue(row, 'Maker 업체'), 'Maker 업체')}</div></td>
-                      <td className="px-2 py-2"><div className="max-w-[160px] truncate text-slate-500">{formatCellValue(getRawValue(row, 'Ghi chú'), 'Ghi chú')}</div></td>
-                      <td className="px-2 py-2 text-slate-600">{formatDate(row.quoted_date ?? String(getRawValue(row, 'Ngày') ?? ''))}</td>
-                      <td className="px-2 py-2 font-mono text-slate-600">{formatCellValue(getRawValue(row, 'Mã HS'), 'Mã HS')}</td>
-                      <td className="px-2 py-2 text-slate-500">{formatCellValue(getRawValue(row, 'ĐVT'), 'ĐVT')}</td>
-                      <td className="px-2 py-2 text-right font-mono text-slate-600">{formatCellValue(getRawValue(row, 'SL'), 'SL')}</td>
-                      <td className="px-2 py-2 text-right font-semibold text-slate-900">{formatCellValue(getRawValue(row, 'Đơn giá USD'), 'Đơn giá USD')}</td>
-                      <td className="px-2 py-2 text-right font-mono text-slate-700">{formatCellValue(getRawValue(row, 'Tổng cộng USD'), 'Tổng cộng USD')}</td>
-                      <td className="px-2 py-2"><div className="max-w-[150px] truncate text-slate-600">{formatCellValue(getRawValue(row, 'Bên mua'), 'Bên mua')}</div></td>
-                      <td className="px-2 py-2"><div className="max-w-[150px] truncate text-slate-700">{formatCellValue(getRawValue(row, 'Bên bán'), 'Bên bán')}</div></td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          </div>
-          <div className="flex flex-col gap-3 border-t border-slate-200 px-4 py-4 text-sm text-slate-500 lg:flex-row lg:items-center lg:justify-between">
-            <div className="flex items-center gap-2"><BadgeDollarSign className="h-4 w-4 text-slate-400" />Đang hiển thị {fmtNum(rows.length, 0)} / {fmtNum(total, 0)} bản ghi{isFetching && !isLoading ? ' • đang làm mới dữ liệu...' : ''}</div>
-            <div className="flex items-center gap-2">
-              <button onClick={() => setPage((current) => Math.max(1, current - 1))} disabled={page === 1} className="rounded-xl border border-slate-200 px-3 py-2 font-medium text-slate-600 disabled:opacity-40">Trước</button>
-              <div className="rounded-xl bg-slate-100 px-3 py-2 font-mono text-slate-700">Trang {page} / {Math.max(1, Math.ceil(total / 50))}</div>
-              <button onClick={() => setPage((current) => current + 1)} disabled={page * 50 >= total} className="rounded-xl border border-slate-200 px-3 py-2 font-medium text-slate-600 disabled:opacity-40">Sau</button>
+            <div className="rounded-xl bg-slate-50 px-3 py-2 text-xs text-slate-500">
+              {singleYearMode
+                ? 'Đang xem sâu một năm. Bỏ lọc năm để quay lại dạng xếp chồng theo năm.'
+                : groupedResults?.grouping_rule ?? 'Nhóm theo năm, trong từng năm ưu tiên dòng ở cuối Excel.'}
             </div>
+          </div>
+          <div className="space-y-4 p-4">
+            {resultsLoading ? (
+              Array.from({ length: singleYearMode ? 1 : 3 }).map((_, index) => <div key={index} className="h-52 animate-pulse rounded-2xl bg-slate-100" />)
+            ) : singleYearMode ? (
+              singleYearRows.length === 0 ? (
+                <EmptyState icon={PackageSearch} heading="Chưa có kết quả phù hợp" description="Thử tìm theo tên hàng, HS code, BQMS hoặc đối thủ." actionLabel="Xóa bộ lọc" onAction={() => { const next = { q: '', bqms: '', hs: '', seller: '', year: '' }; setDraft(next); setApplied(next); setPage(1); }} className="py-14" />
+              ) : (
+                <>
+                  <SearchResultsSection
+                    year={Number(applied.year)}
+                    summary={`Trang ${page} • đang hiển thị ${fmtNum(singleYearRows.length, 0)} / ${fmtNum(total, 0)} dòng của năm ${applied.year}`}
+                    rows={singleYearRows}
+                    selectedId={selected?.id}
+                    onSelect={setSelected}
+                    action={
+                      <button
+                        onClick={() => {
+                          setDraft((current) => ({ ...current, year: '' }));
+                          setApplied((current) => ({ ...current, year: '' }));
+                          setPage(1);
+                        }}
+                        className="rounded-xl border border-slate-200 px-3 py-2 text-xs font-medium text-slate-600 hover:text-slate-900"
+                      >
+                        Bỏ lọc năm
+                      </button>
+                    }
+                  />
+                  <div className="flex flex-col gap-3 border-t border-slate-200 pt-4 text-sm text-slate-500 lg:flex-row lg:items-center lg:justify-between">
+                    <div className="flex items-center gap-2"><BadgeDollarSign className="h-4 w-4 text-slate-400" />Đang hiển thị {fmtNum(singleYearRows.length, 0)} / {fmtNum(total, 0)} bản ghi của năm {applied.year}{resultsFetching && !resultsLoading ? ' • đang làm mới dữ liệu...' : ''}</div>
+                    <div className="flex items-center gap-2">
+                      <button onClick={() => setPage((current) => Math.max(1, current - 1))} disabled={page === 1} className="rounded-xl border border-slate-200 px-3 py-2 font-medium text-slate-600 disabled:opacity-40">Trước</button>
+                      <div className="rounded-xl bg-slate-100 px-3 py-2 font-mono text-slate-700">Trang {page} / {Math.max(1, Math.ceil(total / 50))}</div>
+                      <button onClick={() => setPage((current) => current + 1)} disabled={page * 50 >= total} className="rounded-xl border border-slate-200 px-3 py-2 font-medium text-slate-600 disabled:opacity-40">Sau</button>
+                    </div>
+                  </div>
+                </>
+              )
+            ) : resultSections.length === 0 ? (
+              <EmptyState icon={PackageSearch} heading="Chưa có kết quả phù hợp" description="Thử tìm theo tên hàng, HS code, BQMS hoặc đối thủ." actionLabel="Xóa bộ lọc" onAction={() => { const next = { q: '', bqms: '', hs: '', seller: '', year: '' }; setDraft(next); setApplied(next); setPage(1); }} className="py-14" />
+            ) : (
+              <>
+                {resultSections.map((section) => (
+                  <SearchResultsSection
+                    key={`search-section-${section.year}`}
+                    year={section.year}
+                    summary={`Đang hiển thị ${fmtNum(section.loaded, 0)} / ${fmtNum(section.total, 0)} dòng của năm ${section.year}. Các dòng được lấy từ cuối file Excel lên trước.`}
+                    rows={section.rows}
+                    selectedId={selected?.id}
+                    onSelect={setSelected}
+                    action={
+                      <button
+                        onClick={() => {
+                          setDraft((current) => ({ ...current, year: String(section.year) }));
+                          setApplied((current) => ({ ...current, year: String(section.year) }));
+                          setPage(1);
+                        }}
+                        className="rounded-xl border border-slate-200 px-3 py-2 text-xs font-medium text-slate-600 hover:text-slate-900"
+                      >
+                        Xem riêng năm {section.year}
+                      </button>
+                    }
+                  />
+                ))}
+                <div className="flex flex-col gap-2 border-t border-slate-200 pt-4 text-sm text-slate-500 lg:flex-row lg:items-center lg:justify-between">
+                  <div className="flex items-center gap-2"><BadgeDollarSign className="h-4 w-4 text-slate-400" />Đang hiển thị các dòng cuối Excel của từng năm để anh scan nhanh{resultsFetching && !resultsLoading ? ' • đang làm mới dữ liệu...' : ''}</div>
+                  <div className="text-xs text-slate-500">
+                    {groupedResults?.rows_per_year ? `Mỗi năm đang hiện ${fmtNum(groupedResults.rows_per_year, 0)} dòng.` : null}
+                  </div>
+                </div>
+              </>
+            )}
           </div>
         </section>
       </div>

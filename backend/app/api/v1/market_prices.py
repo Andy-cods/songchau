@@ -40,6 +40,7 @@ DASHBOARD_PRICE_MIN_SAMPLE = 12
 DASHBOARD_SELLER_MIN_SAMPLE = 12
 DASHBOARD_TREND_MIN_POINTS = 2
 TREND_DATE_SQL = "COALESCE(rfq_date, quoted_date)"
+YEAR_GROUP_SQL = f"EXTRACT(YEAR FROM {TREND_DATE_SQL})::int"
 
 
 def build_lookup_filters(
@@ -78,7 +79,7 @@ def build_lookup_filters(
         idx += 1
 
     if year:
-        conditions.append(f"EXTRACT(YEAR FROM rfq_date) = ${idx}")
+        conditions.append(f"{YEAR_GROUP_SQL} = ${idx}")
         params.append(year)
 
     return " AND ".join(conditions), params
@@ -135,6 +136,107 @@ async def search_xnk(
         "page": page,
         "limit": limit,
         "sort": sort,
+    }
+
+
+@router.get("/search-sections")
+async def search_xnk_sections(
+    q: str = Query("", description="Tìm theo BQMS code, tên hàng, mã HS, bên bán"),
+    bqms: str = Query("", description="Filter theo BQMS code chính xác"),
+    hs: str = Query("", description="Filter theo mã HS"),
+    seller: str = Query("", description="Filter theo bên bán"),
+    year: int | None = Query(None, ge=2020, le=2030),
+    rows_per_year: int = Query(8, ge=3, le=30),
+    token_data: TokenData = Depends(require_role("staff", "manager", "admin", "procurement")),
+    conn: asyncpg.Connection = Depends(get_db),
+):
+    """Trả kết quả tra cứu theo từng khối năm cho UI grouped results."""
+    where, params = build_lookup_filters(q=q, bqms=bqms, hs=hs, seller=seller, year=year)
+
+    total = await conn.fetchval(
+        f"SELECT COUNT(*) FROM xnk_price_lookup WHERE {where}",
+        *params,
+    )
+
+    year_rows = await conn.fetch(
+        f"""
+        SELECT
+            {YEAR_GROUP_SQL} AS year,
+            COUNT(*)::int AS total
+        FROM xnk_price_lookup
+        WHERE {where} AND {TREND_DATE_SQL} IS NOT NULL
+        GROUP BY 1
+        ORDER BY 1 DESC
+        """,
+        *params,
+    )
+    available_years = [row["year"] for row in year_rows if row["year"] is not None]
+    display_years = [year] if year else available_years
+
+    section_rows: list[asyncpg.Record] = []
+    if display_years:
+        section_rows = await conn.fetch(
+            f"""
+            WITH ranked AS (
+                SELECT
+                    {YEAR_GROUP_SQL} AS year,
+                    id, rfq_date, quotation_no, bqms_code, item_name, item_explain,
+                    item_type, maker, notes, notes2, unit, quantity, quote_deadline,
+                    quoted_date, bqms_code3, hs_code, price_usd, price_vnd, total_usd,
+                    buyer_name, seller_name, source, raw_data,
+                    ROW_NUMBER() OVER (
+                        PARTITION BY {YEAR_GROUP_SQL}
+                        ORDER BY {EXCEL_ROW_ORDER_SQL} DESC, {TREND_DATE_SQL} DESC NULLS LAST, id DESC
+                    ) AS rn
+                FROM xnk_price_lookup
+                WHERE {where}
+                  AND {TREND_DATE_SQL} IS NOT NULL
+                  AND {YEAR_GROUP_SQL} = ANY(${len(params) + 1}::int[])
+            )
+            SELECT
+                year, id, rfq_date, quotation_no, bqms_code, item_name, item_explain,
+                item_type, maker, notes, notes2, unit, quantity, quote_deadline,
+                quoted_date, bqms_code3, hs_code, price_usd, price_vnd, total_usd,
+                buyer_name, seller_name, source, raw_data
+            FROM ranked
+            WHERE rn <= ${len(params) + 2}
+            ORDER BY year DESC, rn ASC
+            """,
+            *params,
+            display_years,
+            rows_per_year,
+        )
+
+    unknown_year_total = await conn.fetchval(
+        f"SELECT COUNT(*) FROM xnk_price_lookup WHERE {where} AND {TREND_DATE_SQL} IS NULL",
+        *params,
+    )
+
+    totals_by_year = {row["year"]: row["total"] for row in year_rows}
+    rows_by_year = {section_year: [] for section_year in display_years}
+    for row in section_rows:
+        rows_by_year.setdefault(row["year"], []).append(dict(row))
+
+    sections = [
+        {
+            "year": section_year,
+            "total": totals_by_year.get(section_year, 0),
+            "loaded": len(rows_by_year.get(section_year, [])),
+            "has_more": totals_by_year.get(section_year, 0) > len(rows_by_year.get(section_year, [])),
+            "rows": rows_by_year.get(section_year, []),
+        }
+        for section_year in display_years
+    ]
+
+    return {
+        "data": {
+            "sections": sections,
+            "available_years": available_years,
+            "total": total,
+            "rows_per_year": rows_per_year,
+            "unknown_year_total": unknown_year_total,
+            "grouping_rule": "Xếp năm giảm dần; trong từng năm lấy dòng cuối Excel lên trước.",
+        }
     }
 
 
@@ -230,8 +332,10 @@ async def xnk_dashboard(
         display_years = [trend_year]
     elif year:
         display_years = [year]
+    elif available_years:
+        display_years = [available_years[0]]
     else:
-        display_years = available_years[:4]
+        display_years = []
 
     price_snapshot = await conn.fetchrow(
         f"""
