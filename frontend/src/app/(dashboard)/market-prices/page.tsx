@@ -1,6 +1,6 @@
 ﻿'use client';
 
-import { type ElementType, useEffect, useMemo, useState } from 'react';
+import { type ElementType, type ReactNode, useEffect, useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import {
@@ -73,6 +73,88 @@ interface HistoryStats {
   min_usd?: number;
   max_usd?: number;
   latest_rfq?: string;
+}
+
+type WidgetStatus = 'ready' | 'limited' | 'empty';
+
+interface DashboardWidgetState {
+  status: WidgetStatus;
+  reason?: string | null;
+}
+
+interface DashboardOverview {
+  total_records: number;
+  priced_records: number;
+  seller_records: number;
+  hs_records: number;
+  unique_products: number;
+  latest_rfq_date?: string;
+  fill_rates: {
+    gia_usd: number;
+    doi_thu: number;
+    ma_hs: number;
+  };
+}
+
+interface DashboardCoverageYear {
+  year: number;
+  count: number;
+  price_rows: number;
+  seller_rows: number;
+  hs_rows: number;
+}
+
+interface DashboardCoverage extends DashboardWidgetState {
+  years: DashboardCoverageYear[];
+  fill_rates: DashboardOverview['fill_rates'];
+}
+
+interface DashboardPriceSnapshot extends DashboardWidgetState {
+  sample_size: number;
+  avg_usd?: number;
+  min_usd?: number;
+  max_usd?: number;
+  median_usd?: number;
+  p10_usd?: number;
+  p90_usd?: number;
+}
+
+interface DashboardTrendPoint {
+  period_date: string;
+  period_label: string;
+  count: number;
+  price_rows: number;
+  avg_usd?: number;
+  total_usd?: number;
+}
+
+interface DashboardTrend extends DashboardWidgetState {
+  points: DashboardTrendPoint[];
+}
+
+interface DashboardTopSellers extends DashboardWidgetState {
+  rows: SellerRow[];
+}
+
+interface DashboardRecentRecords extends DashboardWidgetState {
+  rows: XnkRow[];
+}
+
+interface DashboardData {
+  filters: {
+    q: string;
+    bqms: string;
+    hs: string;
+    seller: string;
+    year?: number | null;
+  };
+  overview: DashboardOverview;
+  coverage: DashboardCoverage;
+  price_snapshot: DashboardPriceSnapshot;
+  trend: DashboardTrend;
+  top_sellers: DashboardTopSellers;
+  recent_records: DashboardRecentRecords;
+  generated_at: string;
 }
 
 type SortMode = 'rfq_desc' | 'rfq_asc' | 'excel_desc' | 'excel_asc' | 'price_desc' | 'seller';
@@ -250,6 +332,60 @@ function SearchField({
   );
 }
 
+function WidgetCard({
+  title,
+  subtitle,
+  status = 'ready',
+  reason,
+  children,
+  className,
+}: {
+  title: string;
+  subtitle: string;
+  status?: WidgetStatus;
+  reason?: string | null;
+  children: ReactNode;
+  className?: string;
+}) {
+  const tone =
+    status === 'ready'
+      ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+      : status === 'limited'
+        ? 'border-amber-200 bg-amber-50 text-amber-700'
+        : 'border-slate-200 bg-slate-100 text-slate-500';
+
+  const label = status === 'ready' ? 'Dữ liệu tốt' : status === 'limited' ? 'Cần đọc thận trọng' : 'Thiếu dữ liệu';
+
+  return (
+    <section className={cn('rounded-[24px] border border-slate-200 bg-white p-4 shadow-sm', className)}>
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <div className="text-sm font-semibold text-slate-900">{title}</div>
+          <div className="mt-1 text-xs leading-5 text-slate-500">{subtitle}</div>
+        </div>
+        <span className={cn('rounded-full border px-2.5 py-1 text-[11px] font-semibold', tone)}>{label}</span>
+      </div>
+      {reason && <div className="mt-3 rounded-2xl bg-slate-50 px-3 py-2 text-xs leading-5 text-slate-600">{reason}</div>}
+      <div className="mt-4">{children}</div>
+    </section>
+  );
+}
+
+function CoverageBar({ label, value }: { label: string; value: number }) {
+  const safe = Math.max(0, Math.min(100, value));
+  return (
+    <div className="space-y-1.5">
+      <div className="flex items-center justify-between text-xs">
+        <span className="font-medium text-slate-600">{label}</span>
+        <span className="font-semibold text-slate-900">{safe.toFixed(1)}%</span>
+      </div>
+      <div className="h-2 rounded-full bg-slate-100">
+        <div className="h-2 rounded-full bg-sky-700 transition-all" style={{ width: `${safe}%` }} />
+      </div>
+    </div>
+  );
+}
+
 export default function MarketPricesPage() {
   const [activeTab, setActiveTab] = useState<'search' | 'sellers'>('search');
   const [sellerPreset, setSellerPreset] = useState('');
@@ -329,24 +465,35 @@ function SearchTab({
   const [sortMode, setSortMode] = useState<SortMode>('rfq_desc');
   const [selected, setSelected] = useState<XnkRow | null>(null);
 
-  const queryString = useMemo(() => {
+  const filterQueryString = useMemo(() => {
     const params = new URLSearchParams();
     if (applied.q) params.set('q', applied.q);
     if (applied.bqms) params.set('bqms', applied.bqms);
     if (applied.hs) params.set('hs', applied.hs);
     if (applied.seller) params.set('seller', applied.seller);
     if (applied.year) params.set('year', applied.year);
+    return params.toString();
+  }, [applied]);
+
+  const queryString = useMemo(() => {
+    const params = new URLSearchParams(filterQueryString);
     params.set('sort', sortMode);
     params.set('page', String(page));
     params.set('limit', '50');
     return params.toString();
-  }, [applied, page, sortMode]);
+  }, [filterQueryString, page, sortMode]);
+
+  const { data: dashboardData, isLoading: dashboardLoading } = useQuery({
+    queryKey: ['xnk-dashboard', applied],
+    queryFn: () => api.get<{ data: DashboardData }>(`/api/v1/market-prices/dashboard?${filterQueryString}`),
+  });
 
   const { data, isLoading, isFetching } = useQuery({
     queryKey: ['xnk-search', applied, page, sortMode],
     queryFn: () => api.get<{ data: XnkRow[]; total: number }>(`/api/v1/market-prices/search?${queryString}`),
   });
 
+  const dashboard = dashboardData?.data;
   const rows = data?.data ?? [];
 
   const total = data?.total ?? 0;
@@ -376,10 +523,231 @@ function SearchTab({
   const chartData = historyRows.slice().reverse().map((item) => ({ date: formatDate(item.rfq_date), price_usd: item.price_usd ?? 0 }));
   const compareAvg = selected?.price_usd && historyStats.avg_usd ? ((selected.price_usd - historyStats.avg_usd) / historyStats.avg_usd) * 100 : null;
   const activePills = [applied.q && `Từ khóa: ${applied.q}`, applied.bqms && `BQMS: ${applied.bqms}`, applied.hs && `HS: ${applied.hs}`, applied.seller && `Đối thủ: ${applied.seller}`, applied.year && `Năm: ${applied.year}`].filter(Boolean) as string[];
+  const overview = dashboard?.overview;
+  const coverage = dashboard?.coverage;
+  const priceSnapshot = dashboard?.price_snapshot;
+  const trend = dashboard?.trend;
+  const topSellers = dashboard?.top_sellers;
+  const recentRecords = dashboard?.recent_records;
+  const topSellerMaxDealCount = Math.max(...(topSellers?.rows.map((row) => row.deal_count) ?? [1]), 1);
+  const trendPoints = trend?.points ?? [];
+  const recentRows = recentRecords?.rows ?? [];
+
+  const applySellerFilter = (sellerName: string) => {
+    setDraft((current) => ({ ...current, seller: sellerName }));
+    setApplied((current) => ({ ...current, seller: sellerName }));
+    setPage(1);
+  };
 
   return (
     <div className="grid gap-5 xl:grid-cols-[minmax(0,2.2fr)_320px]">
       <div className="space-y-4">
+        <section className="grid gap-4 xl:grid-cols-12">
+          <WidgetCard
+            title="Tổng quan dữ liệu XNK"
+            subtitle="4 chỉ số lõi để biết kho dữ liệu theo bộ lọc hiện tại có đủ dùng hay không."
+            status={overview ? 'ready' : dashboardLoading ? 'limited' : 'empty'}
+            reason={!overview && !dashboardLoading ? 'Chưa lấy được dữ liệu tổng quan từ hệ thống.' : null}
+            className="xl:col-span-4"
+          >
+            {overview ? (
+              <div className="grid grid-cols-2 gap-3">
+                <div className="rounded-2xl bg-slate-50 p-3">
+                  <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">Tổng bản ghi</div>
+                  <div className="mt-1 text-xl font-semibold text-slate-900">{fmtNum(overview.total_records, 0)}</div>
+                </div>
+                <div className="rounded-2xl bg-slate-50 p-3">
+                  <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">Mã BQMS</div>
+                  <div className="mt-1 text-xl font-semibold text-slate-900">{fmtNum(overview.unique_products, 0)}</div>
+                </div>
+                <div className="rounded-2xl bg-slate-50 p-3">
+                  <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">Có giá USD</div>
+                  <div className="mt-1 text-xl font-semibold text-slate-900">{fmtNum(overview.priced_records, 0)}</div>
+                </div>
+                <div className="rounded-2xl bg-slate-50 p-3">
+                  <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">RFQ mới nhất</div>
+                  <div className="mt-1 text-xl font-semibold text-slate-900">{overview.latest_rfq_date ? formatDate(overview.latest_rfq_date) : '—'}</div>
+                </div>
+              </div>
+            ) : (
+              <div className="h-36 animate-pulse rounded-2xl bg-slate-100" />
+            )}
+          </WidgetCard>
+
+          <WidgetCard
+            title="Độ phủ dữ liệu"
+            subtitle="Hiển thị mức đầy của các cột quan trọng để tránh đọc dashboard như thể dữ liệu đã phủ toàn bộ."
+            status={coverage?.status ?? (dashboardLoading ? 'limited' : 'empty')}
+            reason={coverage?.reason}
+            className="xl:col-span-4"
+          >
+            {coverage ? (
+              <div className="space-y-4">
+                <CoverageBar label="Cột giá USD" value={coverage.fill_rates.gia_usd} />
+                <CoverageBar label="Cột đối thủ" value={coverage.fill_rates.doi_thu} />
+                <CoverageBar label="Cột mã HS" value={coverage.fill_rates.ma_hs} />
+                <div className="flex flex-wrap gap-2 pt-1">
+                  {coverage.years.map((item) => (
+                    <span key={item.year} className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs text-slate-600">
+                      {item.year}: {fmtNum(item.count, 0)}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            ) : (
+              <div className="h-36 animate-pulse rounded-2xl bg-slate-100" />
+            )}
+          </WidgetCard>
+
+          <WidgetCard
+            title="Mặt bằng giá USD"
+            subtitle="Dùng median và dải P10-P90 để giảm méo do vài dòng giá quá cao hoặc quá thấp."
+            status={priceSnapshot?.status ?? (dashboardLoading ? 'limited' : 'empty')}
+            reason={priceSnapshot?.reason}
+            className="xl:col-span-4"
+          >
+            {priceSnapshot ? (
+              <div className="space-y-3">
+                <SummaryLine label="Số dòng có giá" value={fmtNum(priceSnapshot.sample_size, 0)} />
+                <SummaryLine label="Giá trung vị" value={fmtUsd(priceSnapshot.median_usd)} />
+                <SummaryLine label="Giá trung bình" value={fmtUsd(priceSnapshot.avg_usd)} />
+                <SummaryLine label="Biên P10 - P90" value={`${fmtUsd(priceSnapshot.p10_usd)} → ${fmtUsd(priceSnapshot.p90_usd)}`} />
+                <SummaryLine label="Min - Max" value={`${fmtUsd(priceSnapshot.min_usd)} → ${fmtUsd(priceSnapshot.max_usd)}`} />
+              </div>
+            ) : (
+              <div className="h-36 animate-pulse rounded-2xl bg-slate-100" />
+            )}
+          </WidgetCard>
+
+          <WidgetCard
+            title="Xu hướng báo giá theo tháng"
+            subtitle="Theo dõi nhịp nhập RFQ và mặt bằng hoạt động theo tháng để phát hiện khoảng trống dữ liệu."
+            status={trend?.status ?? (dashboardLoading ? 'limited' : 'empty')}
+            reason={trend?.reason}
+            className="xl:col-span-7"
+          >
+            {trendPoints.length > 0 ? (
+              <div className="space-y-3">
+                <div className="h-52">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <AreaChart data={trendPoints} margin={{ top: 8, right: 10, left: -18, bottom: 0 }}>
+                      <defs>
+                        <linearGradient id="xnkDashboardTrend" x1="0" x2="0" y1="0" y2="1">
+                          <stop offset="0%" stopColor="#0f4c81" stopOpacity={0.28} />
+                          <stop offset="100%" stopColor="#0f4c81" stopOpacity={0.03} />
+                        </linearGradient>
+                      </defs>
+                      <CartesianGrid stroke="#e2e8f0" strokeDasharray="3 3" vertical={false} />
+                      <XAxis dataKey="period_label" tick={{ fontSize: 11, fill: '#64748b' }} tickLine={false} axisLine={false} />
+                      <YAxis tick={{ fontSize: 11, fill: '#64748b' }} tickLine={false} axisLine={false} width={42} />
+                      <Tooltip
+                        formatter={(value: number, key: string) => key === 'count' ? fmtNum(value, 0) : compactUsd(value)}
+                        labelFormatter={(label) => `Kỳ: ${label}`}
+                        contentStyle={{ borderRadius: 16, borderColor: '#dbe3f0' }}
+                      />
+                      <Area type="monotone" dataKey="count" stroke="#0f4c81" fill="url(#xnkDashboardTrend)" strokeWidth={2} />
+                    </AreaChart>
+                  </ResponsiveContainer>
+                </div>
+                <div className="grid gap-2 sm:grid-cols-3">
+                  {trendPoints.slice(-3).map((point) => (
+                    <div key={point.period_date} className="rounded-2xl bg-slate-50 px-3 py-2 text-xs text-slate-600">
+                      <div className="font-semibold text-slate-900">{point.period_label}</div>
+                      <div>{fmtNum(point.count, 0)} dòng</div>
+                      <div>Giá TB: {fmtUsd(point.avg_usd)}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : (
+              <div className="h-52 animate-pulse rounded-2xl bg-slate-100" />
+            )}
+          </WidgetCard>
+
+          <WidgetCard
+            title="Top đối thủ theo giao dịch"
+            subtitle="Chỉ tính các dòng có tên bên bán hợp lệ, để tránh xếp hạng nhiễu do dữ liệu khuyết."
+            status={topSellers?.status ?? (dashboardLoading ? 'limited' : 'empty')}
+            reason={topSellers?.reason}
+            className="xl:col-span-5"
+          >
+            {topSellers ? (
+              <div className="space-y-3">
+                {topSellers.rows.length === 0 ? (
+                  <div className="rounded-2xl bg-slate-50 px-3 py-4 text-sm text-slate-500">Không có đối thủ hợp lệ theo bộ lọc hiện tại.</div>
+                ) : (
+                  topSellers.rows.map((row) => (
+                    <button
+                      key={row.seller_name}
+                      onClick={() => applySellerFilter(row.seller_name)}
+                      className="block w-full rounded-2xl border border-slate-200 px-3 py-3 text-left transition hover:border-sky-200 hover:bg-sky-50"
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <div className="truncate text-sm font-semibold text-slate-900">{row.seller_name}</div>
+                          <div className="mt-1 text-xs text-slate-500">
+                            {fmtNum(row.product_count, 0)} mã • gần nhất {formatDate(row.latest_deal)}
+                          </div>
+                        </div>
+                        <div className="text-right">
+                          <div className="text-sm font-semibold text-slate-900">{fmtNum(row.deal_count, 0)} giao dịch</div>
+                          <div className="mt-1 text-xs text-slate-500">{compactUsd(row.total_usd)}</div>
+                        </div>
+                      </div>
+                      <div className="mt-3 h-2 rounded-full bg-slate-100">
+                        <div className="h-2 rounded-full bg-sky-700" style={{ width: `${Math.max(10, (row.deal_count / topSellerMaxDealCount) * 100)}%` }} />
+                      </div>
+                    </button>
+                  ))
+                )}
+              </div>
+            ) : (
+              <div className="h-52 animate-pulse rounded-2xl bg-slate-100" />
+            )}
+          </WidgetCard>
+
+          <WidgetCard
+            title="Dòng dữ liệu mới nhất"
+            subtitle="Hiển thị trực tiếp các dòng thật mới nhất theo bộ lọc hiện tại, để anh thấy hệ thống đang đọc được gì."
+            status={recentRecords?.status ?? (dashboardLoading ? 'limited' : 'empty')}
+            reason={recentRecords?.reason}
+            className="xl:col-span-12"
+          >
+            {recentRows.length > 0 ? (
+              <div className="overflow-x-auto">
+                <table className="min-w-full text-sm">
+                  <thead className="text-xs uppercase tracking-[0.12em] text-slate-500">
+                    <tr>
+                      <th className="px-2 py-2 text-left font-medium">Ngày RFQ</th>
+                      <th className="px-2 py-2 text-left font-medium">Đơn hàng</th>
+                      <th className="px-2 py-2 text-left font-medium">BQMS</th>
+                      <th className="px-2 py-2 text-left font-medium">Tên hàng</th>
+                      <th className="px-2 py-2 text-left font-medium">Đối thủ</th>
+                      <th className="px-2 py-2 text-right font-medium">Giá USD</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {recentRows.map((row) => (
+                      <tr key={`recent-${row.id}`} onClick={() => setSelected(row)} className="cursor-pointer hover:bg-slate-50">
+                        <td className="px-2 py-2 text-slate-600">{formatDate(row.rfq_date)}</td>
+                        <td className="px-2 py-2 font-mono text-slate-500">{row.quotation_no ?? '—'}</td>
+                        <td className="px-2 py-2 font-mono font-semibold text-sky-700">{row.bqms_code ?? '—'}</td>
+                        <td className="px-2 py-2 text-slate-800">
+                          <div className="max-w-[420px] truncate">{row.item_name ?? '—'}</div>
+                        </td>
+                        <td className="px-2 py-2 text-slate-600">{row.seller_name ?? 'Chưa có'}</td>
+                        <td className="px-2 py-2 text-right font-semibold text-slate-900">{fmtUsd(row.price_usd)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <div className="h-28 animate-pulse rounded-2xl bg-slate-100" />
+            )}
+          </WidgetCard>
+        </section>
+
         <section className="rounded-[24px] border border-slate-200 bg-white p-4 shadow-sm">
           <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_220px]">
             <div className="space-y-4">
