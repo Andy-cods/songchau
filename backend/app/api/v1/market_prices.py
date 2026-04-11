@@ -39,6 +39,7 @@ NON_EMPTY_BQMS_SQL = "NULLIF(BTRIM(bqms_code), '')"
 DASHBOARD_PRICE_MIN_SAMPLE = 12
 DASHBOARD_SELLER_MIN_SAMPLE = 12
 DASHBOARD_TREND_MIN_POINTS = 2
+TREND_DATE_SQL = "COALESCE(rfq_date, quoted_date)"
 
 
 def build_lookup_filters(
@@ -186,6 +187,7 @@ async def xnk_dashboard(
     hs: str = Query("", description="Filter theo mã HS"),
     seller: str = Query("", description="Filter theo bên bán"),
     year: int | None = Query(None, ge=2020, le=2030),
+    trend_year: int | None = Query(None, ge=2020, le=2030),
     token_data: TokenData = Depends(require_role("staff", "manager", "admin", "procurement")),
     conn: asyncpg.Connection = Depends(get_db),
 ):
@@ -210,18 +212,26 @@ async def xnk_dashboard(
     year_rows = await conn.fetch(
         f"""
         SELECT
-            EXTRACT(YEAR FROM rfq_date)::int AS year,
+            EXTRACT(YEAR FROM {TREND_DATE_SQL})::int AS year,
             COUNT(*)::int AS count,
             COUNT(*) FILTER (WHERE price_usd > 0)::int AS price_rows,
             COUNT(*) FILTER (WHERE {NORMALIZED_SELLER_SQL} IS NOT NULL)::int AS seller_rows,
             COUNT(*) FILTER (WHERE {NON_EMPTY_HS_SQL} IS NOT NULL)::int AS hs_rows
         FROM xnk_price_lookup
-        WHERE {where} AND rfq_date IS NOT NULL
+        WHERE {where} AND {TREND_DATE_SQL} IS NOT NULL
         GROUP BY 1
         ORDER BY 1 DESC
         """,
         *params,
     )
+
+    available_years = [row["year"] for row in year_rows if row["year"] is not None]
+    if trend_year:
+        display_years = [trend_year]
+    elif year:
+        display_years = [year]
+    else:
+        display_years = available_years[:4]
 
     price_snapshot = await conn.fetchrow(
         f"""
@@ -239,23 +249,60 @@ async def xnk_dashboard(
         *params,
     )
 
-    trend_rows = await conn.fetch(
-        f"""
-        SELECT
-            date_trunc('month', rfq_date)::date AS period_date,
-            TO_CHAR(date_trunc('month', rfq_date), 'MM/YYYY') AS period_label,
-            COUNT(*)::int AS count,
-            COUNT(*) FILTER (WHERE price_usd > 0)::int AS price_rows,
-            AVG(price_usd) FILTER (WHERE price_usd > 0) AS avg_usd,
-            COALESCE(SUM(total_usd) FILTER (WHERE total_usd > 0), 0) AS total_usd
-        FROM xnk_price_lookup
-        WHERE {where} AND rfq_date IS NOT NULL
-        GROUP BY 1, 2
-        ORDER BY 1 DESC
-        LIMIT 12
-        """,
-        *params,
-    )
+    trend_sections: list[dict[str, Any]] = []
+    for section_year in display_years:
+        trend_rows = await conn.fetch(
+            f"""
+            WITH months AS (
+                SELECT generate_series(1, 12) AS month_number
+            ),
+            monthly AS (
+                SELECT
+                    EXTRACT(MONTH FROM {TREND_DATE_SQL})::int AS month_number,
+                    COUNT(*)::int AS count,
+                    COUNT(*) FILTER (WHERE price_usd > 0)::int AS price_rows,
+                    AVG(price_usd) FILTER (WHERE price_usd > 0) AS avg_usd,
+                    COALESCE(SUM(total_usd) FILTER (WHERE total_usd > 0), 0) AS total_usd
+                FROM xnk_price_lookup
+                WHERE {where}
+                  AND {TREND_DATE_SQL} IS NOT NULL
+                  AND EXTRACT(YEAR FROM {TREND_DATE_SQL}) = ${len(params) + 1}
+                GROUP BY 1
+            )
+            SELECT
+                make_date(${len(params) + 1}::int, months.month_number, 1) AS period_date,
+                TO_CHAR(make_date(${len(params) + 1}::int, months.month_number, 1), 'MM/YYYY') AS period_label,
+                months.month_number,
+                COALESCE(monthly.count, 0)::int AS count,
+                COALESCE(monthly.price_rows, 0)::int AS price_rows,
+                monthly.avg_usd AS avg_usd,
+                COALESCE(monthly.total_usd, 0) AS total_usd
+            FROM months
+            LEFT JOIN monthly ON monthly.month_number = months.month_number
+            ORDER BY months.month_number
+            """,
+            *params,
+            section_year,
+        )
+
+        rows_with_data = sum(1 for row in trend_rows if (row["count"] or 0) > 0)
+        trend_sections.append(
+            {
+                "year": section_year,
+                "points": [dict(row) for row in trend_rows],
+                "summary": {
+                    "total_rows": sum((row["count"] or 0) for row in trend_rows),
+                    "months_with_data": rows_with_data,
+                    "priced_rows": sum((row["price_rows"] or 0) for row in trend_rows),
+                },
+                **widget_state(
+                    rows_with_data,
+                    DASHBOARD_TREND_MIN_POINTS,
+                    empty_reason=f"Năm {section_year} chưa có ngày dữ liệu hợp lệ để dựng xu hướng.",
+                    limited_reason=f"Năm {section_year} hiện chỉ có rất ít tháng có dữ liệu.",
+                ),
+            }
+        )
 
     top_sellers = await conn.fetch(
         f"""
@@ -274,18 +321,33 @@ async def xnk_dashboard(
         *params,
     )
 
-    recent_rows = await conn.fetch(
-        f"""
-        SELECT
-            id, rfq_date, quotation_no, bqms_code, item_name, hs_code,
-            seller_name, price_usd, total_usd, raw_data
-        FROM xnk_price_lookup
-        WHERE {where}
-        ORDER BY rfq_date DESC NULLS LAST, {EXCEL_ROW_ORDER_SQL} DESC, id DESC
-        LIMIT 8
-        """,
-        *params,
-    )
+    recent_rows: list[asyncpg.Record] = []
+    if display_years:
+        recent_rows = await conn.fetch(
+            f"""
+            WITH ranked AS (
+                SELECT
+                    EXTRACT(YEAR FROM {TREND_DATE_SQL})::int AS year,
+                    id, rfq_date, quoted_date, quotation_no, bqms_code, item_name, hs_code,
+                    seller_name, price_usd, total_usd, raw_data,
+                    ROW_NUMBER() OVER (
+                        PARTITION BY EXTRACT(YEAR FROM {TREND_DATE_SQL})::int
+                        ORDER BY {EXCEL_ROW_ORDER_SQL} DESC, {TREND_DATE_SQL} DESC NULLS LAST, id DESC
+                    ) AS rn
+                FROM xnk_price_lookup
+                WHERE {where}
+                  AND {TREND_DATE_SQL} IS NOT NULL
+                  AND EXTRACT(YEAR FROM {TREND_DATE_SQL})::int = ANY(${len(params) + 1}::int[])
+            )
+            SELECT year, id, rfq_date, quoted_date, quotation_no, bqms_code, item_name, hs_code,
+                   seller_name, price_usd, total_usd, raw_data
+            FROM ranked
+            WHERE rn <= 6
+            ORDER BY year DESC, rn ASC
+            """,
+            *params,
+            display_years,
+        )
 
     overview_data = dict(overview) if overview else {}
     total_records = overview_data.get("total_records", 0) or 0
@@ -313,13 +375,29 @@ async def xnk_dashboard(
         limited_reason="Dữ liệu bên bán còn mỏng, bảng xếp hạng đối thủ chỉ mang tính định hướng.",
     )
     trend_state = widget_state(
-        len(trend_rows),
-        DASHBOARD_TREND_MIN_POINTS,
-        empty_reason="Không có đủ ngày RFQ để dựng xu hướng.",
-        limited_reason="Xu hướng hiện chỉ có rất ít mốc thời gian, nên cần đọc thận trọng.",
+        sum(1 for section in trend_sections if section["status"] != "empty"),
+        1,
+        empty_reason="Không có đủ ngày dữ liệu để dựng xu hướng theo năm.",
+        limited_reason="Chỉ có một năm có dữ liệu hợp lệ, nên xu hướng liên năm còn hạn chế.",
     )
+
+    recent_sections: list[dict[str, Any]] = []
+    for section_year in display_years:
+        section_rows = [dict(row) for row in recent_rows if row["year"] == section_year]
+        recent_sections.append(
+            {
+                "year": section_year,
+                "rows": section_rows,
+                **widget_state(
+                    len(section_rows),
+                    1,
+                    empty_reason=f"Năm {section_year} chưa có dòng dữ liệu đủ chuẩn để hiển thị.",
+                    limited_reason="",
+                ),
+            }
+        )
     recent_state = widget_state(
-        len(recent_rows),
+        len([section for section in recent_sections if section["rows"]]),
         1,
         empty_reason="Không có bản ghi nào khớp bộ lọc hiện tại.",
         limited_reason="",
@@ -333,6 +411,7 @@ async def xnk_dashboard(
                 "hs": hs,
                 "seller": seller,
                 "year": year,
+                "trend_year": trend_year,
             },
             "overview": {
                 **overview_data,
@@ -349,7 +428,11 @@ async def xnk_dashboard(
                 **price_state,
             },
             "trend": {
-                "points": [dict(row) for row in reversed(trend_rows)],
+                "sections": trend_sections,
+                "available_years": available_years,
+                "display_years": display_years,
+                "date_basis": "rfq_date, fallback sang quoted_date nếu rfq_date thiếu",
+                "table_ordering": "Các khối năm xếp 2026 -> 2025 -> 2024..., và trong mỗi năm lấy dòng ở cuối file Excel lên trước.",
                 **trend_state,
             },
             "top_sellers": {
@@ -358,6 +441,7 @@ async def xnk_dashboard(
             },
             "recent_records": {
                 "rows": [dict(row) for row in recent_rows],
+                "sections": recent_sections,
                 **recent_state,
             },
             "generated_at": datetime.now(timezone.utc).isoformat(),

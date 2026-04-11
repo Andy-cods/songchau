@@ -128,8 +128,22 @@ interface DashboardTrendPoint {
   total_usd?: number;
 }
 
-interface DashboardTrend extends DashboardWidgetState {
+interface DashboardTrendSection extends DashboardWidgetState {
+  year: number;
   points: DashboardTrendPoint[];
+  summary: {
+    total_rows: number;
+    months_with_data: number;
+    priced_rows: number;
+  };
+}
+
+interface DashboardTrend extends DashboardWidgetState {
+  sections: DashboardTrendSection[];
+  available_years: number[];
+  display_years: number[];
+  date_basis: string;
+  table_ordering: string;
 }
 
 interface DashboardTopSellers extends DashboardWidgetState {
@@ -138,6 +152,12 @@ interface DashboardTopSellers extends DashboardWidgetState {
 
 interface DashboardRecentRecords extends DashboardWidgetState {
   rows: XnkRow[];
+  sections: Array<{
+    year: number;
+    rows: XnkRow[];
+    status: WidgetStatus;
+    reason?: string | null;
+  }>;
 }
 
 interface DashboardData {
@@ -164,7 +184,7 @@ const TABS = [
   { key: 'sellers', label: 'Đối thủ' },
 ] as const;
 
-const QUICK_YEARS = ['', '2026', '2025', '2024'];
+const QUICK_YEARS = ['', '2026', '2025', '2024', '2023'];
 const DATE_COLUMNS = new Set(['Ngày Tháng', 'Ngày']);
 const NUMBER_COLUMNS = new Set([
   '_excel_row_number',
@@ -357,16 +377,16 @@ function WidgetCard({
   const label = status === 'ready' ? 'Dữ liệu tốt' : status === 'limited' ? 'Cần đọc thận trọng' : 'Thiếu dữ liệu';
 
   return (
-    <section className={cn('rounded-[24px] border border-slate-200 bg-white p-4 shadow-sm', className)}>
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <div className="text-sm font-semibold text-slate-900">{title}</div>
-          <div className="mt-1 text-xs leading-5 text-slate-500">{subtitle}</div>
+    <section className={cn('rounded-[22px] border border-slate-200/90 bg-[linear-gradient(180deg,#ffffff_0%,#fbfdff_100%)] p-3.5 shadow-[0_10px_26px_rgba(15,23,42,0.05)]', className)}>
+      <div className="flex items-start justify-between gap-2.5">
+        <div className="min-w-0">
+          <div className="text-[15px] font-semibold tracking-tight text-slate-900">{title}</div>
+          <div className="mt-1 max-w-[36rem] text-[12px] leading-5 text-slate-500">{subtitle}</div>
         </div>
-        <span className={cn('rounded-full border px-2.5 py-1 text-[11px] font-semibold', tone)}>{label}</span>
+        <span className={cn('shrink-0 rounded-full border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.12em]', tone)}>{label}</span>
       </div>
-      {reason && <div className="mt-3 rounded-2xl bg-slate-50 px-3 py-2 text-xs leading-5 text-slate-600">{reason}</div>}
-      <div className="mt-4">{children}</div>
+      {reason && <div className="mt-2.5 rounded-xl bg-slate-50 px-3 py-2 text-[11px] leading-5 text-slate-600">{reason}</div>}
+      <div className="mt-3.5">{children}</div>
     </section>
   );
 }
@@ -374,13 +394,13 @@ function WidgetCard({
 function CoverageBar({ label, value }: { label: string; value: number }) {
   const safe = Math.max(0, Math.min(100, value));
   return (
-    <div className="space-y-1.5">
-      <div className="flex items-center justify-between text-xs">
+    <div className="space-y-1">
+      <div className="flex items-center justify-between text-[12px]">
         <span className="font-medium text-slate-600">{label}</span>
         <span className="font-semibold text-slate-900">{safe.toFixed(1)}%</span>
       </div>
-      <div className="h-2 rounded-full bg-slate-100">
-        <div className="h-2 rounded-full bg-sky-700 transition-all" style={{ width: `${safe}%` }} />
+      <div className="h-1.5 rounded-full bg-slate-100">
+        <div className="h-1.5 rounded-full bg-sky-700 transition-all" style={{ width: `${safe}%` }} />
       </div>
     </div>
   );
@@ -530,8 +550,8 @@ function SearchTab({
   const topSellers = dashboard?.top_sellers;
   const recentRecords = dashboard?.recent_records;
   const topSellerMaxDealCount = Math.max(...(topSellers?.rows.map((row) => row.deal_count) ?? [1]), 1);
-  const trendPoints = trend?.points ?? [];
-  const recentRows = recentRecords?.rows ?? [];
+  const trendSections = trend?.sections ?? [];
+  const recentSections = recentRecords?.sections ?? [];
 
   const applySellerFilter = (sellerName: string) => {
     setDraft((current) => ({ ...current, seller: sellerName }));
@@ -542,31 +562,43 @@ function SearchTab({
   return (
     <div className="grid gap-5 xl:grid-cols-[minmax(0,2.2fr)_320px]">
       <div className="space-y-4">
-        <section className="grid gap-4 xl:grid-cols-12">
+        {activePills.length > 0 && (
+          <section className="rounded-[18px] border border-slate-200 bg-slate-50/80 px-4 py-3 shadow-sm">
+            <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">Dashboard đang theo bộ lọc</div>
+            <div className="mt-2 flex flex-wrap gap-2">
+              {activePills.map((pill) => (
+                <span key={`dashboard-${pill}`} className="rounded-full border border-slate-200 bg-white px-3 py-1 text-[11px] font-medium text-slate-700">
+                  {pill}
+                </span>
+              ))}
+            </div>
+          </section>
+        )}
+        <section className="grid gap-3 xl:grid-cols-12">
           <WidgetCard
             title="Tổng quan dữ liệu XNK"
-            subtitle="4 chỉ số lõi để biết kho dữ liệu theo bộ lọc hiện tại có đủ dùng hay không."
+            subtitle="4 chỉ số lõi để biết bộ lọc hiện tại có đủ dữ liệu để đọc tiếp hay chưa."
             status={overview ? 'ready' : dashboardLoading ? 'limited' : 'empty'}
             reason={!overview && !dashboardLoading ? 'Chưa lấy được dữ liệu tổng quan từ hệ thống.' : null}
             className="xl:col-span-4"
           >
             {overview ? (
-              <div className="grid grid-cols-2 gap-3">
-                <div className="rounded-2xl bg-slate-50 p-3">
-                  <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">Tổng bản ghi</div>
-                  <div className="mt-1 text-xl font-semibold text-slate-900">{fmtNum(overview.total_records, 0)}</div>
+              <div className="grid grid-cols-2 gap-2">
+                <div className="rounded-[18px] border border-slate-100 bg-slate-50/80 px-3 py-2.5">
+                  <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">Tổng bản ghi</div>
+                  <div className="mt-1 text-[32px] font-semibold leading-none text-slate-900">{fmtNum(overview.total_records, 0)}</div>
                 </div>
-                <div className="rounded-2xl bg-slate-50 p-3">
-                  <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">Mã BQMS</div>
-                  <div className="mt-1 text-xl font-semibold text-slate-900">{fmtNum(overview.unique_products, 0)}</div>
+                <div className="rounded-[18px] border border-slate-100 bg-slate-50/80 px-3 py-2.5">
+                  <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">Mã BQMS</div>
+                  <div className="mt-1 text-[32px] font-semibold leading-none text-slate-900">{fmtNum(overview.unique_products, 0)}</div>
                 </div>
-                <div className="rounded-2xl bg-slate-50 p-3">
-                  <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">Có giá USD</div>
-                  <div className="mt-1 text-xl font-semibold text-slate-900">{fmtNum(overview.priced_records, 0)}</div>
+                <div className="rounded-[18px] border border-slate-100 bg-slate-50/80 px-3 py-2.5">
+                  <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">Có giá USD</div>
+                  <div className="mt-1 text-[32px] font-semibold leading-none text-slate-900">{fmtNum(overview.priced_records, 0)}</div>
                 </div>
-                <div className="rounded-2xl bg-slate-50 p-3">
-                  <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">RFQ mới nhất</div>
-                  <div className="mt-1 text-xl font-semibold text-slate-900">{overview.latest_rfq_date ? formatDate(overview.latest_rfq_date) : '—'}</div>
+                <div className="rounded-[18px] border border-slate-100 bg-slate-50/80 px-3 py-2.5">
+                  <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">RFQ mới nhất</div>
+                  <div className="mt-1 text-[26px] font-semibold leading-none text-slate-900">{overview.latest_rfq_date ? formatDate(overview.latest_rfq_date) : '—'}</div>
                 </div>
               </div>
             ) : (
@@ -576,21 +608,21 @@ function SearchTab({
 
           <WidgetCard
             title="Độ phủ dữ liệu"
-            subtitle="Hiển thị mức đầy của các cột quan trọng để tránh đọc dashboard như thể dữ liệu đã phủ toàn bộ."
+            subtitle="Nhìn nhanh 3 cột quan trọng nhất để biết dashboard đang mạnh ở phần nào và yếu ở phần nào."
             status={coverage?.status ?? (dashboardLoading ? 'limited' : 'empty')}
             reason={coverage?.reason}
             className="xl:col-span-4"
           >
             {coverage ? (
-              <div className="space-y-4">
+              <div className="space-y-3">
                 <CoverageBar label="Cột giá USD" value={coverage.fill_rates.gia_usd} />
                 <CoverageBar label="Cột đối thủ" value={coverage.fill_rates.doi_thu} />
                 <CoverageBar label="Cột mã HS" value={coverage.fill_rates.ma_hs} />
-                <div className="flex flex-wrap gap-2 pt-1">
+                <div className="grid grid-cols-2 gap-2 pt-1">
                   {coverage.years.map((item) => (
-                    <span key={item.year} className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs text-slate-600">
-                      {item.year}: {fmtNum(item.count, 0)}
-                    </span>
+                    <div key={item.year} className="rounded-[16px] border border-slate-200 bg-slate-50/80 px-3 py-2 text-[12px] text-slate-600">
+                      <span className="font-semibold text-slate-900">{item.year}</span>: {fmtNum(item.count, 0)}
+                    </div>
                   ))}
                 </div>
               </div>
@@ -601,13 +633,13 @@ function SearchTab({
 
           <WidgetCard
             title="Mặt bằng giá USD"
-            subtitle="Dùng median và dải P10-P90 để giảm méo do vài dòng giá quá cao hoặc quá thấp."
+            subtitle="Ưu tiên median và biên P10-P90 để tránh bị méo bởi vài dòng giá cực đoan."
             status={priceSnapshot?.status ?? (dashboardLoading ? 'limited' : 'empty')}
             reason={priceSnapshot?.reason}
             className="xl:col-span-4"
           >
             {priceSnapshot ? (
-              <div className="space-y-3">
+              <div className="space-y-2.5">
                 <SummaryLine label="Số dòng có giá" value={fmtNum(priceSnapshot.sample_size, 0)} />
                 <SummaryLine label="Giá trung vị" value={fmtUsd(priceSnapshot.median_usd)} />
                 <SummaryLine label="Giá trung bình" value={fmtUsd(priceSnapshot.avg_usd)} />
@@ -621,43 +653,76 @@ function SearchTab({
 
           <WidgetCard
             title="Xu hướng báo giá theo tháng"
-            subtitle="Theo dõi nhịp nhập RFQ và mặt bằng hoạt động theo tháng để phát hiện khoảng trống dữ liệu."
+            subtitle="Tách riêng từng năm để anh theo dõi rõ hơn. Các khối năm được xếp mới đến cũ: 2026 ở trên, tiếp đến 2025, 2024..."
             status={trend?.status ?? (dashboardLoading ? 'limited' : 'empty')}
             reason={trend?.reason}
             className="xl:col-span-7"
           >
-            {trendPoints.length > 0 ? (
+            {trendSections.length > 0 ? (
               <div className="space-y-3">
-                <div className="h-52">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <AreaChart data={trendPoints} margin={{ top: 8, right: 10, left: -18, bottom: 0 }}>
-                      <defs>
-                        <linearGradient id="xnkDashboardTrend" x1="0" x2="0" y1="0" y2="1">
-                          <stop offset="0%" stopColor="#0f4c81" stopOpacity={0.28} />
-                          <stop offset="100%" stopColor="#0f4c81" stopOpacity={0.03} />
-                        </linearGradient>
-                      </defs>
-                      <CartesianGrid stroke="#e2e8f0" strokeDasharray="3 3" vertical={false} />
-                      <XAxis dataKey="period_label" tick={{ fontSize: 11, fill: '#64748b' }} tickLine={false} axisLine={false} />
-                      <YAxis tick={{ fontSize: 11, fill: '#64748b' }} tickLine={false} axisLine={false} width={42} />
-                      <Tooltip
-                        formatter={(value: number, key: string) => key === 'count' ? fmtNum(value, 0) : compactUsd(value)}
-                        labelFormatter={(label) => `Kỳ: ${label}`}
-                        contentStyle={{ borderRadius: 16, borderColor: '#dbe3f0' }}
-                      />
-                      <Area type="monotone" dataKey="count" stroke="#0f4c81" fill="url(#xnkDashboardTrend)" strokeWidth={2} />
-                    </AreaChart>
-                  </ResponsiveContainer>
+                <div className="grid gap-2 sm:grid-cols-2">
+                  <div className="rounded-[16px] border border-slate-100 bg-slate-50/80 px-3 py-2 text-[11px] leading-5 text-slate-600">
+                    <span className="font-semibold text-slate-900">Cơ sở ngày:</span> {trend?.date_basis}
+                  </div>
+                  <div className="rounded-[16px] border border-slate-100 bg-slate-50/80 px-3 py-2 text-[11px] leading-5 text-slate-600">
+                    <span className="font-semibold text-slate-900">Thứ tự bảng:</span> {trend?.table_ordering}
+                  </div>
                 </div>
-                <div className="grid gap-2 sm:grid-cols-3">
-                  {trendPoints.slice(-3).map((point) => (
-                    <div key={point.period_date} className="rounded-2xl bg-slate-50 px-3 py-2 text-xs text-slate-600">
-                      <div className="font-semibold text-slate-900">{point.period_label}</div>
-                      <div>{fmtNum(point.count, 0)} dòng</div>
-                      <div>Giá TB: {fmtUsd(point.avg_usd)}</div>
+                {trendSections.map((section) => (
+                  <div key={section.year} className="rounded-[18px] border border-slate-200 bg-white/80 p-3">
+                    <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                      <div className="flex items-center gap-2">
+                        <div className="rounded-full bg-sky-700 px-3 py-1 text-[11px] font-semibold text-white">{section.year}</div>
+                        <div className="text-[12px] text-slate-500">
+                          {fmtNum(section.summary.total_rows, 0)} dòng • {fmtNum(section.summary.months_with_data, 0)} tháng có dữ liệu
+                        </div>
+                      </div>
+                      <div className={cn(
+                        'rounded-full border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.12em]',
+                        section.status === 'ready'
+                          ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+                          : section.status === 'limited'
+                            ? 'border-amber-200 bg-amber-50 text-amber-700'
+                            : 'border-slate-200 bg-slate-100 text-slate-500'
+                      )}>
+                        {section.status === 'ready' ? 'Đủ dữ liệu' : section.status === 'limited' ? 'Ít tháng dữ liệu' : 'Chưa có dữ liệu'}
+                      </div>
                     </div>
-                  ))}
-                </div>
+                    {section.reason && section.status !== 'ready' && (
+                      <div className="mb-2 rounded-[14px] bg-slate-50 px-3 py-2 text-[11px] leading-5 text-slate-600">{section.reason}</div>
+                    )}
+                    <div className="h-28 rounded-[16px] border border-slate-100 bg-slate-50/70 p-2">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <AreaChart data={section.points} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
+                          <defs>
+                            <linearGradient id={`xnkDashboardTrend${section.year}`} x1="0" x2="0" y1="0" y2="1">
+                              <stop offset="0%" stopColor="#0f4c81" stopOpacity={0.18} />
+                              <stop offset="100%" stopColor="#0f4c81" stopOpacity={0.02} />
+                            </linearGradient>
+                          </defs>
+                          <CartesianGrid stroke="#e2e8f0" strokeDasharray="3 3" vertical={false} />
+                          <XAxis dataKey="period_label" tick={{ fontSize: 9, fill: '#64748b' }} tickLine={false} axisLine={false} />
+                          <YAxis tick={{ fontSize: 9, fill: '#64748b' }} tickLine={false} axisLine={false} width={34} />
+                          <Tooltip
+                            formatter={(value: number, key: string) => key === 'count' ? fmtNum(value, 0) : compactUsd(value)}
+                            labelFormatter={(label) => `Kỳ: ${label}`}
+                            contentStyle={{ borderRadius: 16, borderColor: '#dbe3f0' }}
+                          />
+                          <Area type="monotone" dataKey="count" stroke="#0f4c81" fill={`url(#xnkDashboardTrend${section.year})`} strokeWidth={2} />
+                        </AreaChart>
+                      </ResponsiveContainer>
+                    </div>
+                    <div className="mt-2 grid gap-2 sm:grid-cols-3">
+                      {section.points.filter((point) => point.count > 0).slice(-3).map((point) => (
+                        <div key={`${section.year}-${point.period_date}`} className="rounded-[14px] border border-slate-100 bg-slate-50/80 px-3 py-2 text-[11px] text-slate-600">
+                          <div className="font-semibold text-slate-900">{point.period_label}</div>
+                          <div>{fmtNum(point.count, 0)} dòng</div>
+                          <div>Giá TB: {fmtUsd(point.avg_usd)}</div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ))}
               </div>
             ) : (
               <div className="h-52 animate-pulse rounded-2xl bg-slate-100" />
@@ -666,36 +731,42 @@ function SearchTab({
 
           <WidgetCard
             title="Top đối thủ theo giao dịch"
-            subtitle="Chỉ tính các dòng có tên bên bán hợp lệ, để tránh xếp hạng nhiễu do dữ liệu khuyết."
+            subtitle="Xếp hạng theo giao dịch thật, nhưng chỉ dùng những dòng có bên bán hợp lệ."
             status={topSellers?.status ?? (dashboardLoading ? 'limited' : 'empty')}
             reason={topSellers?.reason}
             className="xl:col-span-5"
           >
             {topSellers ? (
-              <div className="space-y-3">
+              <div className="space-y-2">
                 {topSellers.rows.length === 0 ? (
                   <div className="rounded-2xl bg-slate-50 px-3 py-4 text-sm text-slate-500">Không có đối thủ hợp lệ theo bộ lọc hiện tại.</div>
                 ) : (
-                  topSellers.rows.map((row) => (
+                  topSellers.rows.slice(0, 5).map((row, index) => (
                     <button
                       key={row.seller_name}
                       onClick={() => applySellerFilter(row.seller_name)}
-                      className="block w-full rounded-2xl border border-slate-200 px-3 py-3 text-left transition hover:border-sky-200 hover:bg-sky-50"
+                      className="block w-full rounded-[18px] border border-slate-200 px-3 py-2.5 text-left transition hover:border-sky-200 hover:bg-sky-50"
                     >
                       <div className="flex items-start justify-between gap-3">
-                        <div className="min-w-0">
-                          <div className="truncate text-sm font-semibold text-slate-900">{row.seller_name}</div>
-                          <div className="mt-1 text-xs text-slate-500">
-                            {fmtNum(row.product_count, 0)} mã • gần nhất {formatDate(row.latest_deal)}
+                        <div className="flex min-w-0 items-start gap-2.5">
+                          <div className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-slate-100 text-[11px] font-semibold text-slate-600">
+                            {index + 1}
+                          </div>
+                          <div className="min-w-0">
+                            <div className="truncate text-sm font-semibold text-slate-900">{row.seller_name}</div>
+                            <div className="mt-0.5 text-[11px] text-slate-500">
+                              {fmtNum(row.deal_count, 0)} giao dịch • {compactUsd(row.total_usd)}
+                            </div>
                           </div>
                         </div>
                         <div className="text-right">
-                          <div className="text-sm font-semibold text-slate-900">{fmtNum(row.deal_count, 0)} giao dịch</div>
-                          <div className="mt-1 text-xs text-slate-500">{compactUsd(row.total_usd)}</div>
+                          <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-400">Phủ mã</div>
+                          <div className="mt-0.5 text-sm font-semibold text-slate-900">{fmtNum(row.product_count, 0)}</div>
+                          <div className="mt-0.5 text-[11px] text-slate-500">Gần nhất {formatDate(row.latest_deal)}</div>
                         </div>
                       </div>
-                      <div className="mt-3 h-2 rounded-full bg-slate-100">
-                        <div className="h-2 rounded-full bg-sky-700" style={{ width: `${Math.max(10, (row.deal_count / topSellerMaxDealCount) * 100)}%` }} />
+                      <div className="mt-2.5 h-1.5 rounded-full bg-slate-100">
+                        <div className="h-1.5 rounded-full bg-sky-700" style={{ width: `${Math.max(10, (row.deal_count / topSellerMaxDealCount) * 100)}%` }} />
                       </div>
                     </button>
                   ))
@@ -708,39 +779,57 @@ function SearchTab({
 
           <WidgetCard
             title="Dòng dữ liệu mới nhất"
-            subtitle="Hiển thị trực tiếp các dòng thật mới nhất theo bộ lọc hiện tại, để anh thấy hệ thống đang đọc được gì."
+            subtitle="Tách theo từng năm và xếp mới đến cũ. Trong mỗi năm, các dòng được lấy từ cuối file Excel lên trước."
             status={recentRecords?.status ?? (dashboardLoading ? 'limited' : 'empty')}
             reason={recentRecords?.reason}
             className="xl:col-span-12"
           >
-            {recentRows.length > 0 ? (
-              <div className="overflow-x-auto">
-                <table className="min-w-full text-sm">
-                  <thead className="text-xs uppercase tracking-[0.12em] text-slate-500">
-                    <tr>
-                      <th className="px-2 py-2 text-left font-medium">Ngày RFQ</th>
-                      <th className="px-2 py-2 text-left font-medium">Đơn hàng</th>
-                      <th className="px-2 py-2 text-left font-medium">BQMS</th>
-                      <th className="px-2 py-2 text-left font-medium">Tên hàng</th>
-                      <th className="px-2 py-2 text-left font-medium">Đối thủ</th>
-                      <th className="px-2 py-2 text-right font-medium">Giá USD</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100">
-                    {recentRows.map((row) => (
-                      <tr key={`recent-${row.id}`} onClick={() => setSelected(row)} className="cursor-pointer hover:bg-slate-50">
-                        <td className="px-2 py-2 text-slate-600">{formatDate(row.rfq_date)}</td>
-                        <td className="px-2 py-2 font-mono text-slate-500">{row.quotation_no ?? '—'}</td>
-                        <td className="px-2 py-2 font-mono font-semibold text-sky-700">{row.bqms_code ?? '—'}</td>
-                        <td className="px-2 py-2 text-slate-800">
-                          <div className="max-w-[420px] truncate">{row.item_name ?? '—'}</div>
-                        </td>
-                        <td className="px-2 py-2 text-slate-600">{row.seller_name ?? 'Chưa có'}</td>
-                        <td className="px-2 py-2 text-right font-semibold text-slate-900">{fmtUsd(row.price_usd)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+            {recentSections.some((section) => section.rows.length > 0) ? (
+              <div className="space-y-3">
+                {recentSections.map((section) => (
+                  <div key={`recent-section-${section.year}`} className="rounded-[18px] border border-slate-200 bg-white/80 p-3">
+                    <div className="mb-2 flex items-center justify-between gap-2">
+                      <div className="rounded-full bg-slate-900 px-3 py-1 text-[11px] font-semibold text-white">{section.year}</div>
+                      <div className="text-[11px] text-slate-500">
+                        {section.rows.length > 0 ? `${fmtNum(section.rows.length, 0)} dòng mới nhất của năm ${section.year}` : `Chưa có dòng hiển thị cho năm ${section.year}`}
+                      </div>
+                    </div>
+                    {section.rows.length > 0 ? (
+                      <div className="overflow-x-auto">
+                        <table className="min-w-full text-[12px]">
+                          <thead className="text-[10px] uppercase tracking-[0.14em] text-slate-500">
+                            <tr>
+                              <th className="px-2 py-2 text-left font-medium">Ngày</th>
+                              <th className="px-2 py-2 text-left font-medium">Đơn hàng</th>
+                              <th className="px-2 py-2 text-left font-medium">BQMS</th>
+                              <th className="px-2 py-2 text-left font-medium">Tên hàng</th>
+                              <th className="px-2 py-2 text-left font-medium">Đối thủ</th>
+                              <th className="px-2 py-2 text-right font-medium">Giá USD</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-100">
+                            {section.rows.map((row) => (
+                              <tr key={`recent-${section.year}-${row.id}`} onClick={() => setSelected(row)} className="cursor-pointer hover:bg-slate-50/80">
+                                <td className="px-2 py-2 text-slate-600">{formatDate(row.rfq_date ?? row.quoted_date)}</td>
+                                <td className="px-2 py-2 font-mono text-slate-500">{row.quotation_no ?? '—'}</td>
+                                <td className="px-2 py-2 font-mono font-semibold text-sky-700">{row.bqms_code ?? '—'}</td>
+                                <td className="px-2 py-2 text-slate-800">
+                                  <div className="max-w-[460px] truncate">{row.item_name ?? '—'}</div>
+                                </td>
+                                <td className="px-2 py-2 text-slate-600">{row.seller_name ?? 'Chưa có'}</td>
+                                <td className="px-2 py-2 text-right font-semibold text-slate-900">{fmtUsd(row.price_usd)}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    ) : (
+                      <div className="rounded-[14px] bg-slate-50 px-3 py-3 text-sm text-slate-500">
+                        {section.reason ?? 'Không có dòng dữ liệu phù hợp trong năm này.'}
+                      </div>
+                    )}
+                  </div>
+                ))}
               </div>
             ) : (
               <div className="h-28 animate-pulse rounded-2xl bg-slate-100" />

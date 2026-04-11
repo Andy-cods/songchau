@@ -159,11 +159,45 @@ def parse_date_value(value: Any) -> date | None:
     if isinstance(value, date):
         return value
 
+    if isinstance(value, (int, float)):
+        try:
+            return openpyxl.utils.datetime.from_excel(value).date()
+        except (TypeError, ValueError, OverflowError):
+            return None
+
     text = normalize_text(value)
     if not text:
         return None
 
-    for fmt in ("%Y-%m-%d", "%d/%m/%Y", "%m/%d/%Y", "%d-%m-%Y"):
+    normalized = text.replace(".", "/").replace("-", "/")
+    parts = normalized.split("/")
+    if len(parts) == 3 and all(part.isdigit() for part in parts):
+        first, second, third = (int(part) for part in parts)
+        year_part = third if third > 100 else 2000 + third
+        if first <= 12 and second <= 12:
+            # The TT XNK 2024-2026 workbooks are authored in MM/DD/YY for ambiguous values.
+            return date(year_part, first, second)
+        if first <= 12 and second > 12:
+            return date(year_part, first, second)
+        if first > 12 and second <= 12:
+            return date(year_part, second, first)
+
+    for fmt in (
+        "%Y/%m/%d",
+        "%Y-%m-%d",
+        "%m/%d/%Y",
+        "%m/%d/%y",
+        "%d/%m/%Y",
+        "%d/%m/%y",
+        "%m/%d/%Y %H:%M:%S",
+        "%m/%d/%y %H:%M:%S",
+        "%d/%m/%Y %H:%M:%S",
+        "%d/%m/%y %H:%M:%S",
+        "%d-%m-%Y",
+        "%d-%m-%y",
+        "%m-%d-%Y",
+        "%m-%d-%y",
+    ):
         try:
             return datetime.strptime(text, fmt).date()
         except ValueError:
