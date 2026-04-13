@@ -26,6 +26,7 @@ import asyncpg
 from app.core.database import get_db
 from app.core.rbac import require_role
 from app.core.security import TokenData
+from app.services.crm_mapping_service import get_customer_match_context, non_empty_aliases
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -43,6 +44,8 @@ class CustomerCreateRequest(BaseModel):
     address: str | None = None
     business_system: str | None = None
     customer_type: str | None = None
+    email: EmailStr | None = None
+    phone: str | None = None
     is_active: bool = True
 
 
@@ -77,6 +80,14 @@ class InteractionCreateRequest(BaseModel):
     follow_up_date: date | None = None
 
 
+class ExternalMapCreateRequest(BaseModel):
+    source_system: str = Field(..., min_length=1, max_length=100)
+    match_field: str = Field(..., min_length=1, max_length=100)
+    match_value: str = Field(..., min_length=1, max_length=255)
+    is_primary: bool = False
+    notes: str | None = None
+
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -100,6 +111,15 @@ async def _assert_customer_exists(conn: asyncpg.Connection, customer_id: int) ->
 # ---------------------------------------------------------------------------
 # GET /customers
 # ---------------------------------------------------------------------------
+
+async def _get_customer_match_context_or_404(
+    conn: asyncpg.Connection,
+    customer_id: int,
+) -> dict:
+    context = await get_customer_match_context(conn, customer_id)
+    if not context:
+        raise HTTPException(404, detail=f"Customer ID {customer_id} does not exist")
+    return context
 
 @router.get("/customers")
 async def list_customers(
@@ -194,16 +214,26 @@ async def get_customer_detail(
         """
         SELECT
             c.*,
+            pc.full_name AS primary_contact_name,
+            pc.email AS email,
+            pc.phone AS phone,
             COUNT(DISTINCT so.id)               AS total_orders,
             COALESCE(SUM(so.total_amount), 0)   AS total_revenue,
             MAX(so.created_at)::DATE            AS last_order_date,
             COUNT(DISTINCT inv.id)              AS total_invoices,
             COALESCE(SUM(inv.total_amount), 0)  AS total_invoiced
         FROM customers c
+        LEFT JOIN LATERAL (
+            SELECT full_name, email, phone
+            FROM crm_contacts
+            WHERE customer_id = c.id
+            ORDER BY is_primary DESC, created_at ASC
+            LIMIT 1
+        ) pc ON true
         LEFT JOIN sales_orders so  ON so.customer_id = c.id
         LEFT JOIN invoices inv     ON inv.customer_id = c.id
         WHERE c.id = $1
-        GROUP BY c.id
+        GROUP BY c.id, pc.full_name, pc.email, pc.phone
         """,
         customer_id,
     )
@@ -253,7 +283,7 @@ async def get_customer_detail(
     ar_outstanding = await conn.fetchrow(
         """
         SELECT
-            COALESCE(SUM(amount - paid_amount), 0)              AS outstanding_amount,
+            COALESCE(SUM(amount - COALESCE(paid_amount, 0)), 0) AS outstanding,
             COUNT(CASE WHEN due_date < CURRENT_DATE THEN 1 END) AS overdue_count
         FROM accounts_receivable
         WHERE customer_id = $1 AND status != 'paid'
@@ -302,6 +332,20 @@ async def create_customer(
         body.customer_code, body.company_name, body.short_name, body.tax_code,
         body.address, body.business_system, body.customer_type, body.is_active,
     )
+
+    if body.email or body.phone:
+        await conn.execute(
+            """
+            INSERT INTO crm_contacts (
+                customer_id, full_name, email, phone, is_primary, notes
+            ) VALUES ($1, $2, $3, $4, true, $5)
+            """,
+            row["id"],
+            body.short_name or body.company_name,
+            body.email,
+            body.phone,
+            "Auto-created from customer form",
+        )
 
     logger.info("Customer %s created by %s", row["id"], token_data.user_id)
     return {"data": dict(row), "message": "Đã tạo khách hàng thành công"}
@@ -357,6 +401,97 @@ async def update_customer(
     )
 
     return {"data": dict(row), "message": "Đã cập nhật khách hàng thành công"}
+
+
+# ---------------------------------------------------------------------------
+# Customer external mappings
+# ---------------------------------------------------------------------------
+
+@router.get("/customers/{customer_id}/external-maps")
+async def list_customer_external_maps(
+    customer_id: int,
+    token_data: TokenData = Depends(require_role("staff", "accountant", "manager", "admin")),
+    conn: asyncpg.Connection = Depends(get_db),
+):
+    await _assert_customer_exists(conn, customer_id)
+    rows = await conn.fetch(
+        """
+        SELECT id, customer_id, source_system, match_field, match_value,
+               is_primary, notes, created_at, updated_at
+        FROM crm_account_external_map
+        WHERE customer_id = $1
+        ORDER BY source_system, match_field, is_primary DESC, match_value
+        """,
+        customer_id,
+    )
+    return {"data": {"mappings": _rows_to_list(rows)}}
+
+
+@router.post("/customers/{customer_id}/external-maps", status_code=201)
+async def create_customer_external_map(
+    customer_id: int,
+    body: ExternalMapCreateRequest,
+    token_data: TokenData = Depends(require_role("manager", "admin")),
+    conn: asyncpg.Connection = Depends(get_db),
+):
+    await _assert_customer_exists(conn, customer_id)
+
+    if body.is_primary:
+        await conn.execute(
+            """
+            UPDATE crm_account_external_map
+            SET is_primary = false, updated_at = NOW()
+            WHERE customer_id = $1 AND source_system = $2 AND match_field = $3
+            """,
+            customer_id,
+            body.source_system,
+            body.match_field,
+        )
+
+    row = await conn.fetchrow(
+        """
+        INSERT INTO crm_account_external_map (
+            customer_id, source_system, match_field, match_value, is_primary, notes
+        )
+        VALUES ($1, $2, $3, $4, $5, $6)
+        ON CONFLICT (customer_id, source_system, match_field, match_value)
+        DO UPDATE SET
+            is_primary = EXCLUDED.is_primary,
+            notes = EXCLUDED.notes,
+            updated_at = NOW()
+        RETURNING id, customer_id, source_system, match_field, match_value,
+                  is_primary, notes, created_at, updated_at
+        """,
+        customer_id,
+        body.source_system.strip(),
+        body.match_field.strip(),
+        body.match_value.strip(),
+        body.is_primary,
+        body.notes,
+    )
+    return {"data": dict(row), "message": "External mapping saved"}
+
+
+@router.delete("/customers/{customer_id}/external-maps/{mapping_id}")
+async def delete_customer_external_map(
+    customer_id: int,
+    mapping_id: int,
+    token_data: TokenData = Depends(require_role("manager", "admin")),
+    conn: asyncpg.Connection = Depends(get_db),
+):
+    await _assert_customer_exists(conn, customer_id)
+    deleted = await conn.fetchrow(
+        """
+        DELETE FROM crm_account_external_map
+        WHERE id = $1 AND customer_id = $2
+        RETURNING id
+        """,
+        mapping_id,
+        customer_id,
+    )
+    if not deleted:
+        raise HTTPException(404, detail="Mapping not found")
+    return {"message": "External mapping deleted"}
 
 
 # ---------------------------------------------------------------------------
@@ -681,3 +816,372 @@ async def customer_timeline(
         },
         "message": "Timeline khách hàng",
     }
+
+
+# ---------------------------------------------------------------------------
+# CRM Overview — KPI tổng quan
+# ---------------------------------------------------------------------------
+
+@router.get("/overview")
+async def crm_overview(
+    token_data: TokenData = Depends(require_role("staff", "accountant", "manager", "admin")),
+    conn: asyncpg.Connection = Depends(get_db),
+):
+    """KPI tổng quan CRM: tổng KH, doanh thu, công nợ, win rate."""
+    stats = await conn.fetchrow("""
+        SELECT
+            (SELECT COUNT(*) FROM customers WHERE is_active = true AND deleted_at IS NULL)::int AS total_customers,
+            (SELECT COALESCE(SUM(amount), 0) FROM bqms_samsung_po)::bigint AS total_revenue,
+            (SELECT COALESCE(SUM(amount), 0) FROM bqms_samsung_po
+             WHERE po_date >= DATE_TRUNC('month', CURRENT_DATE))::bigint AS revenue_this_month,
+            (SELECT COALESCE(SUM((amount - COALESCE(paid_amount, 0))), 0) FROM accounts_receivable
+             WHERE status != 'paid')::bigint AS total_ar_outstanding,
+            (SELECT COUNT(*) FROM accounts_receivable
+             WHERE status != 'paid' AND due_date < CURRENT_DATE)::int AS ar_overdue_count,
+            (SELECT ROUND(
+                COUNT(*) FILTER (WHERE result::text ILIKE '%%won%%')::numeric
+                / NULLIF(COUNT(*) FILTER (WHERE result::text ILIKE '%%won%%' OR result::text ILIKE '%%lost%%'), 0) * 100, 1
+            ) FROM bqms_rfq) AS win_rate
+    """)
+
+    # Top 5 customers by PO amount
+    top_customers = await conn.fetch("""
+        WITH mapped_pos AS (
+            SELECT DISTINCT map.customer_id, sp.id, sp.amount
+            FROM crm_account_external_map map
+            JOIN bqms_samsung_po sp
+              ON LOWER(COALESCE(sp.company, '')) = LOWER(map.match_value)
+            WHERE map.source_system = 'bqms_samsung_po'
+              AND map.match_field = 'company'
+        )
+        SELECT c.id, c.company_name, c.short_name, c.customer_code,
+               COUNT(DISTINCT mp.id)::int AS po_count,
+               COALESCE(SUM(mp.amount), 0)::bigint AS total_amount
+        FROM customers c
+        LEFT JOIN mapped_pos mp ON mp.customer_id = c.id
+        WHERE c.is_active = true AND c.deleted_at IS NULL
+        GROUP BY c.id
+        ORDER BY total_amount DESC, c.company_name
+        LIMIT 5
+    """)
+
+    # Monthly revenue trend (last 6 months)
+    monthly = await conn.fetch("""
+        SELECT DATE_TRUNC('month', po_date)::date AS month,
+               COALESCE(SUM(amount), 0)::bigint AS total
+        FROM bqms_samsung_po
+        WHERE po_date >= DATE_TRUNC('month', CURRENT_DATE) - INTERVAL '5 months'
+        GROUP BY 1 ORDER BY 1
+    """)
+
+    return {"data": {
+        **(dict(stats) if stats else {}),
+        "top_customers": _rows_to_list(top_customers),
+        "monthly_revenue": _rows_to_list(monthly),
+    }}
+
+
+# ---------------------------------------------------------------------------
+# Customer Orders (PO + Deliveries)
+# ---------------------------------------------------------------------------
+
+@router.get("/customers/{customer_id}/orders")
+async def customer_orders(
+    customer_id: int,
+    page: int = Query(1, ge=1),
+    limit: int = Query(5, ge=1, le=50),
+    token_data: TokenData = Depends(require_role("staff", "accountant", "manager", "admin")),
+    conn: asyncpg.Connection = Depends(get_db),
+):
+    """L???ch s??? ????n h??ng (PO + deliveries) c???a kh??ch h??ng."""
+    match_context = await _get_customer_match_context_or_404(conn, customer_id)
+    po_companies = non_empty_aliases(match_context.get("po_companies", []))
+    delivery_types = non_empty_aliases(match_context.get("delivery_types", []))
+    offset = (page - 1) * limit
+
+    if po_companies:
+        po_keys = [value.lower() for value in po_companies]
+        pos = await conn.fetch(
+            """
+            SELECT po_number, bqms_code, LEFT(specification, 60) AS spec,
+                   po_date, order_qty, amount, process_status::text AS status
+            FROM bqms_samsung_po
+            WHERE LOWER(COALESCE(company, '')) = ANY($1::text[])
+            ORDER BY po_date DESC NULLS LAST
+            LIMIT $2 OFFSET $3
+            """,
+            po_keys,
+            limit,
+            offset,
+        )
+        total_pos = await conn.fetchval(
+            """
+            SELECT COUNT(*)
+            FROM bqms_samsung_po
+            WHERE LOWER(COALESCE(company, '')) = ANY($1::text[])
+            """,
+            po_keys,
+        )
+    else:
+        pos = []
+        total_pos = 0
+
+    if delivery_types:
+        delivery_keys = [value.lower() for value in delivery_types]
+        deliveries = await conn.fetch(
+            """
+            SELECT po_number, bqms_code, LEFT(specification, 60) AS spec,
+                   delivery_date, quantity, amount, delivery_status::text AS status
+            FROM bqms_deliveries
+            WHERE LOWER(COALESCE(sev_type, '')) = ANY($1::text[])
+            ORDER BY po_date DESC NULLS LAST
+            LIMIT $2 OFFSET $3
+            """,
+            delivery_keys,
+            limit,
+            offset,
+        )
+        total_deliveries = await conn.fetchval(
+            """
+            SELECT COUNT(*)
+            FROM bqms_deliveries
+            WHERE LOWER(COALESCE(sev_type, '')) = ANY($1::text[])
+            """,
+            delivery_keys,
+        )
+    else:
+        deliveries = []
+        total_deliveries = 0
+
+    return {"data": {
+        "pos": _rows_to_list(pos),
+        "total_pos": total_pos,
+        "deliveries": _rows_to_list(deliveries),
+        "total_deliveries": total_deliveries,
+        "match_context": {
+            "po_companies": po_companies,
+            "delivery_types": delivery_types,
+        },
+    }}
+
+
+# ---------------------------------------------------------------------------
+# Customer Financials
+# ---------------------------------------------------------------------------
+
+@router.get("/customers/{customer_id}/financials")
+async def customer_financials(
+    customer_id: int,
+    token_data: TokenData = Depends(require_role("staff", "accountant", "manager", "admin")),
+    conn: asyncpg.Connection = Depends(get_db),
+):
+    """T??i ch??nh kh??ch h??ng: c??ng n???, thanh to??n, h??a ????n."""
+    ar_aging = await conn.fetchrow("""
+        SELECT
+            COALESCE(SUM((amount - COALESCE(paid_amount, 0))) FILTER (WHERE due_date >= CURRENT_DATE), 0)::bigint AS current_amount,
+            COALESCE(SUM((amount - COALESCE(paid_amount, 0))) FILTER (WHERE CURRENT_DATE - due_date BETWEEN 1 AND 30), 0)::bigint AS days_1_30,
+            COALESCE(SUM((amount - COALESCE(paid_amount, 0))) FILTER (WHERE CURRENT_DATE - due_date BETWEEN 31 AND 60), 0)::bigint AS days_31_60,
+            COALESCE(SUM((amount - COALESCE(paid_amount, 0))) FILTER (WHERE CURRENT_DATE - due_date > 60), 0)::bigint AS days_over_60,
+            COALESCE(SUM((amount - COALESCE(paid_amount, 0))), 0)::bigint AS total_outstanding
+        FROM accounts_receivable
+        WHERE customer_id = $1 AND status != 'paid'
+    """, customer_id)
+
+    payments = await conn.fetch("""
+        SELECT updated_at AS paid_date, paid_amount, invoice_number, notes
+        FROM accounts_receivable
+        WHERE customer_id = $1 AND status = 'paid'
+        ORDER BY updated_at DESC
+        LIMIT 5
+    """, customer_id)
+
+    match_context = await _get_customer_match_context_or_404(conn, customer_id)
+    po_companies = non_empty_aliases(match_context.get("po_companies", []))
+
+    if po_companies:
+        po_keys = [value.lower() for value in po_companies]
+        revenue = await conn.fetchrow("""
+            SELECT
+                COALESCE(SUM(amount), 0)::bigint AS total_revenue,
+                COALESCE(SUM(amount) FILTER (WHERE po_date >= DATE_TRUNC('month', CURRENT_DATE)), 0)::bigint AS revenue_this_month,
+                COUNT(*)::int AS total_pos
+            FROM bqms_samsung_po
+            WHERE LOWER(COALESCE(company, '')) = ANY($1::text[])
+        """, po_keys)
+    else:
+        revenue = {"total_revenue": 0, "revenue_this_month": 0, "total_pos": 0}
+
+    return {"data": {
+        "ar_aging": dict(ar_aging) if ar_aging else {},
+        "recent_payments": _rows_to_list(payments),
+        "revenue": dict(revenue) if revenue else {},
+        "match_context": {
+            "po_companies": po_companies,
+        },
+    }}
+
+
+# ---------------------------------------------------------------------------
+# All Contacts (across all customers)
+# ---------------------------------------------------------------------------
+
+@router.get("/contacts-all")
+async def all_contacts(
+    search: str = Query("", description="Tìm theo tên, email, SĐT"),
+    page: int = Query(1, ge=1),
+    limit: int = Query(20, ge=1, le=100),
+    token_data: TokenData = Depends(require_role("staff", "accountant", "manager", "admin")),
+    conn: asyncpg.Connection = Depends(get_db),
+):
+    """Danh bạ tổng hợp — tất cả contacts từ mọi KH + BQMS."""
+    where = "1=1"
+    params: list = []
+    idx = 1
+
+    if search:
+        where = f"(cc.full_name ILIKE ${idx} OR cc.email ILIKE ${idx} OR cc.phone ILIKE ${idx})"
+        params.append(f"%{search}%")
+        idx += 1
+
+    total = await conn.fetchval(
+        f"SELECT COUNT(*) FROM crm_contacts cc WHERE {where}", *params
+    )
+
+    params.extend([limit, (page - 1) * limit])
+    rows = await conn.fetch(f"""
+        SELECT cc.id, cc.full_name, cc.position, cc.email, cc.phone,
+               cc.department, cc.last_contacted_at, cc.is_primary,
+               c.company_name, c.short_name, c.id AS customer_id
+        FROM crm_contacts cc
+        LEFT JOIN customers c ON c.id = cc.customer_id
+        WHERE {where}
+        ORDER BY cc.full_name
+        LIMIT ${idx} OFFSET ${idx + 1}
+    """, *params)
+
+    # Also include bqms_contacts not yet in crm_contacts
+    bqms = await conn.fetch("""
+        SELECT bc.id, bc.full_name, bc.email_username AS email, bc.phone,
+               bc.delivery_info AS department, 'Samsung BQMS' AS company_name
+        FROM bqms_contacts bc
+        WHERE bc.is_active = true
+        ORDER BY bc.full_name
+        LIMIT 50
+    """)
+
+    return {"data": {
+        "contacts": _rows_to_list(rows),
+        "bqms_contacts": _rows_to_list(bqms),
+        "total": total,
+    }}
+
+
+# ---------------------------------------------------------------------------
+# Customer Quotes (RFQ history)
+# ---------------------------------------------------------------------------
+
+@router.get("/customers/{customer_id}/quotes")
+async def customer_quotes(
+    customer_id: int,
+    page: int = Query(1, ge=1),
+    limit: int = Query(5, ge=1, le=50),
+    token_data: TokenData = Depends(require_role("staff", "accountant", "manager", "admin")),
+    conn: asyncpg.Connection = Depends(get_db),
+):
+    """L???ch s??? RFQ/b??o gi?? cho kh??ch h??ng."""
+    await _assert_customer_exists(conn, customer_id)
+    offset = (page - 1) * limit
+    match_context = await _get_customer_match_context_or_404(conn, customer_id)
+    order_customer_names = non_empty_aliases(match_context.get("order_customer_names", []))
+    order_keys = [value.lower() for value in order_customer_names]
+    has_direct_submission_links = bool(
+        await conn.fetchval(
+            "SELECT 1 FROM bqms_rfq_submissions WHERE customer_id = $1 LIMIT 1",
+            customer_id,
+        )
+    )
+
+    stats = await conn.fetchrow(
+        """
+        WITH matched_rfqs AS (
+            SELECT DISTINCT sub.rfq_number
+            FROM bqms_rfq_submissions sub
+            WHERE sub.customer_id = $1
+            UNION
+            SELECT DISTINCT bo.rfq_number
+            FROM bqms_orders bo
+            WHERE CARDINALITY($2::text[]) > 0
+              AND LOWER(COALESCE(bo.customer_name, '')) = ANY($2::text[])
+        )
+        SELECT
+            COUNT(*)::int AS total_rfqs,
+            COUNT(*) FILTER (WHERE rfq.result::text ILIKE '%%won%%')::int AS won,
+            COUNT(*) FILTER (WHERE rfq.result::text ILIKE '%%lost%%')::int AS lost,
+            COUNT(*) FILTER (WHERE rfq.result IS NULL OR rfq.result::text = '' OR rfq.result::text = 'pending')::int AS pending,
+            ROUND(
+                COUNT(*) FILTER (WHERE rfq.result::text ILIKE '%%won%%')::numeric
+                / NULLIF(COUNT(*) FILTER (WHERE rfq.result::text ILIKE '%%won%%' OR rfq.result::text ILIKE '%%lost%%'), 0) * 100,
+                1
+            ) AS win_rate
+        FROM bqms_rfq rfq
+        JOIN matched_rfqs mr ON mr.rfq_number = rfq.rfq_number
+        """,
+        customer_id,
+        order_keys,
+    )
+
+    rfqs = await conn.fetch(
+        """
+        WITH matched_rfqs AS (
+            SELECT DISTINCT sub.rfq_number
+            FROM bqms_rfq_submissions sub
+            WHERE sub.customer_id = $1
+            UNION
+            SELECT DISTINCT bo.rfq_number
+            FROM bqms_orders bo
+            WHERE CARDINALITY($2::text[]) > 0
+              AND LOWER(COALESCE(bo.customer_name, '')) = ANY($2::text[])
+        )
+        SELECT rfq.id, rfq.rfq_number, rfq.bqms_code, LEFT(rfq.specification, 60) AS spec,
+               rfq.maker, rfq.result::text, rfq.inquiry_date,
+               rfq.quoted_price_bqms_v1, rfq.quoted_price_bqms_v2
+        FROM bqms_rfq rfq
+        JOIN matched_rfqs mr ON mr.rfq_number = rfq.rfq_number
+        ORDER BY rfq.inquiry_date DESC NULLS LAST, rfq.id DESC
+        LIMIT $3 OFFSET $4
+        """,
+        customer_id,
+        order_keys,
+        limit,
+        offset,
+    )
+
+    total = await conn.fetchval(
+        """
+        WITH matched_rfqs AS (
+            SELECT DISTINCT sub.rfq_number
+            FROM bqms_rfq_submissions sub
+            WHERE sub.customer_id = $1
+            UNION
+            SELECT DISTINCT bo.rfq_number
+            FROM bqms_orders bo
+            WHERE CARDINALITY($2::text[]) > 0
+              AND LOWER(COALESCE(bo.customer_name, '')) = ANY($2::text[])
+        )
+        SELECT COUNT(*)
+        FROM bqms_rfq rfq
+        JOIN matched_rfqs mr ON mr.rfq_number = rfq.rfq_number
+        """,
+        customer_id,
+        order_keys,
+    )
+
+    return {"data": {
+        "stats": dict(stats) if stats else {},
+        "rfqs": _rows_to_list(rfqs),
+        "total": total,
+        "match_context": {
+            "order_customer_names": order_customer_names,
+            "has_direct_submission_links": has_direct_submission_links,
+        },
+    }}
