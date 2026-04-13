@@ -50,6 +50,29 @@ interface ExternalMapForm {
   is_primary: boolean;
 }
 
+interface ExternalMapPreviewResult {
+  source_system: string;
+  match_field: string;
+  normalized_value: string;
+  matched_count: number;
+  samples: Array<{
+    id: number;
+    record_no?: string;
+    bqms_code?: string;
+    matched_value?: string;
+    event_date?: string;
+    amount?: number;
+  }>;
+  duplicate_for_customer: number;
+  used_by_other_customers: Array<{
+    customer_id: number;
+    company_name?: string;
+    customer_code?: string;
+  }>;
+  risk_level: 'ok' | 'no_match' | 'too_wide' | 'duplicate' | 'conflict';
+  warning?: string;
+}
+
 interface ContactItem {
   id: number;
   full_name: string;
@@ -636,6 +659,7 @@ function AddInteractionModal({
 function ExternalMapsCard({ customerId }: { customerId: string }) {
   const queryClient = useQueryClient();
   const [showForm, setShowForm] = useState(false);
+  const [preview, setPreview] = useState<ExternalMapPreviewResult | null>(null);
   const [form, setForm] = useState<ExternalMapForm>({
     source_system: EXTERNAL_MAP_PRESETS[0].source_system,
     match_field: EXTERNAL_MAP_PRESETS[0].match_field,
@@ -665,10 +689,31 @@ function ExternalMapsCard({ customerId }: { customerId: string }) {
     onSuccess: () => {
       toast.success('Đã lưu mapping');
       setForm((prev) => ({ ...prev, match_value: '', notes: '' }));
+      setPreview(null);
       setShowForm(false);
       invalidateDependentQueries();
     },
     onError: () => toast.error('Không thể lưu mapping'),
+  });
+
+  const previewMutation = useMutation({
+    mutationFn: (payload: Pick<ExternalMapForm, 'source_system' | 'match_field' | 'match_value'>) =>
+      api.post<{ data: ExternalMapPreviewResult }>(
+        `/api/v1/crm/customers/${customerId}/external-maps/preview`,
+        payload
+      ),
+    onSuccess: (response) => {
+      setPreview(response.data);
+      if (response.data.warning) {
+        toast.warning(response.data.warning);
+      } else {
+        toast.success(`Preview OK: ${response.data.matched_count} dòng khớp`);
+      }
+    },
+    onError: () => {
+      setPreview(null);
+      toast.error('Không thể preview mapping');
+    },
   });
 
   const deleteMutation = useMutation({
@@ -688,6 +733,7 @@ function ExternalMapsCard({ customerId }: { customerId: string }) {
       (item) => `${item.source_system}:${item.match_field}` === value
     );
     if (!selected) return;
+    setPreview(null);
     setForm((prev) => ({
       ...prev,
       source_system: selected.source_system,
@@ -699,12 +745,48 @@ function ExternalMapsCard({ customerId }: { customerId: string }) {
     e.preventDefault();
     if (!form.match_value.trim()) return;
     const normalizedValue = form.match_value.trim().replace(/\s+/g, ' ');
+    if (!preview || preview.normalized_value !== normalizedValue.toLowerCase()) {
+      toast.error('Hãy preview mapping trước khi lưu');
+      return;
+    }
+    if (preview.risk_level === 'no_match' || preview.risk_level === 'too_wide') {
+      toast.error('Mapping này chưa đủ an toàn để lưu');
+      return;
+    }
     createMutation.mutate({
       ...form,
       match_value: normalizedValue,
       notes: form.notes.trim().replace(/\s+/g, ' '),
     });
   };
+
+  const runPreview = () => {
+    const normalizedValue = form.match_value.trim().replace(/\s+/g, ' ');
+    if (!normalizedValue) {
+      toast.error('Nhập giá trị match trước khi preview');
+      return;
+    }
+    previewMutation.mutate({
+      source_system: form.source_system,
+      match_field: form.match_field,
+      match_value: normalizedValue,
+    });
+  };
+
+  const saveDisabled =
+    createMutation.isPending ||
+    !form.match_value.trim() ||
+    !preview ||
+    preview.normalized_value !== form.match_value.trim().replace(/\s+/g, ' ').toLowerCase() ||
+    preview.risk_level === 'no_match' ||
+    preview.risk_level === 'too_wide';
+
+  const previewTone =
+    preview?.risk_level === 'ok'
+      ? 'border-emerald-200 bg-emerald-50 text-emerald-800'
+      : preview?.risk_level === 'duplicate' || preview?.risk_level === 'conflict'
+        ? 'border-amber-200 bg-amber-50 text-amber-800'
+        : 'border-red-200 bg-red-50 text-red-700';
 
   return (
     <div className="bg-white rounded-lg border border-slate-200 p-5">
@@ -760,7 +842,10 @@ function ExternalMapsCard({ customerId }: { customerId: string }) {
               <input
                 type="text"
                 value={form.match_value}
-                onChange={(e) => setForm((prev) => ({ ...prev, match_value: e.target.value }))}
+                onChange={(e) => {
+                  setPreview(null);
+                  setForm((prev) => ({ ...prev, match_value: e.target.value }));
+                }}
                 placeholder="Ví dụ: Canon VN"
                 className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-brand-300"
               />
@@ -793,7 +878,68 @@ function ExternalMapsCard({ customerId }: { customerId: string }) {
             Chỉ thêm mapping đã được xác nhận từ dữ liệu thật. Mapping sai sẽ làm lệch PO, giao hàng và RFQ của khách hàng này.
           </div>
 
+          {preview && (
+            <div className={cn('rounded-lg border px-3 py-3 text-xs', previewTone)}>
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="font-medium">
+                  Preview: {preview.matched_count} dòng khớp với "{preview.normalized_value}"
+                </div>
+                <div className="uppercase tracking-wide">
+                  {preview.risk_level === 'ok'
+                    ? 'Ổn'
+                    : preview.risk_level === 'duplicate'
+                      ? 'Trùng'
+                      : preview.risk_level === 'conflict'
+                        ? 'Xung đột'
+                        : preview.risk_level === 'too_wide'
+                          ? 'Quá rộng'
+                          : 'Không khớp'}
+                </div>
+              </div>
+              {preview.warning && <p className="mt-2">{preview.warning}</p>}
+              {!!preview.used_by_other_customers.length && (
+                <p className="mt-2">
+                  Đang được dùng ở: {preview.used_by_other_customers.map((item) => item.company_name || item.customer_code || `ID ${item.customer_id}`).join(', ')}
+                </p>
+              )}
+              {!!preview.samples.length && (
+                <div className="mt-3 overflow-x-auto">
+                  <table className="w-full text-left">
+                    <thead>
+                      <tr className="text-[11px] opacity-70">
+                        <th className="py-1 pr-3">Số dòng</th>
+                        <th className="py-1 pr-3">Mã</th>
+                        <th className="py-1 pr-3">BQMS</th>
+                        <th className="py-1 pr-3">Ngày</th>
+                        <th className="py-1 text-right">Giá trị</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {preview.samples.map((sample) => (
+                        <tr key={sample.id} className="border-t border-black/5">
+                          <td className="py-1 pr-3 font-mono">{sample.record_no ?? sample.id}</td>
+                          <td className="py-1 pr-3 truncate max-w-[160px]">{sample.matched_value ?? '—'}</td>
+                          <td className="py-1 pr-3 font-mono">{sample.bqms_code ?? '—'}</td>
+                          <td className="py-1 pr-3">{formatDate(sample.event_date)}</td>
+                          <td className="py-1 text-right font-mono">{typeof sample.amount === 'number' ? fmtVnd(sample.amount) : '—'}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          )}
+
           <div className="flex justify-end gap-2">
+            <button
+              type="button"
+              onClick={runPreview}
+              disabled={previewMutation.isPending || !form.match_value.trim()}
+              className="px-3 py-2 text-sm text-brand-700 border border-brand-200 rounded-lg hover:bg-brand-50 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+            >
+              {previewMutation.isPending ? 'Đang preview...' : 'Xem preview'}
+            </button>
             <button
               type="button"
               onClick={() => setShowForm(false)}
@@ -803,7 +949,7 @@ function ExternalMapsCard({ customerId }: { customerId: string }) {
             </button>
             <button
               type="submit"
-              disabled={createMutation.isPending || !form.match_value.trim()}
+              disabled={saveDisabled}
               className="px-3 py-2 bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium rounded-lg transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
             >
               {createMutation.isPending ? 'Đang lưu...' : 'Lưu mapping'}

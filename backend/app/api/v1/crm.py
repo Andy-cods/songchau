@@ -88,6 +88,12 @@ class ExternalMapCreateRequest(BaseModel):
     notes: str | None = None
 
 
+class ExternalMapPreviewRequest(BaseModel):
+    source_system: str = Field(..., min_length=1, max_length=100)
+    match_field: str = Field(..., min_length=1, max_length=100)
+    match_value: str = Field(..., min_length=1, max_length=255)
+
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -100,6 +106,61 @@ def _row_to_dict(row: asyncpg.Record | None) -> dict | None:
     if row is None:
         return None
     return dict(row)
+
+
+EXTERNAL_MAP_PREVIEW_SPECS: dict[tuple[str, str], dict[str, str]] = {
+    ("bqms_samsung_po", "company"): {
+        "table": "bqms_samsung_po",
+        "field": "company",
+        "count_sql": """
+            SELECT COUNT(*)::int
+            FROM bqms_samsung_po
+            WHERE LOWER(BTRIM(COALESCE(company, ''))) = $1
+        """,
+        "sample_sql": """
+            SELECT id, po_number AS record_no, bqms_code, company AS matched_value,
+                   po_date AS event_date, amount
+            FROM bqms_samsung_po
+            WHERE LOWER(BTRIM(COALESCE(company, ''))) = $1
+            ORDER BY po_date DESC NULLS LAST, id DESC
+            LIMIT 5
+        """,
+    },
+    ("bqms_deliveries", "sev_type"): {
+        "table": "bqms_deliveries",
+        "field": "sev_type",
+        "count_sql": """
+            SELECT COUNT(*)::int
+            FROM bqms_deliveries
+            WHERE LOWER(BTRIM(COALESCE(sev_type, ''))) = $1
+        """,
+        "sample_sql": """
+            SELECT id, po_number AS record_no, bqms_code, sev_type AS matched_value,
+                   delivery_date AS event_date, amount
+            FROM bqms_deliveries
+            WHERE LOWER(BTRIM(COALESCE(sev_type, ''))) = $1
+            ORDER BY delivery_date DESC NULLS LAST, id DESC
+            LIMIT 5
+        """,
+    },
+    ("bqms_orders", "customer_name"): {
+        "table": "bqms_orders",
+        "field": "customer_name",
+        "count_sql": """
+            SELECT COUNT(*)::int
+            FROM bqms_orders
+            WHERE LOWER(BTRIM(COALESCE(customer_name, ''))) = $1
+        """,
+        "sample_sql": """
+            SELECT id, rfq_number AS record_no, bqms_code, customer_name AS matched_value,
+                   quote_sent_date AS event_date, total_amount AS amount
+            FROM bqms_orders
+            WHERE LOWER(BTRIM(COALESCE(customer_name, ''))) = $1
+            ORDER BY quote_sent_date DESC NULLS LAST, id DESC
+            LIMIT 5
+        """,
+    },
+}
 
 
 async def _assert_customer_exists(conn: asyncpg.Connection, customer_id: int) -> None:
@@ -120,6 +181,10 @@ async def _get_customer_match_context_or_404(
     if not context:
         raise HTTPException(404, detail=f"Customer ID {customer_id} does not exist")
     return context
+
+
+def _normalize_external_map_value(value: str) -> str:
+    return " ".join(value.strip().split()).lower()
 
 @router.get("/customers")
 async def list_customers(
@@ -427,6 +492,89 @@ async def list_customer_external_maps(
     return {"data": {"mappings": _rows_to_list(rows)}}
 
 
+@router.post("/customers/{customer_id}/external-maps/preview")
+async def preview_customer_external_map(
+    customer_id: int,
+    body: ExternalMapPreviewRequest,
+    token_data: TokenData = Depends(require_role("staff", "accountant", "manager", "admin")),
+    conn: asyncpg.Connection = Depends(get_db),
+):
+    await _assert_customer_exists(conn, customer_id)
+
+    source_system = body.source_system.strip()
+    match_field = body.match_field.strip()
+    spec = EXTERNAL_MAP_PREVIEW_SPECS.get((source_system, match_field))
+    if not spec:
+        raise HTTPException(400, detail="Unsupported external mapping source")
+
+    normalized_value = _normalize_external_map_value(body.match_value)
+    if not normalized_value:
+        raise HTTPException(400, detail="Match value is required")
+
+    matched_count = await conn.fetchval(spec["count_sql"], normalized_value)
+    samples = await conn.fetch(spec["sample_sql"], normalized_value)
+    duplicate_for_customer = await conn.fetchval(
+        """
+        SELECT COUNT(*)::int
+        FROM crm_account_external_map
+        WHERE customer_id = $1
+          AND source_system = $2
+          AND match_field = $3
+          AND LOWER(BTRIM(COALESCE(match_value, ''))) = $4
+        """,
+        customer_id,
+        source_system,
+        match_field,
+        normalized_value,
+    )
+    used_by_other_customers = await conn.fetch(
+        """
+        SELECT map.customer_id, c.company_name, c.customer_code
+        FROM crm_account_external_map map
+        JOIN customers c ON c.id = map.customer_id
+        WHERE map.customer_id != $1
+          AND map.source_system = $2
+          AND map.match_field = $3
+          AND LOWER(BTRIM(COALESCE(map.match_value, ''))) = $4
+        ORDER BY c.company_name
+        LIMIT 5
+        """,
+        customer_id,
+        source_system,
+        match_field,
+        normalized_value,
+    )
+
+    risk_level = "ok"
+    warning = None
+    if matched_count == 0:
+        risk_level = "no_match"
+        warning = "Khong tim thay dong nao khop voi gia tri nay."
+    elif matched_count > 50:
+        risk_level = "too_wide"
+        warning = f"Gia tri nay khop {matched_count} dong, can kiem tra lai de tranh match qua rong."
+    elif duplicate_for_customer:
+        risk_level = "duplicate"
+        warning = "Mapping nay da ton tai cho khach hang hien tai."
+    elif used_by_other_customers:
+        risk_level = "conflict"
+        warning = "Gia tri nay dang duoc dung o khach hang khac."
+
+    return {
+        "data": {
+            "source_system": source_system,
+            "match_field": match_field,
+            "normalized_value": normalized_value,
+            "matched_count": matched_count or 0,
+            "samples": _rows_to_list(samples),
+            "duplicate_for_customer": duplicate_for_customer or 0,
+            "used_by_other_customers": _rows_to_list(used_by_other_customers),
+            "risk_level": risk_level,
+            "warning": warning,
+        }
+    }
+
+
 @router.post("/customers/{customer_id}/external-maps", status_code=201)
 async def create_customer_external_map(
     customer_id: int,
@@ -435,6 +583,14 @@ async def create_customer_external_map(
     conn: asyncpg.Connection = Depends(get_db),
 ):
     await _assert_customer_exists(conn, customer_id)
+    source_system = body.source_system.strip()
+    match_field = body.match_field.strip()
+    if (source_system, match_field) not in EXTERNAL_MAP_PREVIEW_SPECS:
+        raise HTTPException(400, detail="Unsupported external mapping source")
+    normalized_match_value = " ".join(body.match_value.strip().split())
+    normalized_notes = " ".join((body.notes or "").strip().split()) or None
+    if not normalized_match_value:
+        raise HTTPException(400, detail="Match value is required")
 
     if body.is_primary:
         await conn.execute(
@@ -444,8 +600,8 @@ async def create_customer_external_map(
             WHERE customer_id = $1 AND source_system = $2 AND match_field = $3
             """,
             customer_id,
-            body.source_system,
-            body.match_field,
+            source_system,
+            match_field,
         )
 
     row = await conn.fetchrow(
@@ -463,11 +619,11 @@ async def create_customer_external_map(
                   is_primary, notes, created_at, updated_at
         """,
         customer_id,
-        body.source_system.strip(),
-        body.match_field.strip(),
-        body.match_value.strip(),
+        source_system,
+        match_field,
+        normalized_match_value,
         body.is_primary,
-        body.notes,
+        normalized_notes,
     )
     return {"data": dict(row), "message": "External mapping saved"}
 
