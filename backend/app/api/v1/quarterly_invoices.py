@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 import io
+import json
 import logging
 from datetime import datetime
 from typing import Any
 
 import asyncpg
-from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File, Form
+from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File, Form, Request
 
 from app.core.database import get_db
 from app.core.rbac import require_role
@@ -17,6 +18,44 @@ from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
+
+
+async def _write_audit_log(
+    conn: asyncpg.Connection,
+    token_data: TokenData,
+    action: str,
+    table_name: str,
+    record_id: int | str,
+    old_data: dict[str, Any] | None,
+    new_data: dict[str, Any] | None,
+    request: Request | None = None,
+) -> None:
+    """Write immutable audit log entry for finance edits."""
+    await conn.execute(
+        """
+        INSERT INTO audit_log (
+            user_id,
+            user_email,
+            action,
+            table_name,
+            record_id,
+            old_data,
+            new_data,
+            ip_address,
+            user_agent
+        )
+        VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7::jsonb, $8::inet, $9)
+        """,
+        token_data.user_id,
+        token_data.email,
+        action,
+        table_name,
+        str(record_id),
+        json.dumps(old_data or {}, ensure_ascii=False, default=str),
+        json.dumps(new_data or {}, ensure_ascii=False, default=str),
+        request.client.host if request and request.client else None,
+        request.headers.get("user-agent") if request else None,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -239,6 +278,7 @@ async def create_purchase(
 async def update_sale(
     inv_id: int,
     body: dict[str, Any],
+    request: Request,
     token_data: TokenData = Depends(require_role("accountant", "manager", "admin")),
     conn: asyncpg.Connection = Depends(get_db),
 ):
@@ -258,14 +298,30 @@ async def update_sale(
     if not sets:
         raise HTTPException(400, "Không có trường nào để cập nhật")
 
+    old_row = await conn.fetchrow("SELECT * FROM sales_invoices_q WHERE id = $1", inv_id)
+    if not old_row:
+        raise HTTPException(404)
+
+    old_row = await conn.fetchrow("SELECT * FROM purchase_invoices_q WHERE id = $1", inv_id)
+    if not old_row:
+        raise HTTPException(404)
+
     sets.append("updated_at = NOW()")
     params.append(inv_id)
     row = await conn.fetchrow(
         f"UPDATE sales_invoices_q SET {', '.join(sets)} WHERE id = ${idx} RETURNING *",
         *params,
     )
-    if not row:
-        raise HTTPException(404)
+    await _write_audit_log(
+        conn=conn,
+        token_data=token_data,
+        action="UPDATE",
+        table_name="sales_invoices_q",
+        record_id=inv_id,
+        old_data=dict(old_row),
+        new_data=dict(row),
+        request=request,
+    )
     return {"data": dict(row)}
 
 
@@ -273,6 +329,7 @@ async def update_sale(
 async def update_purchase(
     inv_id: int,
     body: dict[str, Any],
+    request: Request,
     token_data: TokenData = Depends(require_role("accountant", "manager", "admin")),
     conn: asyncpg.Connection = Depends(get_db),
 ):
@@ -292,14 +349,26 @@ async def update_purchase(
     if not sets:
         raise HTTPException(400)
 
+    old_row = await conn.fetchrow("SELECT * FROM purchase_invoices_q WHERE id = $1", inv_id)
+    if not old_row:
+        raise HTTPException(404)
+
     sets.append("updated_at = NOW()")
     params.append(inv_id)
     row = await conn.fetchrow(
         f"UPDATE purchase_invoices_q SET {', '.join(sets)} WHERE id = ${idx} RETURNING *",
         *params,
     )
-    if not row:
-        raise HTTPException(404)
+    await _write_audit_log(
+        conn=conn,
+        token_data=token_data,
+        action="UPDATE",
+        table_name="purchase_invoices_q",
+        record_id=inv_id,
+        old_data=dict(old_row),
+        new_data=dict(row),
+        request=request,
+    )
     return {"data": dict(row)}
 
 
