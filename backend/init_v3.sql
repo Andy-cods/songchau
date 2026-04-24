@@ -282,14 +282,6 @@ END;
 $$ LANGUAGE plpgsql;
 
 -- ============================================================================
--- 3B. IMMUTABLE WRAPPER cho unaccent (PostgreSQL yeu cau IMMUTABLE cho GENERATED)
--- ============================================================================
-CREATE OR REPLACE FUNCTION immutable_unaccent(text)
-RETURNS text AS $$
-    SELECT unaccent($1);
-$$ LANGUAGE sql IMMUTABLE PARALLEL SAFE;
-
--- ============================================================================
 -- 4. TABLES — 64 bang chinh
 -- ============================================================================
 -- Thu tu tao: bang cha truoc, bang con sau (khong co tham chieu vong)
@@ -515,7 +507,7 @@ CREATE TABLE customers (
     id                   BIGSERIAL PRIMARY KEY,
     customer_code        TEXT UNIQUE,
     company_name         TEXT NOT NULL,
-    company_name_unaccent TEXT GENERATED ALWAYS AS (immutable_unaccent(lower(company_name))) STORED,
+    company_name_unaccent TEXT GENERATED ALWAYS AS (unaccent(lower(company_name))) STORED,
     short_name           TEXT,
     tax_code             TEXT,
     address              TEXT,
@@ -560,7 +552,7 @@ COMMENT ON TABLE customer_contacts IS 'Dau moi lien he cua khach hang';
 CREATE TABLE suppliers (
     id              BIGSERIAL PRIMARY KEY,
     name            TEXT NOT NULL,
-    name_unaccent   TEXT GENERATED ALWAYS AS (immutable_unaccent(lower(name))) STORED,
+    name_unaccent   TEXT GENERATED ALWAYS AS (unaccent(lower(name))) STORED,
     contact_name    TEXT,
     contact_email   TEXT,
     contact_phone   TEXT,
@@ -621,7 +613,7 @@ CREATE TABLE products (
     customer_code        TEXT,
     product_name         TEXT NOT NULL,
     product_name_vi      TEXT,
-    product_name_unaccent TEXT GENERATED ALWAYS AS (immutable_unaccent(lower(product_name))) STORED,
+    product_name_unaccent TEXT GENERATED ALWAYS AS (unaccent(lower(product_name))) STORED,
     specification        TEXT,
     maker                TEXT,
     category             TEXT,
@@ -1561,7 +1553,7 @@ CREATE TABLE inventory (
     product_id      BIGINT NOT NULL REFERENCES products(id),
     product_code    TEXT NOT NULL UNIQUE,
     product_name    TEXT NOT NULL,
-    name_unaccent   TEXT GENERATED ALWAYS AS (immutable_unaccent(lower(product_name))) STORED,
+    name_unaccent   TEXT GENERATED ALWAYS AS (unaccent(lower(product_name))) STORED,
     category        TEXT,
     brand           TEXT,
     specification   TEXT,

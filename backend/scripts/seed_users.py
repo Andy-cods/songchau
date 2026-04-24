@@ -40,7 +40,7 @@ logger = logging.getLogger("seed_users")
 DSN = os.getenv(
     "DATABASE_URL",
     "postgresql://scadmin:SC2026_ERP_Pr0d_X9k2mQ7wR4@postgres:5432/songchau_erp",
-).replace("+asyncpg", "")
+)
 
 # ---------------------------------------------------------------------------
 # Danh sách 18 nhân viên Song Châu — theo MASTER_CONTEXT roles

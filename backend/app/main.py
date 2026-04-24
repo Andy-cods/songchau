@@ -108,6 +108,10 @@ async def security_headers(request: Request, call_next):
 app.include_router(health_router)
 app.include_router(v1_router, prefix="/api/v1")
 
+# Vendor Portal API (separate prefix — vendors cannot access /api/v1)
+from app.api.vendor import vendor_router
+app.include_router(vendor_router, prefix="/api/vendor")
+
 # ---------------------------------------------------------------------------
 # Socket.IO — must be mounted AFTER all HTTP routes so the ASGI app does not
 # intercept regular HTTP requests.  The full endpoint becomes:

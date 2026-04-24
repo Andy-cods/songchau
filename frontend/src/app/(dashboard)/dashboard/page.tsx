@@ -165,6 +165,13 @@ export default function DashboardPage() {
   const owners: any[]         = Array.isArray(d.owners)          ? d.owners          : [];
   const urgentRfqs: any[]     = Array.isArray(d.urgent_rfqs)     ? d.urgent_rfqs     : [];
 
+  /* ── NEW: Delivery + PO + Vendor data ──────────────────────── */
+  const delivery: any          = d.delivery ?? {};
+  const deliveryOverdue: any[] = Array.isArray(d.delivery_overdue) ? d.delivery_overdue : [];
+  const samsungPo: any         = d.samsung_po ?? {};
+  const recentPos: any[]       = Array.isArray(d.recent_pos) ? d.recent_pos : [];
+  const vendorPortal: any      = d.vendor_portal ?? {};
+
   /* ── Derived data ─────────────────────────────────────────── */
 
   // Revenue proxy: use total_quoted from monthly if no revenue_this_month
@@ -866,6 +873,147 @@ export default function DashboardPage() {
             )}
           </div>
         </section>
+
+        {/* ─────────────────────────────────────────────────────────
+            ROW 5 — Giao hàng · PO Samsung · Cổng NCC
+            ───────────────────────────────────────────────────────── */}
+        {!isLoading && (
+          <section className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+
+            {/* ── Giao hàng ── */}
+            <div className="bg-white rounded-2xl border border-slate-200/60 shadow-[0_1px_3px_rgba(0,0,0,0.04)] flex flex-col">
+              <div className="px-5 py-3.5 border-b border-slate-100 flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <div className="w-7 h-7 rounded-lg bg-emerald-100 flex items-center justify-center">
+                    <Truck className="w-3.5 h-3.5 text-emerald-600" />
+                  </div>
+                  <h3 className="text-[13px] font-semibold text-slate-800">Giao hàng</h3>
+                </div>
+                <button onClick={() => router.push('/bqms/deliveries')} className="text-[11px] text-brand-600 hover:underline font-medium flex items-center gap-0.5">Xem tất cả <ChevronRight className="w-3 h-3" /></button>
+              </div>
+              <div className="p-5 flex-1 space-y-4">
+                <div className="flex items-baseline justify-between">
+                  <div>
+                    <p className="text-2xl font-bold text-slate-800">{fmtNum(delivery.total_deliveries ?? 0)}</p>
+                    <p className="text-[11px] text-slate-400">tổng đơn</p>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-sm font-semibold text-emerald-600">{fmtVnd(delivery.delivered_value_this_month ?? 0)}</p>
+                    <p className="text-[11px] text-slate-400">đã giao tháng này</p>
+                  </div>
+                </div>
+                <div className="flex gap-1.5">
+                  {[
+                    { label: 'Đã giao', value: delivery.delivered ?? 0, color: 'bg-emerald-500' },
+                    { label: 'Đang giao', value: delivery.in_transit ?? 0, color: 'bg-blue-500' },
+                    { label: 'Chưa giao', value: delivery.pending ?? 0, color: 'bg-amber-400' },
+                  ].map(s => {
+                    const total = (delivery.total_deliveries ?? 1) || 1;
+                    const pct = Math.max(((s.value / total) * 100), 2);
+                    return <div key={s.label} className={`${s.color} h-2 rounded-full`} style={{ width: `${pct}%` }} title={`${s.label}: ${fmtNum(s.value)}`} />;
+                  })}
+                </div>
+                <div className="flex justify-between text-[11px]">
+                  <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-emerald-500" /> Đã giao <strong className="text-slate-700">{fmtNum(delivery.delivered ?? 0)}</strong></span>
+                  <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-blue-500" /> Đang <strong className="text-slate-700">{fmtNum(delivery.in_transit ?? 0)}</strong></span>
+                  <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-amber-400" /> Chờ <strong className="text-slate-700">{fmtNum(delivery.pending ?? 0)}</strong></span>
+                </div>
+                {(delivery.overdue ?? 0) > 0 && (
+                  <div className="bg-red-50 rounded-lg px-3 py-2">
+                    <div className="flex items-center gap-1.5 mb-1">
+                      <AlertTriangle className="w-3 h-3 text-red-500" />
+                      <span className="text-[11px] font-semibold text-red-600">{fmtNum(delivery.overdue)} đơn quá hạn</span>
+                    </div>
+                    {deliveryOverdue.slice(0, 3).map((dd: any, i: number) => (
+                      <p key={i} className="text-[10px] text-red-500/80 truncate">{dd.po_number} — {dd.spec}</p>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* ── PO Samsung ── */}
+            <div className="bg-white rounded-2xl border border-slate-200/60 shadow-[0_1px_3px_rgba(0,0,0,0.04)] flex flex-col">
+              <div className="px-5 py-3.5 border-b border-slate-100 flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <div className="w-7 h-7 rounded-lg bg-brand-100 flex items-center justify-center">
+                    <FileText className="w-3.5 h-3.5 text-brand-600" />
+                  </div>
+                  <h3 className="text-[13px] font-semibold text-slate-800">PO Samsung</h3>
+                </div>
+                <button onClick={() => router.push('/bqms')} className="text-[11px] text-brand-600 hover:underline font-medium flex items-center gap-0.5">BQMS <ChevronRight className="w-3 h-3" /></button>
+              </div>
+              <div className="p-5 flex-1 space-y-4">
+                <div className="flex items-baseline justify-between">
+                  <div>
+                    <p className="text-2xl font-bold text-slate-800">{fmtNum(samsungPo.total_pos ?? 0)}</p>
+                    <p className="text-[11px] text-slate-400">tổng PO</p>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-lg font-bold text-brand-600">{fmtNum(samsungPo.pos_this_month ?? 0)}</p>
+                    <p className="text-[11px] text-slate-400">PO tháng này</p>
+                  </div>
+                </div>
+                <div className="bg-slate-50 rounded-lg px-3 py-2">
+                  <p className="text-[11px] text-slate-500">Giá trị tháng này</p>
+                  <p className="text-base font-bold text-slate-800">{fmtVnd(samsungPo.amount_this_month ?? 0)}</p>
+                </div>
+                {recentPos.length > 0 && (
+                  <div className="space-y-1.5">
+                    <p className="text-[11px] text-slate-400 font-medium">Top 5 PO gần nhất</p>
+                    {recentPos.slice(0, 5).map((p: any, i: number) => (
+                      <div key={i} className="flex items-center justify-between gap-2 py-1 border-b border-slate-50 last:border-0">
+                        <div className="min-w-0">
+                          <p className="text-[11px] text-slate-700 truncate font-medium">{p.spec}</p>
+                          <p className="text-[10px] text-slate-400 font-mono">{p.po_number}</p>
+                        </div>
+                        <span className="text-[11px] font-mono text-slate-600 shrink-0">{fmtVnd(p.amount ?? 0)}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* ── Cổng NCC ── */}
+            <div className="bg-white rounded-2xl border border-slate-200/60 shadow-[0_1px_3px_rgba(0,0,0,0.04)] flex flex-col">
+              <div className="px-5 py-3.5 border-b border-slate-100 flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <div className="w-7 h-7 rounded-lg bg-purple-100 flex items-center justify-center">
+                    <Target className="w-3.5 h-3.5 text-purple-600" />
+                  </div>
+                  <h3 className="text-[13px] font-semibold text-slate-800">Cổng Nhà Cung Cấp</h3>
+                </div>
+                <button onClick={() => router.push('/procurement')} className="text-[11px] text-brand-600 hover:underline font-medium flex items-center gap-0.5">Quản lý <ChevronRight className="w-3 h-3" /></button>
+              </div>
+              <div className="p-5 flex-1 space-y-4">
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="text-center py-3 bg-emerald-50/70 rounded-xl">
+                    <p className="text-xl font-bold text-emerald-700">{vendorPortal.approved_vendors ?? 0}</p>
+                    <p className="text-[10px] text-emerald-600 font-medium mt-0.5">NCC đã duyệt</p>
+                  </div>
+                  <div className={cn('text-center py-3 rounded-xl', (vendorPortal.pending_vendors ?? 0) > 0 ? 'bg-amber-50/70' : 'bg-slate-50')}>
+                    <p className={cn('text-xl font-bold', (vendorPortal.pending_vendors ?? 0) > 0 ? 'text-amber-700' : 'text-slate-300')}>{vendorPortal.pending_vendors ?? 0}</p>
+                    <p className="text-[10px] text-slate-500 font-medium mt-0.5">Chờ duyệt</p>
+                  </div>
+                  <div className="text-center py-3 bg-blue-50/70 rounded-xl">
+                    <p className="text-xl font-bold text-blue-700">{vendorPortal.open_batches ?? 0}</p>
+                    <p className="text-[10px] text-blue-600 font-medium mt-0.5">Đợt đang mở</p>
+                  </div>
+                  <div className="text-center py-3 bg-purple-50/70 rounded-xl">
+                    <p className="text-xl font-bold text-purple-700">{vendorPortal.total_quotes ?? 0}</p>
+                    <p className="text-[10px] text-purple-600 font-medium mt-0.5">Báo giá nhận</p>
+                  </div>
+                </div>
+                <div className="text-center py-3 bg-gradient-to-r from-slate-50 to-slate-100/50 rounded-xl">
+                  <p className="text-lg font-bold text-slate-800">{vendorPortal.awarded_batches ?? 0}</p>
+                  <p className="text-[10px] text-slate-500 font-medium">Đợt đã chọn NCC</p>
+                </div>
+              </div>
+            </div>
+
+          </section>
+        )}
 
       </div>
     </div>

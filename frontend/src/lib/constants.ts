@@ -138,7 +138,7 @@ const NAV_OPERATIONS: SidebarItem[] = [
   { key: 'tasks', label: 'Công việc', href: '/tasks', icon: ListTodo },
   { key: 'workload', label: 'Phân công', href: '/tasks/workload', icon: Users },
   { key: 'calendar', label: 'Lịch', href: '/calendar', icon: CalendarDays },
-  { key: 'notifications', label: 'Thông báo', href: '/notifications/settings', icon: Bell },
+  { key: 'notifications', label: 'Thông báo', href: '/notifications', icon: Bell },
 ];
 
 const NAV_ADVANCED: SidebarItem[] = [
@@ -153,7 +153,7 @@ const NAV_ADMIN: SidebarItem[] = [
   { key: 'language', label: 'Ngôn ngữ', href: '/settings/language', icon: Globe },
   { key: 'performance', label: 'Hiệu suất', href: '/admin/performance', icon: Activity },
   { key: 'errors', label: 'Lỗi hệ thống', href: '/admin/errors', icon: AlertTriangle },
-  { key: 'migration', label: 'Quản lý tài liệu', href: '/documents/browser', icon: FolderOpen },
+  { key: 'migration', label: 'Di chuyển dữ liệu', href: '/admin/migration', icon: RotateCcw },
   { key: 'containers', label: 'Containers', href: '/admin/containers', icon: Server },
   { key: 'backups', label: 'Backup', href: '/admin/backups', icon: HardDrive },
   { key: 'data-quality', label: 'Chất lượng DL', href: '/admin/data-quality', icon: ShieldCheck },

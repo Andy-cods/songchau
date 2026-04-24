@@ -453,7 +453,7 @@ async def record_ap_payment(
         )
 
     new_paid = float(ap["paid_amount"] or 0) + body.amount
-    new_status = "paid" if new_paid >= float(ap["amount"]) - 0.01 else "partial"
+    new_status = "paid" if new_paid >= float(ap["amount"]) - 0.01 else "partial_paid"
 
     async with conn.transaction():
         # Update accounts_payable
@@ -537,7 +537,7 @@ async def record_ar_receipt(
         )
 
     new_paid = float(ar["paid_amount"] or 0) + body.amount
-    new_status = "paid" if new_paid >= float(ar["amount"]) - 0.01 else "partial"
+    new_status = "paid" if new_paid >= float(ar["amount"]) - 0.01 else "partial_paid"
 
     async with conn.transaction():
         # Update accounts_receivable

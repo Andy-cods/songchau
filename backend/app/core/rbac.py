@@ -1,19 +1,32 @@
-from fastapi import Depends, HTTPException, Request, status
+from fastapi import Depends, HTTPException, Query, Request, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from jose import JWTError
+from typing import Optional
 import asyncpg
 
 from app.core.security import decode_token, TokenData
 from app.core.database import get_db
 
-security_scheme = HTTPBearer()
+security_scheme = HTTPBearer(auto_error=False)
 
 
 async def get_current_user(
-    credentials: HTTPAuthorizationCredentials = Depends(security_scheme),
+    request: Request,
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(security_scheme),
 ) -> TokenData:
+    """Extract token from Authorization header OR ?token= query param."""
+    raw_token = None
+    if credentials:
+        raw_token = credentials.credentials
+    else:
+        # Fallback: read token from query param (for <a href>, <iframe>, direct browser links)
+        raw_token = request.query_params.get("token")
+
+    if not raw_token:
+        raise HTTPException(status_code=401, detail="Token missing")
+
     try:
-        payload = decode_token(credentials.credentials)
+        payload = decode_token(raw_token)
         if payload.get("type") != "access":
             raise HTTPException(status_code=401, detail="Invalid token type")
         return TokenData(

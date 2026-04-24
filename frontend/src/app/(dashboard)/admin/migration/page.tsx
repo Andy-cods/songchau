@@ -10,6 +10,13 @@ import {
 } from 'lucide-react';
 import { api } from '@/lib/api';
 
+function withToken(url: string): string {
+  if (typeof window === 'undefined') return url;
+  const token = localStorage.getItem('access_token') ?? '';
+  const sep = url.includes('?') ? '&' : '?';
+  return `${url}${sep}token=${encodeURIComponent(token)}`;
+}
+
 // ─── Types ─────────────────────────────────────────────────────────────────
 
 interface SyncStatusItem {
@@ -725,7 +732,7 @@ function OneDriveFileExplorer() {
               {/* PDF preview */}
               {(preview as any).preview_type === 'pdf' && (
                 <iframe
-                  src={`${(preview as any).download_url}#toolbar=1`}
+                  src={`${withToken((preview as any).download_url)}#toolbar=1`}
                   className="w-full h-[500px] rounded-lg border border-slate-200"
                   title="PDF Preview"
                 />
@@ -735,7 +742,7 @@ function OneDriveFileExplorer() {
               {(preview as any).preview_type === 'image' && (
                 <div className="flex justify-center bg-slate-50 rounded-lg p-4 border border-slate-200">
                   <img
-                    src={(preview as any).download_url}
+                    src={withToken((preview as any).download_url)}
                     alt={preview.file_name}
                     className="max-h-[500px] max-w-full object-contain rounded"
                   />
@@ -754,7 +761,7 @@ function OneDriveFileExplorer() {
               {(preview as any).preview_type === 'unsupported' && (
                 <div className="bg-slate-50 border rounded-lg p-4 text-center">
                   <p className="text-sm text-slate-500 mb-2">Không hỗ trợ xem trước loại file này</p>
-                  <a href={(preview as any).download_url} target="_blank"
+                  <a href={withToken((preview as any).download_url)} target="_blank"
                     className="text-blue-600 text-sm underline">Tải xuống để xem</a>
                 </div>
               )}

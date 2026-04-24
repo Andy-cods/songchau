@@ -153,10 +153,10 @@ EXTERNAL_MAP_PREVIEW_SPECS: dict[tuple[str, str], dict[str, str]] = {
         """,
         "sample_sql": """
             SELECT id, rfq_number AS record_no, bqms_code, customer_name AS matched_value,
-                   quote_sent_date AS event_date, total_amount AS amount
+                   order_date AS event_date, NULL::numeric AS amount
             FROM bqms_orders
             WHERE LOWER(BTRIM(COALESCE(customer_name, ''))) = $1
-            ORDER BY quote_sent_date DESC NULLS LAST, id DESC
+            ORDER BY order_date DESC NULLS LAST, id DESC
             LIMIT 5
         """,
     },

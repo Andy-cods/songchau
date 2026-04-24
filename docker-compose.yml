@@ -91,7 +91,8 @@ services:
       REDIS_URL: redis://redis:6379/0
     volumes:
       - ./data/files:/data/files
-      - /data/onedrive-staging:/data/onedrive-staging:ro
+      - /data/onedrive-staging:/data/onedrive-staging
+      - /var/run/docker.sock:/var/run/docker.sock
     networks: [internal]
     depends_on:
       postgres:
@@ -136,19 +137,37 @@ services:
     ports:
       - "80:80"
       - "443:443"
+      - "8080:8080"
     volumes:
       - ./nginx/conf.d:/etc/nginx/conf.d:ro
       - ./data/files:/data/files:ro
+      - /var/www/certbot:/var/www/certbot:ro
+      - /etc/letsencrypt:/etc/letsencrypt:ro
     networks: [internal, public]
     depends_on:
       - api
       - frontend
+      - vendor-portal
     deploy:
       resources:
         limits:
           memory: 64M
         reservations:
           memory: 32M
+
+  vendor-portal:
+    build:
+      context: ./vendor-portal
+      dockerfile: Dockerfile
+    container_name: sc-vendor-portal
+    restart: unless-stopped
+    networks: [internal]
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+        reservations:
+          memory: 128M
 
   procrastinate-worker:
     build:
@@ -192,6 +211,28 @@ services:
       interval: 30s
       timeout: 10s
       retries: 3
+
+  onlyoffice:
+    image: onlyoffice/documentserver:latest
+    container_name: sc-onlyoffice
+    restart: unless-stopped
+    networks: [internal]
+    environment:
+      - JWT_ENABLED=false
+    volumes:
+      - ./data/files:/data/files
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+        reservations:
+          memory: 1G
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:80/healthcheck"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
 
   procrastinate-scheduler:
     build:

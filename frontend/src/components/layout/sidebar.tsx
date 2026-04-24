@@ -83,13 +83,13 @@ export function Sidebar() {
             {section.items.map((item) => {
               const isActive =
                 pathname === item.href ||
-                (item.href !== '/dashboard' && pathname.startsWith(item.href));
+                (item.href !== '/dashboard' && item.href !== '/bqms' && pathname.startsWith(item.href));
 
               const Icon = item.icon;
 
               return (
                 <Link
-                  key={item.key}
+                  key={`${item.key}-${item.href}`}
                   href={item.href}
                   title={collapsed ? item.label : undefined}
                   className={cn(
@@ -106,7 +106,7 @@ export function Sidebar() {
                       isActive ? 'text-brand-600' : 'text-slate-400 group-hover:text-slate-600'
                     )}
                   />
-                  {!collapsed && <span className="truncate">{item.label}</span>}
+                  {!collapsed && <span className="min-w-0 flex-1 truncate">{item.label}</span>}
                 </Link>
               );
             })}

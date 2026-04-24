@@ -2,6 +2,12 @@ import type { ApiError } from '@/types/models';
 
 const BASE_URL = process.env.NEXT_PUBLIC_API_URL || '';
 
+function isAuthEndpoint(endpoint: string): boolean {
+  return endpoint.includes('/api/v1/auth/login')
+    || endpoint.includes('/api/v1/auth/refresh')
+    || endpoint.includes('/api/v1/auth/logout');
+}
+
 /**
  * Get the stored JWT access token.
  */
@@ -13,14 +19,14 @@ function getAccessToken(): string | null {
 /**
  * Build request headers with JSON content type and JWT auth.
  */
-function buildHeaders(custom?: HeadersInit): Headers {
+function buildHeaders(endpoint: string, custom?: HeadersInit): Headers {
   const headers = new Headers(custom);
 
   if (!headers.has('Content-Type')) {
     headers.set('Content-Type', 'application/json');
   }
 
-  const token = getAccessToken();
+  const token = isAuthEndpoint(endpoint) ? null : getAccessToken();
   if (token) {
     headers.set('Authorization', `Bearer ${token}`);
   }
@@ -86,7 +92,7 @@ async function apiRequest<T>(
     ? endpoint
     : `${BASE_URL}${endpoint.startsWith('/') ? endpoint : `/${endpoint}`}`;
 
-  const headers = buildHeaders(options.headers as HeadersInit | undefined);
+  const headers = buildHeaders(endpoint, options.headers as HeadersInit | undefined);
 
   // Remove Content-Type for FormData (browser sets it with boundary)
   if (options.body instanceof FormData) {
@@ -100,7 +106,7 @@ async function apiRequest<T>(
   });
 
   // Handle 401 — attempt token refresh and retry once
-  if (res.status === 401 && !retried) {
+  if (res.status === 401 && !retried && !isAuthEndpoint(endpoint)) {
     const refreshed = await handleUnauthorized();
     if (refreshed) {
       return apiRequest<T>(endpoint, options, true);

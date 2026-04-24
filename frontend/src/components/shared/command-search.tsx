@@ -2,112 +2,19 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import {
-  LayoutDashboard,
-  ShoppingCart,
-  Truck,
-  FileCheck,
-  Package,
-  Users,
-  BarChart3,
-  Settings,
-  Building2,
-  ClipboardList,
-  Bell,
-  Search,
-  Clock,
-  type LucideIcon,
-} from 'lucide-react';
-import {
-  Dialog,
-  DialogContent,
-  DialogTitle,
-} from '@/components/ui/dialog';
+import { Search, Clock, type LucideIcon } from 'lucide-react';
+import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
 import { cn } from '@/lib/utils';
-
-// ─── Page Registry ─────────────────────────────────────────────
+import { useAuth } from '@/providers/auth-provider';
+import { getSidebarConfig } from '@/lib/constants';
 
 interface PageEntry {
+  key: string;
   label: string;
   href: string;
   icon: LucideIcon;
   keywords: string[];
 }
-
-const ALL_PAGES: PageEntry[] = [
-  {
-    label: 'Tổng quan',
-    href: '/dashboard',
-    icon: LayoutDashboard,
-    keywords: ['tong quan', 'dashboard', 'trang chu'],
-  },
-  {
-    label: 'Đơn mua hàng',
-    href: '/purchase-orders',
-    icon: ShoppingCart,
-    keywords: ['don mua hang', 'purchase order', 'po', 'mua hang'],
-  },
-  {
-    label: 'Tạo đơn mua hàng',
-    href: '/purchase-orders/new',
-    icon: ShoppingCart,
-    keywords: ['tao don', 'them don', 'new po', 'tao mua hang'],
-  },
-  {
-    label: 'Vận chuyển',
-    href: '/deliveries',
-    icon: Truck,
-    keywords: ['van chuyen', 'delivery', 'giao hang'],
-  },
-  {
-    label: 'Phê duyệt',
-    href: '/approvals',
-    icon: FileCheck,
-    keywords: ['phe duyet', 'approval', 'duyet'],
-  },
-  {
-    label: 'Kho hàng',
-    href: '/inventory',
-    icon: Package,
-    keywords: ['kho hang', 'inventory', 'ton kho'],
-  },
-  {
-    label: 'BQMS',
-    href: '/bqms',
-    icon: ClipboardList,
-    keywords: ['bqms', 'bao gia', 'dau thau'],
-  },
-  {
-    label: 'Báo cáo',
-    href: '/reports',
-    icon: BarChart3,
-    keywords: ['bao cao', 'report', 'thong ke'],
-  },
-  {
-    label: 'Nhà cung cấp',
-    href: '/suppliers',
-    icon: Building2,
-    keywords: ['nha cung cap', 'supplier', 'ncc'],
-  },
-  {
-    label: 'Người dùng',
-    href: '/users',
-    icon: Users,
-    keywords: ['nguoi dung', 'user', 'tai khoan'],
-  },
-  {
-    label: 'Cài đặt',
-    href: '/settings',
-    icon: Settings,
-    keywords: ['cai dat', 'settings', 'he thong'],
-  },
-  {
-    label: 'Thông báo',
-    href: '/notifications',
-    icon: Bell,
-    keywords: ['thong bao', 'notification'],
-  },
-];
 
 const RECENT_KEY = 'cmd_recent';
 const MAX_RECENT = 5;
@@ -123,21 +30,55 @@ function getRecentItems(): string[] {
 }
 
 function addRecentItem(href: string) {
-  const recent = getRecentItems().filter((h) => h !== href);
+  const recent = getRecentItems().filter((itemHref) => itemHref !== href);
   recent.unshift(href);
   localStorage.setItem(RECENT_KEY, JSON.stringify(recent.slice(0, MAX_RECENT)));
 }
 
-// ─── Component ─────────────────────────────────────────────────
+function normalizeKeyword(value: string) {
+  return value
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim();
+}
 
 export function CommandSearch() {
   const router = useRouter();
+  const { user } = useAuth();
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
   const [activeIndex, setActiveIndex] = useState(0);
   const [recentHrefs, setRecentHrefs] = useState<string[]>([]);
 
-  // Load recent items on open
+  const allPages = useMemo<PageEntry[]>(() => {
+    const sections = getSidebarConfig(user?.role ?? 'viewer');
+    const uniquePages = new Map<string, PageEntry>();
+
+    for (const section of sections) {
+      for (const item of section.items) {
+        if (uniquePages.has(item.href)) continue;
+
+        const keywords = new Set<string>([
+          normalizeKeyword(item.label),
+          normalizeKeyword(item.key),
+          normalizeKeyword(section.title || ''),
+        ]);
+
+        uniquePages.set(item.href, {
+          key: item.key,
+          label: item.label,
+          href: item.href,
+          icon: item.icon,
+          keywords: Array.from(keywords).filter(Boolean),
+        });
+      }
+    }
+
+    return Array.from(uniquePages.values());
+  }, [user?.role]);
+
   useEffect(() => {
     if (open) {
       setRecentHrefs(getRecentItems());
@@ -146,37 +87,37 @@ export function CommandSearch() {
     }
   }, [open]);
 
-  // Global keyboard shortcut
   useEffect(() => {
-    function onKeyDown(e: KeyboardEvent) {
-      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
-        e.preventDefault();
+    function onKeyDown(event: KeyboardEvent) {
+      if ((event.metaKey || event.ctrlKey) && event.key === 'k') {
+        event.preventDefault();
         setOpen((prev) => !prev);
       }
     }
+
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
   }, []);
 
-  const normalizedQuery = query.toLowerCase().trim();
+  const normalizedSearch = normalizeKeyword(query);
 
   const filtered = useMemo(() => {
-    if (!normalizedQuery) return [];
-    return ALL_PAGES.filter(
+    if (!normalizedSearch) return [];
+    return allPages.filter(
       (page) =>
-        page.label.toLowerCase().includes(normalizedQuery) ||
-        page.keywords.some((kw) => kw.includes(normalizedQuery))
+        normalizeKeyword(page.label).includes(normalizedSearch) ||
+        page.keywords.some((keyword) => keyword.includes(normalizedSearch))
     );
-  }, [normalizedQuery]);
+  }, [allPages, normalizedSearch]);
 
   const recentPages = useMemo(() => {
-    if (normalizedQuery) return [];
+    if (normalizedSearch) return [];
     return recentHrefs
-      .map((href) => ALL_PAGES.find((p) => p.href === href))
+      .map((href) => allPages.find((page) => page.href === href))
       .filter(Boolean) as PageEntry[];
-  }, [normalizedQuery, recentHrefs]);
+  }, [allPages, normalizedSearch, recentHrefs]);
 
-  const displayItems = normalizedQuery ? filtered : recentPages;
+  const displayItems = normalizedSearch ? filtered : recentPages;
 
   const navigate = useCallback(
     (href: string) => {
@@ -187,31 +128,28 @@ export function CommandSearch() {
     [router]
   );
 
-  // Keyboard navigation inside the list
   const handleKeyDown = useCallback(
-    (e: React.KeyboardEvent) => {
-      if (e.key === 'ArrowDown') {
-        e.preventDefault();
+    (event: React.KeyboardEvent) => {
+      if (event.key === 'ArrowDown') {
+        event.preventDefault();
         setActiveIndex((prev) => Math.min(prev + 1, displayItems.length - 1));
-      } else if (e.key === 'ArrowUp') {
-        e.preventDefault();
+      } else if (event.key === 'ArrowUp') {
+        event.preventDefault();
         setActiveIndex((prev) => Math.max(prev - 1, 0));
-      } else if (e.key === 'Enter' && displayItems[activeIndex]) {
-        e.preventDefault();
+      } else if (event.key === 'Enter' && displayItems[activeIndex]) {
+        event.preventDefault();
         navigate(displayItems[activeIndex].href);
       }
     },
-    [displayItems, activeIndex, navigate]
+    [activeIndex, displayItems, navigate]
   );
 
-  // Reset active index on query change
   useEffect(() => {
     setActiveIndex(0);
   }, [query]);
 
   return (
     <>
-      {/* Trigger button */}
       <button
         onClick={() => setOpen(true)}
         className="hidden md:flex items-center gap-2 h-8 px-3 rounded-lg border border-slate-200 bg-white/70 text-sm text-slate-400 hover:text-slate-600 hover:border-slate-300 transition-colors"
@@ -224,17 +162,15 @@ export function CommandSearch() {
         </kbd>
       </button>
 
-      {/* Dialog */}
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="max-w-md p-0 gap-0 overflow-hidden">
           <DialogTitle className="sr-only">Tìm kiếm trang</DialogTitle>
 
-          {/* Search input */}
           <div className="flex items-center gap-3 px-4 border-b border-slate-100">
             <Search className="h-4 w-4 text-slate-400 flex-shrink-0" />
             <input
               value={query}
-              onChange={(e) => setQuery(e.target.value)}
+              onChange={(event) => setQuery(event.target.value)}
               onKeyDown={handleKeyDown}
               placeholder="Tìm kiếm trang..."
               className="flex-1 h-12 bg-transparent text-sm text-slate-900 placeholder:text-slate-400 outline-none"
@@ -242,32 +178,30 @@ export function CommandSearch() {
             />
           </div>
 
-          {/* Results */}
           <div className="max-h-72 overflow-y-auto p-2">
-            {/* Section label */}
-            {!normalizedQuery && recentPages.length > 0 && (
+            {!normalizedSearch && recentPages.length > 0 && (
               <p className="px-2 py-1.5 text-[10px] font-mono uppercase tracking-widest text-slate-400">
                 Gần đây
               </p>
             )}
-            {normalizedQuery && filtered.length > 0 && (
+            {normalizedSearch && filtered.length > 0 && (
               <p className="px-2 py-1.5 text-[10px] font-mono uppercase tracking-widest text-slate-400">
                 Kết quả
               </p>
             )}
 
-            {/* Items */}
-            {displayItems.map((page, i) => {
+            {displayItems.map((page, index) => {
               const Icon = page.icon;
-              const isRecent = !normalizedQuery;
+              const isRecent = !normalizedSearch;
+
               return (
                 <button
                   key={page.href}
                   onClick={() => navigate(page.href)}
-                  onMouseEnter={() => setActiveIndex(i)}
+                  onMouseEnter={() => setActiveIndex(index)}
                   className={cn(
                     'flex items-center gap-3 w-full px-3 py-2 rounded-md text-sm transition-colors text-left',
-                    activeIndex === i
+                    activeIndex === index
                       ? 'bg-brand-50 text-brand-700'
                       : 'text-slate-600 hover:bg-slate-50'
                   )}
@@ -277,33 +211,27 @@ export function CommandSearch() {
                   ) : (
                     <Icon className="h-4 w-4 flex-shrink-0 text-slate-400" />
                   )}
-                  <span className="flex-1 truncate">{page.label}</span>
-                  {activeIndex === i && (
+                  <span className="min-w-0 flex-1 truncate">{page.label}</span>
+                  {activeIndex === index && (
                     <kbd className="text-[10px] font-mono text-slate-400">Enter</kbd>
                   )}
                 </button>
               );
             })}
 
-            {/* Empty state */}
-            {normalizedQuery && filtered.length === 0 && (
+            {normalizedSearch && filtered.length === 0 && (
               <div className="py-8 text-center">
-                <p className="text-sm text-slate-400">
-                  Không tìm thấy trang nào
-                </p>
+                <p className="text-sm text-slate-400">Không tìm thấy trang nào</p>
               </div>
             )}
 
-            {!normalizedQuery && recentPages.length === 0 && (
+            {!normalizedSearch && recentPages.length === 0 && (
               <div className="py-8 text-center">
-                <p className="text-sm text-slate-400">
-                  Nhập để tìm kiếm trang
-                </p>
+                <p className="text-sm text-slate-400">Nhập để tìm kiếm trang</p>
               </div>
             )}
           </div>
 
-          {/* Footer hints */}
           <div className="flex items-center gap-4 px-4 py-2 border-t border-slate-100 bg-slate-50/50">
             <span className="flex items-center gap-1 text-[10px] text-slate-400">
               <kbd className="rounded border border-slate-200 bg-white px-1 py-0.5 font-mono">↑↓</kbd>

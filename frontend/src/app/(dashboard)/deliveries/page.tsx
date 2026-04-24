@@ -2,7 +2,6 @@
 
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { useRouter } from 'next/navigation';
 import { Truck, Search } from 'lucide-react';
 import { api } from '@/lib/api';
 import { cn, formatDate } from '@/lib/utils';
@@ -22,7 +21,6 @@ const FILTER_TABS: { value: DeliveryStatus | 'all'; label: string }[] = [
 // ─── Page Component ───────────────────────────────────────────
 
 export default function DeliveriesPage() {
-  const router = useRouter();
   const [statusFilter, setStatusFilter] = useState<DeliveryStatus | 'all'>('all');
   const [searchQuery, setSearchQuery] = useState('');
 
@@ -135,8 +133,7 @@ export default function DeliveriesPage() {
                   return (
                     <tr
                       key={d.id}
-                      onClick={() => router.push(`/deliveries/${d.id}`)}
-                      className="hover:bg-slate-50/50 transition-colors cursor-pointer"
+                      className="hover:bg-slate-50/50 transition-colors"
                     >
                       <TD>
                         <span className="font-mono text-brand-600 font-medium">

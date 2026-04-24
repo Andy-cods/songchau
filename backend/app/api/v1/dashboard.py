@@ -97,7 +97,15 @@ async def dashboard_kpis_v2(
     token_data: TokenData = Depends(require_role("staff", "manager", "admin", "accountant", "warehouse", "sales")),
     conn: asyncpg.Connection = Depends(get_db),
 ):
-    """BA/DA Dashboard — ALL data from bqms_rfq in 1 call."""
+    """BA/DA Dashboard — ALL data from bqms_rfq in 1 call. Cached 60s in Redis."""
+
+    # Try cache first
+    from app.core.cache import cache
+    cache_key = "dashboard:kpis-v2"
+    cached_data = await cache.get(cache_key)
+    if cached_data:
+        return cached_data
+
 
     # ── Card 1: RFQ This Month vs Last Month vs YoY ──
     rfq_cards = await conn.fetchrow("""
@@ -192,7 +200,7 @@ async def dashboard_kpis_v2(
                COUNT(*) FILTER (WHERE result::text ILIKE '%%won%%') AS won,
                ROUND(COUNT(*) FILTER (WHERE result::text ILIKE '%%won%%')::numeric / NULLIF(COUNT(*), 0) * 100, 1) AS win_rate
         FROM bqms_rfq WHERE COALESCE(inquiry_date, created_at::date) >= NOW() - interval '6 months' AND COALESCE(inquiry_date, created_at::date) IS NOT NULL
-        GROUP BY person_in_charge_name ORDER BY win_rate DESC NULLS LAST LIMIT 10
+        GROUP BY person_in_charge_name ORDER BY win_rate DESC NULLS LAST LIMIT 5
     """)
 
     # ── Section 5A: RFQ sắp hết hạn (pending, newest inquiry) ──
@@ -201,7 +209,7 @@ async def dashboard_kpis_v2(
         FROM bqms_rfq
         WHERE (result IS NULL OR result::text = '' OR result::text = 'pending')
           AND COALESCE(inquiry_date, created_at::date) >= NOW() - interval '14 days' AND COALESCE(inquiry_date, created_at::date) IS NOT NULL
-        ORDER BY inquiry_date DESC LIMIT 15
+        ORDER BY inquiry_date DESC LIMIT 5
     """)
 
     # ── Sparkline: RFQ count last 12 months ──
@@ -211,6 +219,62 @@ async def dashboard_kpis_v2(
         GROUP BY 1 ORDER BY 1
     """)
 
+    # ── NEW: Delivery Tracking Stats ──
+    delivery_stats = await conn.fetchrow("""
+        SELECT
+            COUNT(*)::int AS total_deliveries,
+            COUNT(*) FILTER (WHERE delivery_status::text IN ('da_giao','delivered','completed','hoan_tat'))::int AS delivered,
+            COUNT(*) FILTER (WHERE delivery_status::text IN ('chua_giao','pending'))::int AS pending,
+            COUNT(*) FILTER (WHERE delivery_status::text IN ('dang_giao','in_transit','picked_up','customs_clearance'))::int AS in_transit,
+            COUNT(*) FILTER (
+                WHERE delivery_status::text IN ('chua_giao','pending','dang_giao','in_transit')
+                AND delivery_date < CURRENT_DATE
+            )::int AS overdue,
+            COALESCE(SUM(total_delivered_value_vnd) FILTER (
+                WHERE delivery_status::text IN ('da_giao','delivered','completed','hoan_tat')
+                AND EXTRACT(MONTH FROM COALESCE(po_date, delivery_date)) = EXTRACT(MONTH FROM NOW())
+                AND EXTRACT(YEAR FROM COALESCE(po_date, delivery_date)) = EXTRACT(YEAR FROM NOW())
+            ), 0)::bigint AS delivered_value_this_month
+        FROM bqms_deliveries
+    """)
+
+    delivery_overdue = await conn.fetch("""
+        SELECT po_number, bqms_code, LEFT(specification, 50) AS spec,
+               delivery_date, delivery_status::text, recipient_name
+        FROM bqms_deliveries
+        WHERE delivery_status::text IN ('chua_giao','pending','dang_giao','in_transit')
+          AND delivery_date < CURRENT_DATE
+        ORDER BY delivery_date ASC LIMIT 10
+    """)
+
+    # ── NEW: Samsung PO Stats ──
+    po_stats = await conn.fetchrow("""
+        SELECT
+            COUNT(*)::int AS total_pos,
+            COUNT(*) FILTER (WHERE po_date >= DATE_TRUNC('month', NOW()))::int AS pos_this_month,
+            COALESCE(SUM(amount), 0)::bigint AS total_amount,
+            COALESCE(SUM(amount) FILTER (WHERE po_date >= DATE_TRUNC('month', NOW())), 0)::bigint AS amount_this_month,
+            MAX(po_date) AS latest_po_date
+        FROM bqms_samsung_po
+    """)
+
+    recent_pos = await conn.fetch("""
+        SELECT po_number, bqms_code, LEFT(specification, 50) AS spec,
+               po_date, order_qty, amount
+        FROM bqms_samsung_po
+        ORDER BY po_date DESC NULLS LAST LIMIT 5
+    """)
+
+    # ── NEW: Vendor Portal Stats ──
+    vendor_stats = await conn.fetchrow("""
+        SELECT
+            (SELECT COUNT(*) FROM vendor_accounts WHERE is_approved = true)::int AS approved_vendors,
+            (SELECT COUNT(*) FROM vendor_accounts WHERE is_approved = false)::int AS pending_vendors,
+            (SELECT COUNT(*) FROM procurement_rfq_batches WHERE status = 'published')::int AS open_batches,
+            (SELECT COUNT(*) FROM procurement_rfq_batches WHERE status = 'awarded')::int AS awarded_batches,
+            (SELECT COUNT(*) FROM vendor_quotes WHERE status = 'submitted')::int AS total_quotes
+    """)
+
     # Compute deltas
     rfq_tm = int(rfq_cards["rfq_this_month"] or 0)
     rfq_lm = int(rfq_cards["rfq_last_month"] or 0)
@@ -218,7 +282,7 @@ async def dashboard_kpis_v2(
     rev_tm = float(rfq_cards["revenue_this_month"] or 0)
     rev_lm = float(rfq_cards["revenue_last_month"] or 0)
 
-    return {"data": {
+    result = {"data": {
         # Cards
         "rfq_this_month": rfq_tm,
         "rfq_last_month": rfq_lm,
@@ -252,7 +316,22 @@ async def dashboard_kpis_v2(
         "owners": [dict(r) for r in owners],
         # Urgent RFQs
         "urgent_rfqs": [dict(r) for r in urgent_rfqs],
+
+        # ── NEW: Delivery Tracking ──
+        "delivery": dict(delivery_stats) if delivery_stats else {},
+        "delivery_overdue": [dict(r) for r in delivery_overdue],
+
+        # ── NEW: Samsung PO ──
+        "samsung_po": dict(po_stats) if po_stats else {},
+        "recent_pos": [dict(r) for r in recent_pos],
+
+        # ── NEW: Vendor Portal ──
+        "vendor_portal": dict(vendor_stats) if vendor_stats else {},
     }}
+
+    # Cache 60s
+    await cache.set(cache_key, result, ttl=60)
+    return result
 
 
 @router.get("/recent-activity")

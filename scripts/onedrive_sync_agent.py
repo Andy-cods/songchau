@@ -37,31 +37,35 @@ VPS_ERP_DIR = "/opt/erp"
 # Local OneDrive Song Châu folder
 LOCAL_ONEDRIVE = Path(r"C:\Users\ASUS\OneDrive - SONG CHAU CO., LTD")
 
-# Scan ALL folders (full depth, no subfolder filter)
-# Business file types only — skip archives, executables, video, CAD, code
+# Key subfolders to sync (most important business data)
+SYNC_FOLDERS = [
+    "Puplic/BQMS",
+    "Puplic/IMV",
+    "Puplic/EAE",
+    "Puplic/LG",
+    "Puplic/AMA Quotation",
+    "Puplic",
+    "TỔNG HỢP",
+    "SMT",
+]
+
+# ALL file types to sync (not just Excel)
 SYNC_EXTENSIONS = {
-    # Excel (data kinh doanh)
+    # Excel
     ".xlsx", ".xls", ".xlsm",
-    # PDF (hóa đơn, chứng từ, tờ khai, catalog)
+    # PDF (hóa đơn, chứng từ, tờ khai)
     ".pdf",
     # Word (hợp đồng, công văn)
     ".docx", ".doc",
-    # CSV (data export)
-    ".csv",
-    # Images (biên nhận, ảnh chứng từ) — chỉ nhẹ
+    # Images (biên nhận, ảnh chứng từ)
     ".jpg", ".jpeg", ".png",
+    # PowerPoint
+    ".pptx", ".ppt",
+    # CSV
+    ".csv",
 }
-# Skip: .zip .rar .7z .exe .mp4 .stp .x_t .dwg .dll .py .pyc .pptx
-MAX_FILE_SIZE_MB = 200  # Cho phép files lên đến 200MB (BC BQMS THANG ~ 190MB)
-MAX_TOTAL_GB = 20  # Stop syncing when total reaches 20GB (VPS has 23GB free)
-SKIP_PATTERNS = ["~$", "Thumbs.db", "desktop.ini", ".DS_Store"]
-# Skip folders that are too deep or contain non-business data
-SKIP_FOLDERS = {"__pycache__", "node_modules", ".git", ".venv", "venv", "env",
-                "site-packages", "dist-packages", ".cache", "AppData", "SETUP"}
-
-# Max depth per top-level folder to avoid scanning 94K RFQ subfolders
-# Puplic/BQMS has 94K files in deep subfolders — only sync top 3 levels
-MAX_FOLDER_DEPTH = 4  # from OneDrive root
+MAX_FILE_SIZE_MB = 100  # Skip files > 100MB
+SKIP_PATTERNS = ["~$", "- Copy", "Backup", "OLD", "Thumbs.db", "desktop.ini", ".DS_Store"]
 
 # State file — tracks what we've synced
 STATE_FILE = Path(__file__).parent / ".onedrive_sync_state.json"
@@ -96,62 +100,47 @@ def file_hash(path: Path) -> str:
 # ─── File Discovery ──────────────────────────────────────────
 
 def discover_files(full: bool = False) -> list[Path]:
-    """Scan ENTIRE OneDrive Song Châu — all business files, full depth."""
+    """Find all Excel files in OneDrive Song Châu."""
     files = []
 
     if not LOCAL_ONEDRIVE.exists():
         log.error("OneDrive folder not found: %s", LOCAL_ONEDRIVE)
         sys.exit(1)
 
-    # Walk entire tree with depth limit (avoid 94K RFQ subfolders)
-    total_size = 0
-    for dirpath, dirnames, filenames in os.walk(LOCAL_ONEDRIVE):
-        # Skip non-business folders
-        dirnames[:] = [d for d in dirnames if d not in SKIP_FOLDERS]
-
-        # Check depth — skip too deep
-        rel_dir = os.path.relpath(dirpath, LOCAL_ONEDRIVE)
-        depth = 0 if rel_dir == "." else rel_dir.count(os.sep) + 1
-        if depth > MAX_FOLDER_DEPTH:
-            dirnames.clear()  # don't descend further
+    # Scan key folders (max depth 2 to avoid 70K+ RFQ subfolders)
+    for subfolder in SYNC_FOLDERS:
+        folder = LOCAL_ONEDRIVE / subfolder
+        if not folder.exists():
             continue
+        for f in folder.iterdir():
+            if f.is_file() and f.suffix.lower() in SYNC_EXTENSIONS and not f.name.startswith("~$"):
+                files.append(f)
+            elif f.is_dir():
+                for f2 in f.iterdir():
+                    if f2.is_file() and f2.suffix.lower() in SYNC_EXTENSIONS and not f2.name.startswith("~$"):
+                        files.append(f2)
 
-        for fname in filenames:
-            fpath = Path(dirpath) / fname
-            if fpath.suffix.lower() not in SYNC_EXTENSIONS:
-                continue
-            if any(p in fname for p in SKIP_PATTERNS):
-                continue
-            files.append(fpath)
+    # Also scan root-level Excel files
+    for f in LOCAL_ONEDRIVE.iterdir():
+        if f.is_file() and f.suffix.lower() in SYNC_EXTENSIONS and not f.name.startswith("~$"):
+            if f not in files:
+                files.append(f)
 
-    log.info("Scanned %d business files from OneDrive (depth <= %d)", len(files), MAX_FOLDER_DEPTH)
-
-    # Filter: skip too large, track total size
+    # Filter: skip too large, skip copies/backups, deduplicate
     filtered = []
-    seen_paths = set()
-    skipped_large = 0
+    seen_names = set()
     for f in files:
-        try:
-            size = f.stat().st_size
-        except Exception:
+        # Skip temp files and patterns
+        if any(p in f.name for p in SKIP_PATTERNS):
             continue
-        if size > MAX_FILE_SIZE_MB * 1024 * 1024:
-            skipped_large += 1
+        # Skip files > MAX_FILE_SIZE_MB
+        if f.stat().st_size > MAX_FILE_SIZE_MB * 1024 * 1024:
             continue
-        # Check total size limit
-        if (total_size + size) > MAX_TOTAL_GB * 1024 * 1024 * 1024:
-            log.warning("Total size limit %dGB reached, stopping", MAX_TOTAL_GB)
-            break
-        rel = str(f.relative_to(LOCAL_ONEDRIVE))
-        if rel in seen_paths:
+        # Deduplicate by name (keep first found)
+        if f.name in seen_names:
             continue
-        seen_paths.add(rel)
+        seen_names.add(f.name)
         filtered.append(f)
-        total_size += size
-
-    if skipped_large:
-        log.info("Skipped %d files > %dMB", skipped_large, MAX_FILE_SIZE_MB)
-    log.info("Total to sync: %d files, %.1f GB", len(filtered), total_size / 1024 / 1024 / 1024)
 
     log.info("Discovered %d Excel files (%d after filtering)", len(files), len(filtered))
     return filtered

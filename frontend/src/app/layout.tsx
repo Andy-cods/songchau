@@ -16,13 +16,7 @@ export default function RootLayout({
   return (
     <html lang="vi">
       <head>
-        <link rel="manifest" href="/manifest.json" />
         <meta name="theme-color" content="#1e40af" />
-        <meta name="mobile-web-app-capable" content="yes" />
-        <meta name="apple-mobile-web-app-capable" content="yes" />
-        <meta name="apple-mobile-web-app-status-bar-style" content="default" />
-        <meta name="apple-mobile-web-app-title" content="SC ERP" />
-        <link rel="apple-touch-icon" href="/icons/icon-192.png" />
       </head>
       <body className="font-sans antialiased bg-slate-100 text-slate-900">
         <QueryProvider>
@@ -33,9 +27,25 @@ export default function RootLayout({
             __html: `
               if ('serviceWorker' in navigator) {
                 window.addEventListener('load', function() {
-                  navigator.serviceWorker.register('/sw.js')
-                    .then(function(reg) { console.log('[SW] Registered:', reg.scope); })
-                    .catch(function(err) { console.warn('[SW] Registration failed:', err); });
+                  navigator.serviceWorker.getRegistrations()
+                    .then(function(registrations) {
+                      return Promise.all(registrations.map(function(registration) {
+                        return registration.unregister();
+                      }));
+                    })
+                    .catch(function() {});
+
+                  if ('caches' in window) {
+                    caches.keys()
+                      .then(function(keys) {
+                        return Promise.all(
+                          keys
+                            .filter(function(key) { return key.indexOf('sc-erp-') === 0; })
+                            .map(function(key) { return caches.delete(key); })
+                        );
+                      })
+                      .catch(function() {});
+                  }
                 });
               }
             `,

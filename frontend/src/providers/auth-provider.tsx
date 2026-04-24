@@ -80,6 +80,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const login = useCallback(
     async (credentials: LoginCredentials) => {
+      localStorage.removeItem('access_token');
       const data = await api.post<AuthResponse>('/api/v1/auth/login', credentials);
 
       localStorage.setItem('access_token', data.access_token);

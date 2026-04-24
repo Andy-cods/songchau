@@ -30,6 +30,17 @@ interface CustomerDetail {
   };
 }
 
+interface CustomerDetailResponse {
+  customer: CustomerDetail;
+  contacts: ContactItem[];
+  recent_interactions: InteractionItem[];
+  recent_orders: POItem[];
+  ar_summary?: {
+    outstanding: number;
+    overdue_count: number;
+  };
+}
+
 interface ExternalMapItem {
   id: number;
   customer_id: number;
@@ -1603,6 +1614,7 @@ function TabBaoGia({ customerId }: { customerId: string }) {
   const stats = data?.data?.stats;
   const rfqs = data?.data?.rfqs ?? [];
   const total = data?.data?.total ?? 0;
+  const winRateValue = Number(stats?.win_rate ?? 0);
 
   return (
     <div className="space-y-6">
@@ -1629,8 +1641,8 @@ function TabBaoGia({ customerId }: { customerId: string }) {
           />
           <KpiCard
             label="Tỷ lệ trúng"
-            value={`${(stats.win_rate ?? 0).toFixed(1)}%`}
-            highlight={(stats.win_rate ?? 0) >= 50}
+            value={`${winRateValue.toFixed(1)}%`}
+            highlight={winRateValue >= 50}
           />
         </div>
       )}
@@ -1721,13 +1733,21 @@ export default function CustomerDetailPage() {
   const customerId = params.id as string;
   const [activeTab, setActiveTab] = useState<TabKey>('tongquan');
 
-  const { data, isLoading } = useQuery<{ data: CustomerDetail }>({
+  const { data, isLoading } = useQuery<{ data: CustomerDetailResponse }>({
     queryKey: ['crm-customer', customerId],
     queryFn: () => api.get(`/api/v1/crm/customers/${customerId}`),
     retry: 1,
   });
 
-  const customer = data?.data;
+  const customerPayload = data?.data;
+  const customer = customerPayload
+    ? {
+        ...customerPayload.customer,
+        contacts: customerPayload.contacts ?? [],
+        interactions: customerPayload.recent_interactions ?? [],
+        ar_summary: customerPayload.ar_summary ?? customerPayload.customer.ar_summary,
+      }
+    : undefined;
 
   // KPI values derived from customer data
   const arOutstanding = customer?.ar_summary?.outstanding ?? 0;

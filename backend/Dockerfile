@@ -13,9 +13,17 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
+# Docker CLI only (for OnlyOffice x2t conversion via docker exec)
+RUN curl -fsSL https://download.docker.com/linux/static/stable/x86_64/docker-27.5.1.tgz \
+    | tar xz --strip-components=1 -C /usr/local/bin docker/docker
+
 # Install Python dependencies
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
+
+# Install Playwright + Chromium for Samsung BQMS headless login
+RUN pip install --no-cache-dir playwright==1.44.0 \
+    && playwright install chromium --with-deps
 
 # Copy app code
 COPY . .

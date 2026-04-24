@@ -358,71 +358,158 @@ def _pil_image_to_xl(img_bytes: bytes, max_w: int = 80, max_h: int = 80) -> XLIm
 # ─── Fill CAM KET Template ───────────────────────────────────
 
 def fill_cam_ket(
-    template_path: str,
+    template_path: str | None,
     products: list[dict],
     images_map: dict[str, bytes],
     output_path: str,
 ) -> bool:
     """Fill the CAM KET (commitment) Excel template.
 
+    If template_path is None or not found, creates from scratch.
     Template layout:
       Row 16-18: Product 1 (3-row block)
       Row 19-21: Product 2 (3-row block)
       Row 22+:   Additional products (inserted rows)
       Column C: Index, D: BQMS, F: Spec, J: Maker, L: Unit Price, N: Image
     """
-    wb = openpyxl.load_workbook(template_path)
-    ws = wb.active
+    from openpyxl.styles import Font, Alignment, Border, Side, PatternFill
 
-    SP_START = 16
-    ROWS_PER_SP = 3
-    COL_C, COL_D, COL_F, COL_J, COL_L, COL_N = 3, 4, 6, 10, 12, 14
+    if template_path and Path(template_path).exists():
+        wb = openpyxl.load_workbook(template_path)
+        ws = wb.active
 
-    now = datetime.now()
-    extra_rows = 0
+        SP_START = 16
+        ROWS_PER_SP = 3
+        COL_C, COL_D, COL_F, COL_J, COL_L, COL_N = 3, 4, 6, 10, 12, 14
 
-    for i, product in enumerate(products):
-        if i < 2:
-            # First 2 products use template rows
-            start_row = SP_START + i * ROWS_PER_SP
-        else:
-            # Products 3+: insert new rows
-            insert_after = SP_START + 2 * ROWS_PER_SP + extra_rows - 1
-            ws.insert_rows(insert_after + 1, ROWS_PER_SP)
-            _copy_row_style(ws, SP_START + ROWS_PER_SP, insert_after + 1)
-            start_row = insert_after + 1
-            extra_rows += ROWS_PER_SP
+        now = datetime.now()
+        extra_rows = 0
 
-        _safe_set_cell(ws, start_row, COL_C, i + 1)
-        _safe_set_cell(ws, start_row, COL_D, product.get("bqms", ""))
-        _safe_set_cell(ws, start_row, COL_F, product.get("spec", ""))
-        _safe_set_cell(ws, start_row, COL_J, product.get("maker", ""))
+        for i, product in enumerate(products):
+            if i < 2:
+                start_row = SP_START + i * ROWS_PER_SP
+            else:
+                insert_after = SP_START + 2 * ROWS_PER_SP + extra_rows - 1
+                ws.insert_rows(insert_after + 1, ROWS_PER_SP)
+                _copy_row_style(ws, SP_START + ROWS_PER_SP, insert_after + 1)
+                start_row = insert_after + 1
+                extra_rows += ROWS_PER_SP
 
-        # Price: use suggested_price or leave blank
-        price = product.get("suggested_price") or product.get("unit_price")
-        _safe_set_cell(ws, start_row, COL_L, price if price else "")
+            _safe_set_cell(ws, start_row, COL_C, i + 1)
+            _safe_set_cell(ws, start_row, COL_D, product.get("bqms", ""))
+            _safe_set_cell(ws, start_row, COL_F, product.get("spec", ""))
+            _safe_set_cell(ws, start_row, COL_J, product.get("maker", ""))
+            price = product.get("suggested_price") or product.get("unit_price")
+            _safe_set_cell(ws, start_row, COL_L, price if price else "")
+            bqms_code = product.get("bqms", "")
+            if bqms_code in images_map:
+                xl_img = _pil_image_to_xl(images_map[bqms_code])
+                if xl_img:
+                    ws.add_image(xl_img, f"{get_column_letter(COL_N)}{start_row}")
 
-        # Image
-        bqms_code = product.get("bqms", "")
-        if bqms_code in images_map:
-            xl_img = _pil_image_to_xl(images_map[bqms_code])
-            if xl_img:
-                ws.add_image(xl_img, f"{get_column_letter(COL_N)}{start_row}")
+        date_row = 31 + extra_rows
+        _safe_set_cell(ws, date_row, COL_L, f"Ngay {now.day} Thang {now.month} nam {now.year}")
+    else:
+        # Create from scratch
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = "CAM KET"
 
-    # Date cell (adjusted for inserted rows)
-    date_row = 31 + extra_rows
-    _safe_set_cell(ws, date_row, COL_L, f"Ngày {now.day} Tháng {now.month} năm {now.year}")
+        now = datetime.now()
+        thin_border = Border(
+            left=Side(style='thin'), right=Side(style='thin'),
+            top=Side(style='thin'), bottom=Side(style='thin')
+        )
+        header_font = Font(name='Arial', size=11, bold=True)
+        data_font = Font(name='Arial', size=10)
+        header_fill = PatternFill(start_color='4472C4', end_color='4472C4', fill_type='solid')
+        header_font_white = Font(name='Arial', size=10, bold=True, color='FFFFFF')
+
+        # Title
+        ws.merge_cells('A1:H1')
+        ws['A1'] = 'CAM KET BAO GIA - AMA BAC NINH JSC'
+        ws['A1'].font = Font(name='Arial', size=14, bold=True)
+        ws['A1'].alignment = Alignment(horizontal='center')
+
+        ws.merge_cells('A2:H2')
+        ws['A2'] = f'Ngay: {now.strftime("%d/%m/%Y")}'
+        ws['A2'].font = data_font
+        ws['A2'].alignment = Alignment(horizontal='center')
+
+        # RFQ info
+        rfq_no = products[0].get("don_hang", "N/A") if products else "N/A"
+        ws['A4'] = 'RFQ No:'
+        ws['A4'].font = Font(name='Arial', size=10, bold=True)
+        ws['B4'] = rfq_no
+        ws['B4'].font = data_font
+
+        # Headers row 6
+        headers = ['#', 'BQMS Code', 'Specification', 'Maker', 'Qty', 'Unit', 'Unit Price (VND)', 'Image']
+        for col_idx, h in enumerate(headers, 1):
+            cell = ws.cell(row=6, column=col_idx, value=h)
+            cell.font = header_font_white
+            cell.fill = header_fill
+            cell.border = thin_border
+            cell.alignment = Alignment(horizontal='center', wrap_text=True)
+
+        # Column widths
+        ws.column_dimensions['A'].width = 5
+        ws.column_dimensions['B'].width = 20
+        ws.column_dimensions['C'].width = 40
+        ws.column_dimensions['D'].width = 15
+        ws.column_dimensions['E'].width = 10
+        ws.column_dimensions['F'].width = 8
+        ws.column_dimensions['G'].width = 18
+        ws.column_dimensions['H'].width = 12
+
+        # Data rows
+        for i, product in enumerate(products):
+            row = 7 + i
+            price = product.get("suggested_price") or product.get("unit_price")
+            data = [
+                i + 1,
+                product.get("bqms", ""),
+                product.get("spec", ""),
+                product.get("maker", ""),
+                product.get("so_luong", 0),
+                product.get("don_vi", "EA"),
+                price if price else "",
+                "",
+            ]
+            for col_idx, val in enumerate(data, 1):
+                cell = ws.cell(row=row, column=col_idx, value=val)
+                cell.font = data_font
+                cell.border = thin_border
+                if col_idx in (1, 5, 6):
+                    cell.alignment = Alignment(horizontal='center')
+                elif col_idx == 7:
+                    cell.alignment = Alignment(horizontal='right')
+                    cell.number_format = '#,##0'
+
+            # Image
+            bqms_code = product.get("bqms", "")
+            if bqms_code in images_map:
+                xl_img = _pil_image_to_xl(images_map[bqms_code])
+                if xl_img:
+                    ws.add_image(xl_img, f"H{row}")
+
+        # Footer
+        footer_row = 7 + len(products) + 2
+        ws.merge_cells(f'A{footer_row}:H{footer_row}')
+        ws[f'A{footer_row}'] = f'Ngay {now.day} Thang {now.month} Nam {now.year}'
+        ws[f'A{footer_row}'].font = data_font
+        ws[f'A{footer_row}'].alignment = Alignment(horizontal='right')
 
     Path(output_path).parent.mkdir(parents=True, exist_ok=True)
     wb.save(output_path)
-    logger.info("CAM KET filled: %d products → %s", len(products), output_path)
+    logger.info("CAM KET filled: %d products -> %s", len(products), output_path)
     return True
 
 
 # ─── Fill Quotation Template ─────────────────────────────────
 
 def fill_quotation(
-    template_path: str,
+    template_path: str | None,
     products: list[dict],
     images_map: dict[str, bytes],
     rfq_no: str,
@@ -430,79 +517,196 @@ def fill_quotation(
 ) -> bool:
     """Fill the Commercial Quotation Excel template.
 
-    Template layout:
-      Row 4: Date (C), Row 6: RFQ No (H), Row 7: Quotation No (C)
-      Row 14: Description (A)
-      Row 17+: Data rows
-      Columns: A=idx, B=don_hang, C=BQMS+spec, D=maker, E=image,
-               F=unit, G=qty, H=price, I=formula, J=notes
+    If template_path is None or not found, creates from scratch.
+    Columns: A=idx, B=RFQ, C=BQMS+spec, D=maker, E=image,
+             F=unit, G=qty, H=price, I=amount, J=notes
     """
-    wb = openpyxl.load_workbook(template_path)
-
-    # Find the data sheet (contains "bqms" or "code" in name)
-    ws = wb.active
-    for sheet_name in wb.sheetnames:
-        if any(kw in sheet_name.lower() for kw in ("bqms", "code", "quotation")):
-            ws = wb[sheet_name]
-            break
+    from openpyxl.styles import Font, Alignment, Border, Side, PatternFill
 
     now = datetime.now()
-    COL_A, COL_B, COL_C, COL_D = 1, 2, 3, 4
-    COL_E, COL_F, COL_G, COL_H, COL_I, COL_J = 5, 6, 7, 8, 9, 10
 
-    # Header info
-    _safe_set_cell(ws, 4, COL_C, now.strftime("%d/%m/%Y"))
-    _safe_set_cell(ws, 6, COL_H, rfq_no)
-    _safe_set_cell(ws, 7, COL_C, f"QTAMABN-SEV {now.strftime('%d%m%Y')} - {rfq_no}")
+    if template_path and Path(template_path).exists():
+        wb = openpyxl.load_workbook(template_path)
+        ws = wb.active
+        for sheet_name in wb.sheetnames:
+            if any(kw in sheet_name.lower() for kw in ("bqms", "code", "quotation")):
+                ws = wb[sheet_name]
+                break
 
-    if products:
-        _safe_set_cell(ws, 14, COL_A, f"Product description/ Tên hàng: {products[0].get('short_name', '')}")
+        COL_A, COL_B, COL_C, COL_D = 1, 2, 3, 4
+        COL_E, COL_F, COL_G, COL_H, COL_I, COL_J = 5, 6, 7, 8, 9, 10
 
-    DATA_START = 17
-    TEMPLATE_ROW = 17
-    last_data_row = DATA_START
+        _safe_set_cell(ws, 4, COL_C, now.strftime("%d/%m/%Y"))
+        _safe_set_cell(ws, 6, COL_H, rfq_no)
+        _safe_set_cell(ws, 7, COL_C, f"QTAMABN-SEV {now.strftime('%d%m%Y')} - {rfq_no}")
+        if products:
+            _safe_set_cell(ws, 14, COL_A, f"Product description/ Ten hang: {products[0].get('short_name', '')}")
 
-    for i, product in enumerate(products):
-        if i == 0:
-            row = DATA_START
-        else:
-            row = last_data_row + 1
-            ws.insert_rows(row)
-            _copy_row_style(ws, TEMPLATE_ROW, row)
-            _copy_merged_ranges_for_row(ws, TEMPLATE_ROW, row)
+        DATA_START = 17
+        TEMPLATE_ROW = 17
+        last_data_row = DATA_START
 
-        _safe_set_cell(ws, row, COL_A, i + 1)
-        _safe_set_cell(ws, row, COL_B, product.get("don_hang", ""))
-        _safe_set_cell(ws, row, COL_C, f"{product.get('bqms', '')}\n{product.get('spec', '')}")
-        _safe_set_cell(ws, row, COL_D, product.get("maker", ""))
-        _safe_set_cell(ws, row, COL_F, product.get("don_vi", "EA"))
-        _safe_set_cell(ws, row, COL_G, product.get("so_luong", 0))
+        for i, product in enumerate(products):
+            if i == 0:
+                row = DATA_START
+            else:
+                row = last_data_row + 1
+                ws.insert_rows(row)
+                _copy_row_style(ws, TEMPLATE_ROW, row)
+                _copy_merged_ranges_for_row(ws, TEMPLATE_ROW, row)
 
-        price = product.get("suggested_price") or product.get("unit_price")
-        _safe_set_cell(ws, row, COL_H, price if price else "")
-        ws.cell(row=row, column=COL_I).value = f"=G{row}*H{row}"
-        _safe_set_cell(ws, row, COL_J, product.get("ghi_chu", ""))
+            _safe_set_cell(ws, row, COL_A, i + 1)
+            _safe_set_cell(ws, row, COL_B, product.get("don_hang", ""))
+            _safe_set_cell(ws, row, COL_C, f"{product.get('bqms', '')}\n{product.get('spec', '')}")
+            _safe_set_cell(ws, row, COL_D, product.get("maker", ""))
+            _safe_set_cell(ws, row, COL_F, product.get("don_vi", "EA"))
+            _safe_set_cell(ws, row, COL_G, product.get("so_luong", 0))
+            price = product.get("suggested_price") or product.get("unit_price")
+            _safe_set_cell(ws, row, COL_H, price if price else "")
+            ws.cell(row=row, column=COL_I).value = f"=G{row}*H{row}"
+            _safe_set_cell(ws, row, COL_J, product.get("ghi_chu", ""))
+            bqms_code = product.get("bqms", "")
+            if bqms_code in images_map:
+                xl_img = _pil_image_to_xl(images_map[bqms_code])
+                if xl_img:
+                    ws.add_image(xl_img, f"{get_column_letter(COL_E)}{row}")
+            last_data_row = row
 
-        # Image
-        bqms_code = product.get("bqms", "")
-        if bqms_code in images_map:
-            xl_img = _pil_image_to_xl(images_map[bqms_code])
-            if xl_img:
-                ws.add_image(xl_img, f"{get_column_letter(COL_E)}{row}")
+        total_row = last_data_row + 1
+        ws.insert_rows(total_row)
+        _copy_row_style(ws, TEMPLATE_ROW, total_row)
+        _safe_set_cell(ws, total_row, COL_A, "Grand Total (VND)")
+        ws.cell(row=total_row, column=COL_G).value = f"=SUM(G{DATA_START}:G{last_data_row})"
+        ws.cell(row=total_row, column=COL_I).value = f"=SUM(I{DATA_START}:I{last_data_row})"
+    else:
+        # Create from scratch — professional Commercial Quotation
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = "QUOTATION"
 
-        last_data_row = row
+        thin_border = Border(
+            left=Side(style='thin'), right=Side(style='thin'),
+            top=Side(style='thin'), bottom=Side(style='thin')
+        )
+        header_fill = PatternFill(start_color='2F5496', end_color='2F5496', fill_type='solid')
+        header_font = Font(name='Arial', size=10, bold=True, color='FFFFFF')
+        data_font = Font(name='Arial', size=10)
+        title_font = Font(name='Arial', size=14, bold=True, color='2F5496')
+        total_font = Font(name='Arial', size=11, bold=True)
+        total_fill = PatternFill(start_color='D6E4F0', end_color='D6E4F0', fill_type='solid')
 
-    # Grand Total row
-    total_row = last_data_row + 1
-    ws.insert_rows(total_row)
-    _copy_row_style(ws, TEMPLATE_ROW, total_row)
-    _safe_set_cell(ws, total_row, COL_A, "Grand Total (VND)")
-    ws.cell(row=total_row, column=COL_G).value = f"=SUM(G{DATA_START}:G{last_data_row})"
-    ws.cell(row=total_row, column=COL_I).value = f"=SUM(I{DATA_START}:I{last_data_row})"
+        # Company header
+        ws.merge_cells('A1:J1')
+        ws['A1'] = 'AMA BAC NINH JSC - COMMERCIAL QUOTATION'
+        ws['A1'].font = title_font
+        ws['A1'].alignment = Alignment(horizontal='center')
+
+        # Metadata
+        ws['A3'] = 'Date:'
+        ws['A3'].font = Font(name='Arial', size=10, bold=True)
+        ws['B3'] = now.strftime('%d/%m/%Y')
+        ws['B3'].font = data_font
+
+        ws['A4'] = 'Quotation No:'
+        ws['A4'].font = Font(name='Arial', size=10, bold=True)
+        ws['B4'] = f"QTAMABN-SEV {now.strftime('%d%m%Y')} - {rfq_no}"
+        ws['B4'].font = data_font
+
+        ws['F3'] = 'RFQ No:'
+        ws['F3'].font = Font(name='Arial', size=10, bold=True)
+        ws['G3'] = rfq_no
+        ws['G3'].font = Font(name='Arial', size=10, bold=True, color='2F5496')
+
+        # Column headers row 6
+        headers = ['#', 'RFQ No', 'BQMS Code / Spec', 'Maker', 'Image', 'Unit', 'Qty', 'Unit Price (VND)', 'Amount (VND)', 'Notes']
+        col_widths = [5, 14, 40, 15, 10, 8, 10, 18, 18, 15]
+
+        for col_idx, (h, w) in enumerate(zip(headers, col_widths), 1):
+            cell = ws.cell(row=6, column=col_idx, value=h)
+            cell.font = header_font
+            cell.fill = header_fill
+            cell.border = thin_border
+            cell.alignment = Alignment(horizontal='center', wrap_text=True, vertical='center')
+            ws.column_dimensions[get_column_letter(col_idx)].width = w
+
+        ws.row_dimensions[6].height = 30
+
+        # Data rows
+        DATA_START = 7
+        last_data_row = DATA_START
+
+        for i, product in enumerate(products):
+            row = DATA_START + i
+            price = product.get("suggested_price") or product.get("unit_price")
+            qty = product.get("so_luong", 0)
+
+            data = [
+                i + 1,
+                product.get("don_hang", ""),
+                f"{product.get('bqms', '')}\n{product.get('spec', '')}",
+                product.get("maker", ""),
+                "",  # image placeholder
+                product.get("don_vi", "EA"),
+                qty,
+                price if price else "",
+                None,  # formula
+                product.get("ghi_chu", ""),
+            ]
+
+            for col_idx, val in enumerate(data, 1):
+                cell = ws.cell(row=row, column=col_idx, value=val)
+                cell.font = data_font
+                cell.border = thin_border
+                if col_idx == 1:
+                    cell.alignment = Alignment(horizontal='center')
+                elif col_idx == 3:
+                    cell.alignment = Alignment(wrap_text=True, vertical='top')
+                elif col_idx in (7, 8, 9):
+                    cell.alignment = Alignment(horizontal='right')
+                    cell.number_format = '#,##0'
+
+            # Amount formula
+            ws.cell(row=row, column=9).value = f"=G{row}*H{row}"
+            ws.cell(row=row, column=9).number_format = '#,##0'
+
+            # Image
+            bqms_code = product.get("bqms", "")
+            if bqms_code in images_map:
+                xl_img = _pil_image_to_xl(images_map[bqms_code])
+                if xl_img:
+                    ws.add_image(xl_img, f"E{row}")
+
+            last_data_row = row
+
+        # Grand Total row
+        total_row = last_data_row + 1
+        ws.merge_cells(f'A{total_row}:F{total_row}')
+        ws[f'A{total_row}'] = 'GRAND TOTAL (VND)'
+        ws[f'A{total_row}'].font = total_font
+        ws[f'A{total_row}'].fill = total_fill
+        ws[f'A{total_row}'].alignment = Alignment(horizontal='right')
+        ws[f'A{total_row}'].border = thin_border
+
+        ws.cell(row=total_row, column=7).value = f"=SUM(G{DATA_START}:G{last_data_row})"
+        ws.cell(row=total_row, column=7).font = total_font
+        ws.cell(row=total_row, column=7).fill = total_fill
+        ws.cell(row=total_row, column=7).border = thin_border
+        ws.cell(row=total_row, column=7).number_format = '#,##0'
+
+        ws.cell(row=total_row, column=9).value = f"=SUM(I{DATA_START}:I{last_data_row})"
+        ws.cell(row=total_row, column=9).font = total_font
+        ws.cell(row=total_row, column=9).fill = total_fill
+        ws.cell(row=total_row, column=9).border = thin_border
+        ws.cell(row=total_row, column=9).number_format = '#,##0'
+
+        for col in range(1, 11):
+            if col not in (1, 7, 9):
+                ws.cell(row=total_row, column=col).fill = total_fill
+                ws.cell(row=total_row, column=col).border = thin_border
 
     Path(output_path).parent.mkdir(parents=True, exist_ok=True)
     wb.save(output_path)
-    logger.info("Quotation filled: %d products → %s", len(products), output_path)
+    logger.info("Quotation filled: %d products -> %s", len(products), output_path)
     return True
 
 
@@ -515,19 +719,23 @@ async def run_autofill_job(
     images: list[tuple[str, bytes]] | None = None,
     cam_ket_template: str | None = None,
     commercial_template: str | None = None,
+    flow_type: str = "tm",
 ) -> dict[str, Any]:
     """Execute the full auto-fill pipeline for a quotation.
 
-    Steps:
-      1. Lookup prices from DB
-      2. Match images to orders
-      3. Fill CAM KET template (if template provided)
-      4. Fill Commercial Quotation template (if template provided)
-      5. Convert to PDF via Gotenberg
-      6. Update quotation record in DB
+    Args:
+        flow_type: "tm" (Thương Mại) or "gc" (Gia Công).
+            TM: CAM KET (all items) + Commercial Quotation (TM items only).
+            GC: CAM KET (all items) + Commercial Quotation (GC items with cost breakdown).
 
-    Returns:
-        Result dict with file paths and status.
+    Steps:
+      1. Apply user-edited prices (unit_price field overrides suggested_price)
+      2. Lookup prices from DB for items without user price
+      3. Match images to orders
+      4. Fill CAM KET template (all items)
+      5. Fill Commercial Quotation template (filtered by flow_type)
+      6. Convert to PDF via Gotenberg
+      7. Update quotation record in DB
     """
     from app.services.gotenberg_service import convert_xlsx_to_pdf
 
@@ -545,54 +753,85 @@ async def run_autofill_job(
             quotation_id,
         )
 
-        # 1. Lookup prices
-        items = await lookup_prices(conn, items)
+        # 1. Apply user-edited prices — if item has 'unit_price', use it as suggested_price
+        for item in items:
+            user_price = item.get("unit_price")
+            if user_price is not None and user_price != "" and user_price != 0:
+                try:
+                    item["suggested_price"] = float(user_price)
+                except (ValueError, TypeError):
+                    pass
 
-        # Get RFQ no from items
-        rfq_no = items[0]["don_hang"] if items else "UNKNOWN"
-        output_dir = FILES_BASE / rfq_no / datetime.now().strftime("%Y%m%d_%H%M%S")
+        # 2. Lookup prices from DB for items without a user price
+        items_needing_lookup = [i for i in items if not i.get("suggested_price")]
+        if items_needing_lookup:
+            items_needing_lookup = await lookup_prices(conn, items_needing_lookup)
+            # Merge back
+            lookup_map = {i["bqms"]: i for i in items_needing_lookup}
+            for item in items:
+                if not item.get("suggested_price") and item.get("bqms") in lookup_map:
+                    looked = lookup_map[item["bqms"]]
+                    item["suggested_price"] = looked.get("suggested_price")
+                    item["price_history"] = looked.get("price_history", [])
+
+        # Get RFQ no and build output path matching OneDrive structure:
+        # RFQ {year}/THANG {month}/{rfq_no} {short_spec}/
+        rfq_no = items[0].get("don_hang", "UNKNOWN") if items else "UNKNOWN"
+        now = datetime.now()
+        year_str = f"RFQ {now.year}"
+        month_str = f"THANG {now.month}"
+
+        # Build folder name: "{rfq_no} {short_spec} {day}-{month}"
+        short_spec = ""
+        if items:
+            spec = items[0].get("spec", "") or items[0].get("bqms", "")
+            # Take first word/part of spec for folder name
+            short_spec = re.sub(r'[\\/:*?"<>|]', '', spec)[:40].strip()
+        folder_name = f"{rfq_no} {short_spec} {now.day}-{now.month}".strip()
+
+        output_dir = FILES_BASE / year_str / month_str / folder_name
         output_dir.mkdir(parents=True, exist_ok=True)
 
-        # 2. Match images
+        # 3. Match images
         images_map: dict[str, bytes] = {}
         if images:
             images_map = match_images_to_orders(images, items)
 
-        # Filter TM items for commercial templates
-        tm_items = [i for i in items if i.get("loai_hang") == "TM"]
+        # Filter items by flow_type
+        if flow_type == "gc":
+            target_items = [i for i in items if i.get("loai_hang") == "GC"] or items
+        else:
+            target_items = [i for i in items if i.get("loai_hang") == "TM"] or items
+
         all_items = items  # CAM KET uses all items
 
         files: list[dict] = []
 
-        # 3. Fill CAM KET
-        if cam_ket_template:
-            ck_xlsx = str(output_dir / f"CAM_KET_{rfq_no}.xlsx")
-            fill_cam_ket(cam_ket_template, all_items, images_map, ck_xlsx)
-            files.append({"type": "cam_ket_xlsx", "path": ck_xlsx})
+        # 4. Fill CAM KET (always — creates from scratch if no template)
+        ck_xlsx = str(output_dir / f"CAM_KET_{rfq_no}.xlsx")
+        fill_cam_ket(cam_ket_template, all_items, images_map, ck_xlsx)
+        files.append({"type": "cam_ket_xlsx", "path": ck_xlsx})
 
-            # Convert to PDF
-            try:
-                ck_pdf = str(output_dir / f"CAM_KET_{rfq_no}.pdf")
-                await convert_xlsx_to_pdf(ck_xlsx, ck_pdf)
-                files.append({"type": "cam_ket_pdf", "path": ck_pdf})
-            except Exception as exc:
-                result["errors"].append(f"CAM KET PDF conversion failed: {exc}")
+        try:
+            ck_pdf = str(output_dir / f"CAM_KET_{rfq_no}.pdf")
+            await convert_xlsx_to_pdf(ck_xlsx, ck_pdf)
+            files.append({"type": "cam_ket_pdf", "path": ck_pdf})
+        except Exception as exc:
+            result["errors"].append(f"CAM KET PDF conversion failed: {exc}")
 
-        # 4. Fill Commercial Quotation
-        if commercial_template:
-            target_items = tm_items if tm_items else all_items
-            qt_xlsx = str(output_dir / f"QUOTATION_{rfq_no}.xlsx")
-            fill_quotation(commercial_template, target_items, images_map, rfq_no, qt_xlsx)
-            files.append({"type": "quotation_xlsx", "path": qt_xlsx})
+        # 5. Fill Commercial Quotation (always — creates from scratch if no template)
+        qt_xlsx = str(output_dir / f"QUOTATION_{rfq_no}.xlsx")
+        fill_quotation(commercial_template, target_items, images_map, rfq_no, qt_xlsx)
+        files.append({"type": "quotation_xlsx", "path": qt_xlsx})
 
-            try:
-                qt_pdf = str(output_dir / f"QUOTATION_{rfq_no}.pdf")
-                await convert_xlsx_to_pdf(qt_xlsx, qt_pdf)
-                files.append({"type": "quotation_pdf", "path": qt_pdf})
-            except Exception as exc:
-                result["errors"].append(f"Quotation PDF conversion failed: {exc}")
+        try:
+            qt_pdf = str(output_dir / f"QUOTATION_{rfq_no}.pdf")
+            await convert_xlsx_to_pdf(qt_xlsx, qt_pdf)
+            files.append({"type": "quotation_pdf", "path": qt_pdf})
+        except Exception as exc:
+            result["errors"].append(f"Quotation PDF conversion failed: {exc}")
 
-        # 5. Update DB
+        # 6. Update DB
         output_xlsx = next((f["path"] for f in files if "xlsx" in f["type"]), None)
         output_pdf = next((f["path"] for f in files if "pdf" in f["type"]), None)
 
