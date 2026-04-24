@@ -8,3 +8,7 @@ data/backups/
 *.dump
 *.log
 .DS_Store
+
+# Claude Code local-only
+.claude/settings.local.json
+.claude/cache/
