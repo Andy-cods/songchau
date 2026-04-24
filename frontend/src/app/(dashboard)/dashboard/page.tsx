@@ -202,11 +202,15 @@ export default function DashboardPage() {
   ];
   const funnelMax = funnelStages[0]?.value || 1;
 
+  const toNum = (v: unknown): number => {
+    const n = typeof v === 'number' ? v : Number(v);
+    return Number.isFinite(n) ? n : 0;
+  };
   const makersDonut = makers.map((m: any) => ({
-    name:  m.maker    ?? '',
-    value: m.total    ?? 0,
-    won:   m.won      ?? 0,
-    rate:  m.win_rate ?? 0,
+    name:  m.maker ?? '',
+    value: toNum(m.total),
+    won:   toNum(m.won),
+    rate:  toNum(m.win_rate),
   }));
 
   const avgWinRate = winRateTrend.length

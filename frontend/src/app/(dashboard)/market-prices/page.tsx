@@ -1116,12 +1116,12 @@ function SearchTab({
                   <SummaryLine label="Lần RFQ gần nhất" value={historyStats.latest_rfq ? formatDate(historyStats.latest_rfq) : '—'} />
                 </div>
                 <div className="mt-4 rounded-2xl bg-slate-50 p-3 text-sm text-slate-700">
-                  {compareAvg == null ? (
+                  {compareAvg == null || !Number.isFinite(compareAvg) ? (
                     'Chưa đủ dữ liệu để so sánh với average.'
                   ) : compareAvg <= 0 ? (
-                    <span className="inline-flex items-center gap-2"><TrendingDown className="h-4 w-4 text-emerald-600" />Giá đang chọn thấp hơn trung bình {Math.abs(compareAvg).toFixed(1)}%.</span>
+                    <span className="inline-flex items-center gap-2"><TrendingDown className="h-4 w-4 text-emerald-600" />Giá đang chọn thấp hơn trung bình {Math.abs(Number(compareAvg)).toFixed(1)}%.</span>
                   ) : (
-                    <span className="inline-flex items-center gap-2"><TrendingUp className="h-4 w-4 text-amber-600" />Giá đang chọn cao hơn trung bình {compareAvg.toFixed(1)}%.</span>
+                    <span className="inline-flex items-center gap-2"><TrendingUp className="h-4 w-4 text-amber-600" />Giá đang chọn cao hơn trung bình {Number(compareAvg).toFixed(1)}%.</span>
                   )}
                 </div>
               </div>

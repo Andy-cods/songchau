@@ -39,14 +39,18 @@ function ChartTooltip({
       }}
     >
       <p style={{ margin: 0, marginBottom: 4, fontWeight: 600 }}>{label}</p>
-      {payload.map((entry, i) => (
-        <p key={i} style={{ margin: 0, color: entry.color }}>
-          {entry.name}:{' '}
-          {entry.dataKey === 'cumPercent'
-            ? `${entry.value.toFixed(1)}%`
-            : entry.value.toLocaleString('vi-VN')}
-        </p>
-      ))}
+      {payload.map((entry, i) => {
+        const raw = Number(entry.value);
+        const safe = Number.isFinite(raw) ? raw : 0;
+        return (
+          <p key={i} style={{ margin: 0, color: entry.color }}>
+            {entry.name}:{' '}
+            {entry.dataKey === 'cumPercent'
+              ? `${safe.toFixed(1)}%`
+              : safe.toLocaleString('vi-VN')}
+          </p>
+        );
+      })}
     </div>
   );
 }
