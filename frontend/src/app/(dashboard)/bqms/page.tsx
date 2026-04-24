@@ -28,6 +28,7 @@ import {
   CheckCircle,
 } from 'lucide-react';
 import { api } from '@/lib/api';
+import { SamsungSyncWidget } from '@/components/features/SamsungSyncWidget';
 import { cn, formatDate } from '@/lib/utils';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -85,16 +86,25 @@ interface RFQTableResponse {
   };
 }
 
+interface QuotationHistoryFile {
+  type: string;
+  filename: string;
+  size: number;
+  path: string;
+  download_url: string;
+  preview_url: string | null;
+}
+
 interface QuotationHistoryItem {
   id: number;
   rfq_no: string | null;
-  quotation_number: string | null;
-  customer_name: string | null;
-  total_amount: number | null;
-  currency: string | null;
   status: string | null;
+  total_items: number | null;
+  filled_items: number | null;
+  output_xlsx: string | null;
+  output_pdf: string | null;
   created_at: string | null;
-  submitted_at: string | null;
+  files: QuotationHistoryFile[];
 }
 
 interface EditingCell {
@@ -105,12 +115,15 @@ interface EditingCell {
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
+function withToken(url: string): string {
+  if (typeof window === 'undefined') return url;
+  const token = localStorage.getItem('access_token') ?? '';
+  const sep = url.includes('?') ? '&' : '?';
+  return `${url}${sep}token=${encodeURIComponent(token)}`;
+}
+
 function fmtVnd(value?: number | null): string {
   if (value == null) return '—';
-  if (value >= 1_000_000_000)
-    return new Intl.NumberFormat('vi-VN').format(Math.round(value / 1_000_000_000)) + ' tỷ';
-  if (value >= 1_000_000)
-    return new Intl.NumberFormat('vi-VN').format(Math.round(value / 1_000_000)) + ' tr';
   return new Intl.NumberFormat('vi-VN').format(value);
 }
 
@@ -266,39 +279,194 @@ function PriceCell({
 
 // ─── Row Detail Panel ─────────────────────────────────────────────────────────
 
-// ── Inline Create Quotation ──────────────────────────────────
-function InlineCreateQuotation({ item }: { item: RFQItem }) {
+// ── Inline Create Quotation (TM + GC Flow) ──────────────────
+function InlineCreateQuotation({ item, pageYear, pageMonth }: { item: RFQItem; pageYear?: number | null; pageMonth?: number | null }) {
   const queryClient = useQueryClient();
-  const [step, setStep] = useState<'preview' | 'generating' | 'done' | 'error'>('preview');
+  const [step, setStep] = useState<'config' | 'preview' | 'generating' | 'done' | 'error'>('config');
   const [result, setResult] = useState<any>(null);
+  const [flowType, setFlowType] = useState<'tm' | 'gc'>('tm');
+  const [lookupYear, setLookupYear] = useState<number | null>(pageYear ?? new Date().getFullYear());
+  const [lookupMonth, setLookupMonth] = useState<number | null>(pageMonth ?? null);
+  const [editedPrices, setEditedPrices] = useState<Record<string, string>>({});
+  const [previewPdfUrl, setPreviewPdfUrl] = useState<string | null>(null);
 
-  // Lookup prices for this RFQ
-  const { data: lookupData, isLoading: lookupLoading } = useQuery({
-    queryKey: ['rfq-lookup', item.rfq_number],
-    queryFn: () => api.get<{ data: { items: any[]; total: number } }>(
-      `/api/v1/quotations/lookup?rfq_code=${encodeURIComponent(item.rfq_number ?? '')}`
+  // ─── GC-specific state ────────────────────────────────────
+  const [gcStep, setGcStep] = useState<'detect' | 'scan' | 'edit' | 'generating' | 'done' | 'error'>('detect');
+  const [gcLevels, setGcLevels] = useState<any[]>([]);
+  const [gcRfqFolder, setGcRfqFolder] = useState<string>('');
+  const [gcQuoteLevel, setGcQuoteLevel] = useState<number>(2);
+  const [gcSelectedExcel, setGcSelectedExcel] = useState<string>('');
+  const [gcSheets, setGcSheets] = useState<any[]>([]);
+  const [gcEditedPrices, setGcEditedPrices] = useState<Record<string, string>>({});
+  const [gcResult, setGcResult] = useState<any>(null);
+  const [gcDetecting, setGcDetecting] = useState(false);
+  const [gcScanning, setGcScanning] = useState(false);
+  const [gcGenerating, setGcGenerating] = useState(false);
+
+  // Build lookup URL with year/month
+  const lookupParams = new URLSearchParams();
+  lookupParams.set('rfq_code', item.rfq_number ?? '');
+  if (lookupYear) lookupParams.set('year', String(lookupYear));
+  if (lookupMonth) lookupParams.set('month', String(lookupMonth));
+
+  const { data: lookupData, isLoading: lookupLoading, refetch } = useQuery({
+    queryKey: ['rfq-lookup', item.rfq_number, lookupYear, lookupMonth],
+    queryFn: () => api.get<{ data: { items: any[]; total: number; gc_count: number; tm_count: number } }>(
+      `/api/v1/quotations/lookup?${lookupParams.toString()}`
     ),
-    enabled: !!item.rfq_number,
+    enabled: step !== 'config' && flowType === 'tm',
   });
 
   const lookupItems = Array.isArray(lookupData?.data?.items) ? lookupData.data.items : [];
+  const gcCount = lookupData?.data?.gc_count ?? 0;
+  const tmCount = lookupData?.data?.tm_count ?? 0;
+
+  // ─── GC API calls ────────────────────────────────────────
+  const handleGcDetect = async () => {
+    setGcDetecting(true);
+    try {
+      const res = await api.post<{ data: any }>('/api/v1/quotations/gc/detect-files', {
+        rfq_no: item.rfq_number ?? '',
+        year: lookupYear ?? undefined,
+        month: lookupMonth ?? undefined,
+      });
+      const d = res.data;
+      setGcLevels(d.levels || []);
+      setGcRfqFolder(d.rfq_folder || '');
+      if (d.levels?.length > 0) {
+        const maxLv = d.levels[d.levels.length - 1];
+        setGcSelectedExcel(maxLv.excel_files?.[0] ? `${maxLv.folder}/${maxLv.excel_files[0]}` : '');
+        setGcQuoteLevel(Math.min((d.max_level || 0) + 1, 4));
+      }
+      setGcStep('scan');
+    } catch (err: any) {
+      setGcResult({ error: err?.detail ?? 'Không tìm thấy folder RFQ trên OneDrive' });
+      setGcStep('error');
+    } finally {
+      setGcDetecting(false);
+    }
+  };
+
+  const handleGcScan = async () => {
+    setGcScanning(true);
+    try {
+      const overrides: Record<string, number> = {};
+      for (const [k, v] of Object.entries(gcEditedPrices)) {
+        if (v !== '') overrides[k] = Number(v);
+      }
+      const res = await api.post<{ data: any }>('/api/v1/quotations/gc/scan-markers', {
+        rfq_no: item.rfq_number ?? '',
+        excel_path: gcSelectedExcel,
+        quote_level: gcQuoteLevel,
+        price_overrides: Object.keys(overrides).length > 0 ? overrides : undefined,
+      });
+      setGcSheets(res.data.sheets || []);
+      setGcStep('edit');
+    } catch (err: any) {
+      setGcResult({ error: err?.detail ?? 'Lỗi scan markers' });
+      setGcStep('error');
+    } finally {
+      setGcScanning(false);
+    }
+  };
+
+  const handleGcGenerate = async () => {
+    setGcGenerating(true);
+    setGcStep('generating');
+    try {
+      // Apply user-edited prices to sheets
+      const sheetsToSend = gcSheets.map((s: any) => {
+        const userPrice = gcEditedPrices[s.bqms_code];
+        if (userPrice !== undefined && userPrice !== '' && s.status === 'ready') {
+          const delta = Number(userPrice);
+          return {
+            ...s,
+            suggested_price: delta,
+            new_k_value: Math.abs(s.current_k_value ?? 0) + Math.abs(delta),
+          };
+        }
+        return s;
+      });
+
+      const res = await api.post<{ data: any; message: string }>('/api/v1/quotations/gc/generate', {
+        rfq_no: item.rfq_number ?? '',
+        quote_level: gcQuoteLevel,
+        source_folder: gcSelectedExcel.substring(0, gcSelectedExcel.lastIndexOf('/')),
+        sheets: sheetsToSend,
+      });
+      setGcResult(res.data);
+      setGcStep('done');
+      queryClient.invalidateQueries({ queryKey: ['bqms-rfq-table'] });
+    } catch (err: any) {
+      setGcResult({ error: err?.detail ?? 'Lỗi tạo báo giá GC' });
+      setGcStep('error');
+    } finally {
+      setGcGenerating(false);
+    }
+  };
+
+  // Auto-detect flow type based on items
+  const handleLookup = () => {
+    if (flowType === 'gc') {
+      setStep('preview');
+      handleGcDetect();
+      return;
+    }
+    setStep('preview');
+    refetch();
+  };
+
+  const handlePriceChange = (bqmsCode: string, value: string) => {
+    setEditedPrices(prev => ({ ...prev, [bqmsCode]: value }));
+  };
 
   const handleGenerate = async () => {
     setStep('generating');
     try {
-      const items = lookupItems.length > 0 ? lookupItems : [{
-        bqms: item.bqms_code ?? '', spec: item.specification ?? '',
-        maker: item.maker ?? '', so_luong: item.expected_qty ?? 1,
-        don_vi: item.unit ?? 'EA', don_hang: item.rfq_number ?? '',
-      }];
+      // Merge edited prices into items
+      const itemsToSend = lookupItems.length > 0
+        ? lookupItems.map((li: any) => ({
+            ...li,
+            unit_price: editedPrices[li.bqms] !== undefined
+              ? (editedPrices[li.bqms] === '' ? null : Number(editedPrices[li.bqms]))
+              : li.suggested_price ?? null,
+          }))
+        : [{
+            bqms: item.bqms_code ?? '', spec: item.specification ?? '',
+            maker: item.maker ?? '', so_luong: item.expected_qty ?? 1,
+            don_vi: item.unit ?? 'EA', don_hang: item.rfq_number ?? '',
+            loai_hang: flowType.toUpperCase(),
+          }];
+
       const res = await api.post<{ data: any; message: string }>('/api/v1/quotations/generate', {
         rfq_no: item.rfq_number ?? '',
         source_type: 'rfq_code',
-        items,
+        items: itemsToSend,
+        flow_type: flowType,
       });
-      setResult(res?.data);
+      const data = res?.data;
+      setResult(data);
       setStep('done');
       queryClient.invalidateQueries({ queryKey: ['bqms-rfq-table'] });
+
+      // Get share links for Excel files and open via MS Office Online viewer
+      if (data?.files) {
+        for (const f of data.files) {
+          if (f.type?.includes('xlsx')) {
+            try {
+              const shareRes = await api.get<{ url: string }>(
+                `/api/v1/quotations/share-link/${data.id}/${f.type}`
+              );
+              const publicUrl = `${window.location.origin}${shareRes.url}`;
+              const viewerUrl = `https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(publicUrl)}`;
+              window.open(viewerUrl, '_blank');
+            } catch {
+              // Fallback: open download directly
+              window.open(withToken(f.download_url), '_blank');
+            }
+          }
+        }
+      }
     } catch (err: any) {
       setResult({ error: err?.detail ?? err?.message ?? 'Lỗi tạo báo giá' });
       setStep('error');
@@ -307,98 +475,581 @@ function InlineCreateQuotation({ item }: { item: RFQItem }) {
 
   return (
     <div className="border-t border-brand-100 pt-3 space-y-3">
+      {/* Header */}
       <div className="flex items-center justify-between">
         <h4 className="text-xs font-semibold text-brand-700">
-          Tạo báo giá cho {item.rfq_number}
+          Tạo báo giá — {item.rfq_number}
         </h4>
-        {step === 'preview' && (
-          <span className="text-[11px] text-slate-400">
-            {lookupLoading ? 'Đang tra giá...' : `${lookupItems.length} items tìm thấy`}
-          </span>
+        {step !== 'config' && (
+          <button onClick={() => { setStep('config'); setResult(null); setPreviewPdfUrl(null); setGcStep('detect'); setGcResult(null); setGcSheets([]); setGcLevels([]); setGcEditedPrices({}); }}
+            className="text-[11px] text-slate-400 hover:text-slate-600">
+            Cấu hình lại
+          </button>
         )}
       </div>
 
-      {/* Preview items */}
-      {step === 'preview' && lookupItems.length > 0 && (
-        <div className="overflow-x-auto rounded-lg border border-slate-200">
-          <table className="w-full text-[11px]">
-            <thead className="bg-slate-50">
-              <tr>
-                <th className="text-left px-2 py-1.5 font-medium text-slate-500">BQMS Code</th>
-                <th className="text-left px-2 py-1.5 font-medium text-slate-500">Spec</th>
-                <th className="text-left px-2 py-1.5 font-medium text-slate-500">Maker</th>
-                <th className="text-right px-2 py-1.5 font-medium text-slate-500">SL</th>
-                <th className="text-right px-2 py-1.5 font-medium text-slate-500">Giá gợi ý</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
-              {lookupItems.slice(0, 10).map((li: any, i: number) => (
-                <tr key={i} className="hover:bg-slate-50/50">
-                  <td className="px-2 py-1 font-mono text-slate-700">{li.bqms ?? '—'}</td>
-                  <td className="px-2 py-1 text-slate-600 max-w-[200px] truncate">{li.spec ?? '—'}</td>
-                  <td className="px-2 py-1 text-slate-600">{li.maker ?? '—'}</td>
-                  <td className="px-2 py-1 text-right font-mono">{li.so_luong ?? 0}</td>
-                  <td className="px-2 py-1 text-right font-mono text-emerald-600">
-                    {li.suggested_price ? (li.suggested_price ?? 0).toLocaleString('vi-VN') : '—'}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-
-      {step === 'preview' && (
-        <button
-          onClick={handleGenerate}
-          disabled={lookupLoading}
-          className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-semibold bg-emerald-600 text-white hover:bg-emerald-700 transition-colors disabled:opacity-50"
-        >
-          <FileSpreadsheet className="h-3.5 w-3.5" />
-          Tạo báo giá ngay ({lookupItems.length || 1} items)
-        </button>
-      )}
-
-      {step === 'generating' && (
-        <div className="flex items-center gap-2 text-xs text-brand-600">
-          <Loader2 className="h-4 w-4 animate-spin" />
-          Đang tạo báo giá...
-        </div>
-      )}
-
-      {step === 'done' && result && (
-        <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-3 space-y-2">
-          <div className="flex items-center gap-2 text-xs font-semibold text-emerald-700">
-            <CheckCircle className="h-4 w-4" />
-            Báo giá đã tạo thành công!
+      {/* Step 1: Config — Flow type + Year/Month filter */}
+      {step === 'config' && (
+        <div className="space-y-3">
+          <div className="flex items-center gap-2 text-sm font-semibold text-slate-700">
+            <span className="flex items-center justify-center w-6 h-6 rounded-full bg-brand-600 text-white text-xs font-bold">1</span>
+            Cau hinh bao gia
           </div>
-          <div className="text-[11px] text-emerald-600">
-            {result.total_items ?? 0} items | {result.filled_items ?? 0} đã có giá
+          {/* Flow type selection */}
+          <div className="flex items-center gap-2 pl-8">
+            <span className="text-[11px] text-slate-500">Loai:</span>
+            <button
+              onClick={() => setFlowType('tm')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors ${
+                flowType === 'tm'
+                  ? 'bg-blue-600 text-white border-blue-600'
+                  : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
+              }`}
+            >
+              TM — Thương Mại
+            </button>
+            <button
+              onClick={() => setFlowType('gc')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors ${
+                flowType === 'gc'
+                  ? 'bg-orange-600 text-white border-orange-600'
+                  : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
+              }`}
+            >
+              GC — Gia Công
+            </button>
           </div>
-          {result.files && result.files.length > 0 && (
-            <div className="flex gap-2 mt-1">
-              {result.files.map((f: any, i: number) => (
-                <a key={i}
-                  href={`/api/v1/quotations/download/${result.id}/${f.type}`}
-                  className="inline-flex items-center gap-1 px-2 py-1 rounded bg-emerald-600 text-white text-[11px] hover:bg-emerald-700"
-                >
-                  <Download className="h-3 w-3" />
-                  {f.type.includes('pdf') ? 'PDF' : 'Excel'}
-                </a>
-              ))}
+
+          {/* Year/Month filter */}
+          <div className="flex items-center gap-3 pl-8">
+            <div className="flex items-center gap-1.5">
+              <span className="text-[11px] text-slate-500">Nam:</span>
+              <select value={lookupYear ?? ''} onChange={e => setLookupYear(e.target.value ? Number(e.target.value) : null)}
+                className="text-xs border border-slate-200 rounded-lg px-2 py-1 bg-white">
+                <option value="">Tất cả</option>
+                {[2026, 2025, 2024, 2023].map(y => <option key={y} value={y}>{y}</option>)}
+              </select>
             </div>
-          )}
-          <button onClick={() => setStep('preview')} className="text-[11px] text-emerald-600 underline">
-            Tạo lại
+            <div className="flex items-center gap-1.5">
+              <span className="text-[11px] text-slate-500">Tháng:</span>
+              <select value={lookupMonth ?? ''} onChange={e => setLookupMonth(e.target.value ? Number(e.target.value) : null)}
+                className="text-xs border border-slate-200 rounded-lg px-2 py-1 bg-white">
+                <option value="">Tất cả</option>
+                {Array.from({ length: 12 }, (_, i) => i + 1).map(m => <option key={m} value={m}>Tháng {m}</option>)}
+              </select>
+            </div>
+          </div>
+
+          <button onClick={handleLookup}
+            className={`inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-semibold text-white transition-colors ml-8 ${
+              flowType === 'gc' ? 'bg-orange-600 hover:bg-orange-700' : 'bg-brand-600 hover:bg-brand-700'
+            }`}>
+            <Search className="h-3.5 w-3.5" />
+            {flowType === 'gc' ? 'Tìm file GC trên OneDrive' : 'Tra cứu items'}
           </button>
         </div>
       )}
 
+      {/* ═══ GC FLOW — replaces TM preview/generate when flowType=gc ═══ */}
+      {step === 'preview' && flowType === 'gc' && (
+        <div className="space-y-3">
+          {/* GC Step: Detect / Scan / Edit / Generate / Done / Error */}
+
+          {/* Detect — tìm file Excel GC trên OneDrive */}
+          {gcStep === 'detect' && (
+            <div className="space-y-2">
+              <div className="flex items-center gap-2 text-sm font-semibold text-orange-700">
+                <span className="w-6 h-6 rounded-full bg-orange-600 text-white text-xs flex items-center justify-center font-bold">2</span>
+                Phát hiện file Excel GC trên OneDrive
+              </div>
+              <button onClick={handleGcDetect}
+                disabled={gcDetecting}
+                className="ml-8 px-4 py-2 rounded-lg text-xs font-semibold bg-orange-600 text-white hover:bg-orange-700 disabled:opacity-50 transition-colors">
+                {gcDetecting ? (
+                  <span className="flex items-center gap-1.5"><Loader2 className="h-3.5 w-3.5 animate-spin" />Đang tìm...</span>
+                ) : 'Tìm file GC'}
+              </button>
+            </div>
+          )}
+
+          {/* Scan — hiện detected files + level selector */}
+          {gcStep === 'scan' && (
+            <div className="space-y-3">
+              <div className="flex items-center gap-2 text-sm font-semibold text-orange-700">
+                <span className="w-6 h-6 rounded-full bg-orange-600 text-white text-xs flex items-center justify-center font-bold">2</span>
+                Chọn file & cấp báo giá
+              </div>
+              {/* RFQ folder info */}
+              <div className="ml-8 text-[11px] text-slate-500 truncate" title={gcRfqFolder}>
+                Folder: {gcRfqFolder.split('/').slice(-2).join('/')}
+              </div>
+              {/* Level selector */}
+              <div className="ml-8 flex items-center gap-3">
+                <span className="text-xs text-slate-600">Cấp báo giá:</span>
+                {[1, 2, 3, 4].map(lv => (
+                  <button key={lv} onClick={() => setGcQuoteLevel(lv)}
+                    className={`px-3 py-1 rounded text-xs font-bold border transition-colors ${
+                      gcQuoteLevel === lv
+                        ? 'bg-orange-600 text-white border-orange-600'
+                        : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
+                    }`}>
+                    L{lv}
+                  </button>
+                ))}
+              </div>
+              {/* Detected Excel files */}
+              <div className="ml-8 space-y-1">
+                {gcLevels.map((lv: any) => (
+                  <div key={lv.level} className="text-xs">
+                    <span className="font-semibold text-slate-700">L{lv.level}/</span>
+                    {lv.excel_files?.map((f: string) => (
+                      <button key={f}
+                        onClick={() => setGcSelectedExcel(`${lv.folder}/${f}`)}
+                        className={`ml-2 px-2 py-0.5 rounded text-[10px] transition-colors ${
+                          gcSelectedExcel.endsWith(f)
+                            ? 'bg-orange-100 text-orange-700 font-bold border border-orange-300'
+                            : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                        }`}>
+                        {f}
+                      </button>
+                    ))}
+                  </div>
+                ))}
+              </div>
+              {/* Scan button */}
+              <div className="ml-8 flex items-center gap-2">
+                <button onClick={handleGcScan}
+                  disabled={!gcSelectedExcel || gcScanning}
+                  className="px-4 py-2 rounded-lg text-xs font-semibold bg-orange-600 text-white hover:bg-orange-700 disabled:opacity-50 transition-colors">
+                  {gcScanning ? (
+                    <span className="flex items-center gap-1.5"><Loader2 className="h-3.5 w-3.5 animate-spin" />Đang scan...</span>
+                  ) : 'Scan markers'}
+                </button>
+                <button onClick={() => { setStep('config'); setGcStep('detect'); }}
+                  className="px-3 py-2 rounded-lg text-xs font-medium bg-white border border-slate-200 text-slate-600 hover:bg-slate-50 transition-colors">
+                  Quay lại
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Edit — marker preview table with editable prices per sheet */}
+          {gcStep === 'edit' && (
+            <div className="space-y-3">
+              <div className="flex items-center gap-2 text-sm font-semibold text-orange-700">
+                <span className="w-6 h-6 rounded-full bg-orange-600 text-white text-xs flex items-center justify-center font-bold">3</span>
+                Xem và chỉnh sửa giá theo sheet
+              </div>
+              {/* Stats */}
+              <div className="ml-8 flex gap-3 text-[11px]">
+                <span className="text-slate-500">Tổng: {gcSheets.length} sheets</span>
+                <span className="text-green-600 font-medium">Sẵn sàng: {gcSheets.filter((s: any) => s.status === 'ready').length}</span>
+                <span className="text-amber-600 font-medium">Thiếu giá: {gcSheets.filter((s: any) => s.status === 'no_price').length}</span>
+                <span className="text-slate-400">Skip: {gcSheets.filter((s: any) => s.status === 'summary_skip').length}</span>
+              </div>
+              {/* Sheet table */}
+              <div className="ml-8 overflow-x-auto rounded-lg border border-slate-200 max-h-[350px] overflow-y-auto">
+                <table className="w-full text-xs">
+                  <thead className="bg-slate-50 sticky top-0">
+                    <tr>
+                      <th className="px-2 py-1.5 text-left font-medium text-slate-500">Sheet</th>
+                      <th className="px-2 py-1.5 text-left font-medium text-slate-500">BQMS Code</th>
+                      <th className="px-2 py-1.5 text-right font-medium text-slate-500">Marker</th>
+                      <th className="px-2 py-1.5 text-right font-medium text-slate-500">K hiện tại</th>
+                      <th className="px-2 py-1.5 text-right font-medium text-slate-500">Delta giá</th>
+                      <th className="px-2 py-1.5 text-right font-medium text-slate-500">K mới</th>
+                      <th className="px-2 py-1.5 text-center font-medium text-slate-500">Trạng thái</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {gcSheets.filter((s: any) => s.sheet_type !== 'summary').map((s: any) => {
+                      const userPrice = gcEditedPrices[s.bqms_code];
+                      const displayNewK = userPrice !== undefined && userPrice !== ''
+                        ? Math.abs(s.current_k_value ?? 0) + Math.abs(Number(userPrice))
+                        : s.new_k_value;
+                      return (
+                        <tr key={s.sheet_name} className="hover:bg-slate-50">
+                          <td className="px-2 py-1 font-mono text-[11px]">{s.sheet_name}</td>
+                          <td className="px-2 py-1 text-orange-700 font-medium">{s.bqms_code || '—'}</td>
+                          <td className="px-2 py-1 text-right font-mono text-[11px]">{s.target_row || '—'}</td>
+                          <td className="px-2 py-1 text-right font-mono">{s.current_k_value != null ? fmtVnd(s.current_k_value) : '—'}</td>
+                          <td className="px-2 py-1 text-right">
+                            <input
+                              type="number"
+                              placeholder={s.suggested_price != null ? String(s.suggested_price) : '—'}
+                              defaultValue={s.suggested_price ?? ''}
+                              onChange={(e) => {
+                                if (s.bqms_code) {
+                                  setGcEditedPrices(p => ({ ...p, [s.bqms_code]: e.target.value }));
+                                }
+                              }}
+                              className="w-24 text-right text-xs border rounded px-1.5 py-0.5 outline-none focus:ring-1 focus:ring-orange-400 focus:border-orange-300"
+                              disabled={s.status === 'no_code'}
+                            />
+                          </td>
+                          <td className="px-2 py-1 text-right font-mono font-bold text-green-700">
+                            {displayNewK != null ? fmtVnd(displayNewK) : '—'}
+                          </td>
+                          <td className="px-2 py-1 text-center">
+                            <span className={`inline-block px-1.5 py-0.5 rounded text-[10px] font-medium ${
+                              s.status === 'ready' ? 'bg-green-100 text-green-700' :
+                              s.status === 'no_price' ? 'bg-amber-100 text-amber-700' :
+                              s.status === 'no_code' ? 'bg-red-100 text-red-700' :
+                              s.status === 'no_marker' ? 'bg-red-100 text-red-600' :
+                              'bg-slate-100 text-slate-500'
+                            }`}>
+                              {s.status === 'ready' ? 'Sẵn sàng' :
+                               s.status === 'no_price' ? 'Thiếu giá' :
+                               s.status === 'no_code' ? 'Thiếu mã' :
+                               s.status === 'no_marker' ? 'Thiếu marker' : s.status}
+                            </span>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+              {/* Actions */}
+              <div className="ml-8 flex items-center gap-2">
+                <button onClick={handleGcGenerate}
+                  disabled={gcSheets.filter((s: any) => s.status === 'ready').length === 0}
+                  className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-semibold bg-orange-600 text-white hover:bg-orange-700 disabled:opacity-50 transition-colors">
+                  <FileSpreadsheet className="h-3.5 w-3.5" />
+                  Tạo báo giá GC L{gcQuoteLevel} ({gcSheets.filter((s: any) => s.status === 'ready').length} sheets)
+                </button>
+                <button onClick={() => { setGcStep('scan'); setGcEditedPrices({}); setGcSheets([]); }}
+                  className="px-3 py-2 rounded-lg text-xs font-medium bg-white border border-slate-200 text-slate-600 hover:bg-slate-50 transition-colors">
+                  Quay lại
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Generating */}
+          {gcStep === 'generating' && (
+            <div className="bg-orange-50 border border-orange-200 rounded-lg p-4 space-y-2">
+              <div className="flex items-center gap-2 text-sm font-semibold text-orange-700">
+                <span className="w-6 h-6 rounded-full bg-orange-600 text-white text-xs flex items-center justify-center font-bold">4</span>
+                Đang tạo báo giá GC...
+              </div>
+              <div className="flex items-center gap-2 text-xs text-orange-600 pl-8">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Clone L{Math.max(gcQuoteLevel - 1, 1)} → L{gcQuoteLevel}... điền giá column K... chuyển PDF...
+              </div>
+            </div>
+          )}
+
+          {/* Done */}
+          {gcStep === 'done' && gcResult && (
+            <div className="space-y-3">
+              <div className="flex items-center gap-2 text-sm font-semibold text-emerald-700">
+                <span className="w-6 h-6 rounded-full bg-emerald-600 text-white text-xs flex items-center justify-center font-bold">4</span>
+                Hoàn thành — {gcResult.edited_sheets ?? 0}/{gcResult.total_sheets ?? 0} sheets đã điền giá
+              </div>
+              {/* File listing */}
+              {gcResult.files && gcResult.files.length > 0 && (
+                <div className="bg-white border border-slate-200 rounded-lg overflow-hidden">
+                  <div className="bg-slate-50 px-3 py-2 border-b border-slate-200">
+                    <span className="text-xs font-semibold text-slate-700">Files đã tạo ({gcResult.files.length})</span>
+                  </div>
+                  <div className="divide-y divide-slate-100">
+                    {gcResult.files.map((f: any, i: number) => {
+                      const isPdf = f.type?.includes('pdf');
+                      const downloadUrl = withToken(f.download_url || '');
+                      return (
+                        <div key={i} className="px-3 py-2 flex items-center justify-between gap-3">
+                          <div className="flex items-center gap-2 min-w-0 flex-1">
+                            <div className={`p-1.5 rounded ${isPdf ? 'bg-red-100' : 'bg-green-100'}`}>
+                              {isPdf ? <Eye className="h-3.5 w-3.5 text-red-600" /> : <FileSpreadsheet className="h-3.5 w-3.5 text-green-600" />}
+                            </div>
+                            <div className="min-w-0">
+                              <div className="text-xs font-semibold text-slate-800">{f.name || f.type}</div>
+                              <div className="text-[10px] text-slate-400 font-mono truncate">{f.path || '—'}</div>
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-1.5 flex-shrink-0">
+                            {isPdf && f.preview_url && (
+                              <button onClick={() => window.open(withToken(f.preview_url), '_blank')}
+                                className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-red-600 text-white text-[11px] font-medium hover:bg-red-700 transition-colors">
+                                <Eye className="h-3 w-3" /> Xem PDF
+                              </button>
+                            )}
+                            {downloadUrl && (
+                              <a href={downloadUrl}
+                                className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-brand-600 text-white text-[11px] font-medium hover:bg-brand-700 transition-colors">
+                                <Download className="h-3 w-3" /> Tải về
+                              </a>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+              {/* Errors */}
+              {gcResult.errors?.length > 0 && (
+                <div className="bg-amber-50 border border-amber-200 rounded-lg p-3">
+                  <div className="text-xs font-semibold text-amber-700 mb-1">Cảnh báo ({gcResult.errors.length})</div>
+                  {gcResult.errors.map((e: string, i: number) => (
+                    <div key={i} className="text-[11px] text-amber-600">• {e}</div>
+                  ))}
+                </div>
+              )}
+              <button onClick={() => { setStep('config'); setGcStep('detect'); setGcResult(null); setGcEditedPrices({}); }}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-white border border-slate-200 text-slate-600 hover:bg-slate-50 transition-colors">
+                Tạo báo giá mới
+              </button>
+            </div>
+          )}
+
+          {/* Error */}
+          {gcStep === 'error' && (
+            <div className="bg-red-50 border border-red-200 rounded-lg p-3 space-y-2">
+              <div className="flex items-center gap-2 text-xs font-semibold text-red-700">
+                <XCircle className="h-4 w-4" /> Lỗi GC
+              </div>
+              <div className="text-xs text-red-600">{gcResult?.error ?? 'Lỗi không xác định'}</div>
+              <button onClick={() => { setGcStep('detect'); setGcResult(null); setGcSheets([]); setGcLevels([]); setGcEditedPrices({}); }} className="text-[11px] text-red-600 underline">Thử lại</button>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ═══ TM FLOW — Preview items with editable prices ═══ */}
+      {step === 'preview' && flowType === 'tm' && (
+        <div className="space-y-3">
+          <div className="flex items-center gap-2 text-sm font-semibold text-slate-700">
+            <span className="flex items-center justify-center w-6 h-6 rounded-full bg-brand-600 text-white text-xs font-bold">2</span>
+            Xem va chinh sua gia
+          </div>
+          {lookupLoading ? (
+            <div className="flex items-center gap-2 text-xs text-brand-600 py-2">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              Đang tra cứu...
+            </div>
+          ) : lookupItems.length === 0 ? (
+            <div className="text-xs text-slate-400 py-2">
+              Không tìm thấy items cho RFQ này trong khoảng thời gian đã chọn.
+              <button onClick={() => setStep('config')} className="ml-2 text-brand-600 underline">Thay đổi bộ lọc</button>
+            </div>
+          ) : (
+            <>
+              {/* Stats bar */}
+              <div className="flex items-center gap-3 text-[11px]">
+                <span className="text-slate-500">{lookupItems.length} items</span>
+                {tmCount > 0 && <span className="px-1.5 py-0.5 rounded bg-blue-100 text-blue-700 font-medium">TM: {tmCount}</span>}
+                {gcCount > 0 && <span className="px-1.5 py-0.5 rounded bg-orange-100 text-orange-700 font-medium">GC: {gcCount}</span>}
+                <span className="text-slate-400">|</span>
+                <span className={`font-medium ${flowType === 'tm' ? 'text-blue-600' : 'text-orange-600'}`}>
+                  Flow: {flowType.toUpperCase()}
+                </span>
+              </div>
+
+              {/* Items table with editable prices */}
+              <div className="overflow-x-auto rounded-lg border border-slate-200 max-h-[300px] overflow-y-auto">
+                <table className="w-full text-[11px]">
+                  <thead className="bg-slate-50 sticky top-0">
+                    <tr>
+                      <th className="text-left px-2 py-1.5 font-medium text-slate-500">Loại</th>
+                      <th className="text-left px-2 py-1.5 font-medium text-slate-500">BQMS Code</th>
+                      <th className="text-left px-2 py-1.5 font-medium text-slate-500">Spec</th>
+                      <th className="text-left px-2 py-1.5 font-medium text-slate-500">Maker</th>
+                      <th className="text-right px-2 py-1.5 font-medium text-slate-500">SL</th>
+                      <th className="text-right px-2 py-1.5 font-medium text-slate-500">Giá gợi ý</th>
+                      <th className="text-right px-2 py-1.5 font-medium text-slate-500">Giá báo (sửa)</th>
+                      <th className="text-left px-2 py-1.5 font-medium text-slate-500">KQ</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {lookupItems.map((li: any, i: number) => (
+                      <tr key={i} className="hover:bg-slate-50/50">
+                        <td className="px-2 py-1">
+                          <span className={`inline-block px-1.5 py-0.5 rounded text-[10px] font-bold ${
+                            li.loai_hang === 'GC' ? 'bg-orange-100 text-orange-700' :
+                            li.loai_hang === 'TM' ? 'bg-blue-100 text-blue-700' :
+                            'bg-slate-100 text-slate-500'
+                          }`}>{li.loai_hang ?? '?'}</span>
+                        </td>
+                        <td className="px-2 py-1 font-mono text-slate-700">{li.bqms ?? '—'}</td>
+                        <td className="px-2 py-1 text-slate-600 max-w-[180px] truncate" title={li.spec}>{li.spec ?? '—'}</td>
+                        <td className="px-2 py-1 text-slate-600">{li.maker ?? '—'}</td>
+                        <td className="px-2 py-1 text-right font-mono">{li.so_luong ?? 0}</td>
+                        <td className="px-2 py-1 text-right font-mono text-emerald-600">
+                          {li.suggested_price ? Number(li.suggested_price).toLocaleString('vi-VN') : '—'}
+                        </td>
+                        <td className="px-2 py-1 text-right">
+                          <input
+                            type="number"
+                            step="0.01"
+                            placeholder={li.suggested_price ? String(li.suggested_price) : '—'}
+                            value={editedPrices[li.bqms] ?? ''}
+                            onChange={(e) => handlePriceChange(li.bqms, e.target.value)}
+                            className="w-24 text-xs text-right font-mono border border-slate-200 rounded px-1.5 py-0.5 outline-none focus:ring-1 focus:ring-brand-500 focus:border-brand-400"
+                          />
+                        </td>
+                        <td className="px-2 py-1">
+                          <ResultBadge result={li.result} />
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Generate + auto open PDF preview in new tabs */}
+              <div className="flex items-center gap-2">
+                <button onClick={handleGenerate}
+                  className={`inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-semibold text-white transition-colors ${
+                    flowType === 'tm'
+                      ? 'bg-blue-600 hover:bg-blue-700'
+                      : 'bg-orange-600 hover:bg-orange-700'
+                  }`}>
+                  <FileSpreadsheet className="h-3.5 w-3.5" />
+                  Tao & xem truoc bao gia ({lookupItems.length} items)
+                </button>
+                <button onClick={() => setStep('config')}
+                  className="px-3 py-2 rounded-lg text-xs font-medium bg-white border border-slate-200 text-slate-600 hover:bg-slate-50 transition-colors">
+                  Quay lai
+                </button>
+              </div>
+            </>
+          )}
+        </div>
+      )}
+
+      {/* Step 3: Generating */}
+      {step === 'generating' && (
+        <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 space-y-2">
+          <div className="flex items-center gap-2 text-sm font-semibold text-blue-700">
+            <span className="flex items-center justify-center w-6 h-6 rounded-full bg-blue-600 text-white text-xs font-bold">3</span>
+            Dang tao bao gia...
+          </div>
+          <div className="flex items-center gap-2 text-xs text-blue-600 pl-8">
+            <Loader2 className="h-4 w-4 animate-spin" />
+            Tao CAM KET + Quotation Excel... chuyen PDF qua Gotenberg...
+          </div>
+        </div>
+      )}
+
+      {/* Step 4: Done — Full file listing + PDF Preview */}
+      {step === 'done' && result && (
+        <div className="space-y-3">
+          {/* Step indicator */}
+          <div className="flex items-center gap-2 text-sm font-semibold text-emerald-700">
+            <span className="flex items-center justify-center w-6 h-6 rounded-full bg-emerald-600 text-white text-xs font-bold">4</span>
+            Hoan thanh — {result.total_items ?? 0} items, {result.filled_items ?? 0} co gia
+          </div>
+
+          {/* File listing — detailed */}
+          {result.files && result.files.length > 0 && (
+            <div className="bg-white border border-slate-200 rounded-lg overflow-hidden">
+              <div className="bg-slate-50 px-3 py-2 border-b border-slate-200">
+                <span className="text-xs font-semibold text-slate-700">Files da tao ({result.files.length} files)</span>
+              </div>
+              <div className="divide-y divide-slate-100">
+                {result.files.map((f: any, i: number) => {
+                  const isPdf = f.type?.includes('pdf');
+                  const isExcel = f.type?.includes('xlsx');
+                  const isCamKet = f.type?.includes('cam_ket');
+                  const label = isCamKet ? 'CAM KET' : 'QUOTATION';
+                  const format = isPdf ? 'PDF' : 'Excel (.xlsx)';
+                  const downloadUrl = withToken(f.download_url || `/api/v1/quotations/download/${result.id}/${f.type}`);
+                  const previewUrl = f.preview_url ? withToken(f.preview_url) : null;
+
+                  const handleViewOnline = async () => {
+                    try {
+                      // For xlsx: use MS Office Online viewer with public share link
+                      // For pdf: open directly
+                      if (isExcel) {
+                        const shareRes = await api.get<{ url: string }>(
+                          `/api/v1/quotations/share-link/${result.id}/${f.type}`
+                        );
+                        const publicUrl = `${window.location.origin}${shareRes.url}`;
+                        const viewerUrl = `https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(publicUrl)}`;
+                        window.open(viewerUrl, '_blank');
+                      } else if (isPdf && previewUrl) {
+                        window.open(previewUrl, '_blank');
+                      }
+                    } catch {
+                      window.open(downloadUrl, '_blank');
+                    }
+                  };
+
+                  return (
+                    <div key={i} className="px-3 py-2.5 flex items-center justify-between gap-3">
+                      <div className="flex items-center gap-2 min-w-0 flex-1">
+                        <div className={`p-1.5 rounded ${isPdf ? 'bg-red-100' : 'bg-green-100'}`}>
+                          {isPdf ? <Eye className="h-3.5 w-3.5 text-red-600" /> : <FileSpreadsheet className="h-3.5 w-3.5 text-green-600" />}
+                        </div>
+                        <div className="min-w-0">
+                          <div className="text-xs font-semibold text-slate-800">{label} — {format}</div>
+                          <div className="text-[10px] text-slate-400 font-mono truncate">{f.path || '—'}</div>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-1.5 flex-shrink-0">
+                        <button onClick={handleViewOnline}
+                          className={`inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-white text-[11px] font-medium transition-colors ${
+                            isExcel ? 'bg-green-600 hover:bg-green-700' : 'bg-red-600 hover:bg-red-700'
+                          }`}>
+                          <Eye className="h-3 w-3" />
+                          {isExcel ? 'Xem Online' : 'Xem PDF'}
+                        </button>
+                        <a href={downloadUrl}
+                          className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-brand-600 text-white text-[11px] font-medium hover:bg-brand-700 transition-colors">
+                          <Download className="h-3 w-3" />
+                          Tai ve
+                        </a>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* Inline PDF Preview */}
+          {previewPdfUrl && (
+            <div className="rounded-lg border border-slate-200 overflow-hidden">
+              <div className="bg-slate-800 px-3 py-2 flex items-center justify-between">
+                <span className="text-xs font-semibold text-white">Xem truoc PDF</span>
+                <div className="flex items-center gap-2">
+                  <a href={previewPdfUrl} target="_blank" rel="noopener noreferrer"
+                    className="text-[11px] text-blue-300 hover:text-blue-100">Mo tab moi</a>
+                  <button onClick={() => setPreviewPdfUrl(null)}
+                    className="text-[11px] text-slate-400 hover:text-white">Dong</button>
+                </div>
+              </div>
+              <iframe
+                src={previewPdfUrl}
+                className="w-full border-0 bg-slate-100"
+                style={{ height: '600px' }}
+                title="PDF Preview"
+              />
+            </div>
+          )}
+
+          {/* Actions */}
+          <div className="flex items-center gap-2">
+            <button onClick={() => { setStep('config'); setResult(null); setPreviewPdfUrl(null); setEditedPrices({}); }}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-white border border-slate-200 text-slate-600 hover:bg-slate-50 transition-colors">
+              Tao bao gia moi
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Error */}
       {step === 'error' && (
-        <div className="bg-red-50 border border-red-200 rounded-lg p-3">
-          <div className="text-xs text-red-700">{result?.error ?? 'Lỗi không xác định'}</div>
-          <button onClick={() => setStep('preview')} className="text-[11px] text-red-600 underline mt-1">
-            Thử lại
+        <div className="bg-red-50 border border-red-200 rounded-lg p-3 space-y-2">
+          <div className="flex items-center gap-2 text-xs font-semibold text-red-700">
+            <XCircle className="h-4 w-4" />
+            Loi tao bao gia
+          </div>
+          <div className="text-xs text-red-600">{result?.error ?? 'Loi khong xac dinh'}</div>
+          <button onClick={() => setStep('preview')} className="text-[11px] text-red-600 underline">
+            Thu lai
           </button>
         </div>
       )}
@@ -409,9 +1060,13 @@ function InlineCreateQuotation({ item }: { item: RFQItem }) {
 function RowDetailPanel({
   item,
   onClose,
+  pageYear,
+  pageMonth,
 }: {
   item: RFQItem;
   onClose: () => void;
+  pageYear?: number | null;
+  pageMonth?: number | null;
 }) {
   const [showHistory, setShowHistory] = useState(false);
   const [showCreateForm, setShowCreateForm] = useState(false);
@@ -554,55 +1209,82 @@ function RowDetailPanel({
 
           {/* Inline Create Quotation Form */}
           {showCreateForm && (
-            <InlineCreateQuotation item={item} />
+            <InlineCreateQuotation item={item} pageYear={pageYear} pageMonth={pageMonth} />
           )}
 
-          {/* Quotation history */}
+          {/* Quotation history — with file listing */}
           {showHistory && (
-            <div className="border-t border-brand-100 pt-2">
+            <div className="border-t border-brand-100 pt-2 space-y-2">
+              <h4 className="text-xs font-semibold text-slate-700 flex items-center gap-1.5">
+                <History className="h-3.5 w-3.5" />
+                Lich su bao gia — {item.rfq_number}
+              </h4>
               {historyLoading ? (
                 <div className="flex items-center gap-2 text-xs text-slate-400 py-2">
                   <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                  Đang tải lịch sử...
+                  Dang tai...
                 </div>
               ) : history.length === 0 ? (
-                <p className="text-xs text-slate-400 py-2">Chưa có báo giá nào cho RFQ này.</p>
+                <p className="text-xs text-slate-400 py-2">Chua co bao gia nao cho RFQ nay.</p>
               ) : (
-                <div className="overflow-x-auto">
-                  <table className="text-xs w-full">
-                    <thead>
-                      <tr className="text-slate-400 border-b border-slate-100">
-                        <th className="text-left py-1 pr-4 font-medium">Số BG</th>
-                        <th className="text-left py-1 pr-4 font-medium">Khách hàng</th>
-                        <th className="text-right py-1 pr-4 font-medium">Giá trị</th>
-                        <th className="text-left py-1 pr-4 font-medium">Trạng thái</th>
-                        <th className="text-left py-1 font-medium">Ngày tạo</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-50">
-                      {history.map((h) => (
-                        <tr key={h.id} className="hover:bg-white transition-colors">
-                          <td className="py-1 pr-4 font-mono text-brand-600">
-                            {h.quotation_number ?? `#${h.id}`}
-                          </td>
-                          <td className="py-1 pr-4 text-slate-700">{h.customer_name ?? '—'}</td>
-                          <td className="py-1 pr-4 text-right font-mono text-slate-700">
-                            {h.total_amount != null
-                              ? `${fmtVnd(h.total_amount)} ${h.currency ?? ''}`
-                              : '—'}
-                          </td>
-                          <td className="py-1 pr-4">
-                            <span className="px-1.5 py-0.5 rounded bg-slate-100 text-slate-600">
-                              {h.status ?? '—'}
-                            </span>
-                          </td>
-                          <td className="py-1 text-slate-500">
-                            {h.created_at ? formatDate(h.created_at) : '—'}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                <div className="space-y-2">
+                  {history.map((h: any) => (
+                    <div key={h.id} className="bg-white border border-slate-200 rounded-lg overflow-hidden">
+                      {/* Header */}
+                      <div className="px-3 py-2 bg-slate-50 border-b border-slate-100 flex items-center justify-between">
+                        <div className="flex items-center gap-3 text-xs">
+                          <span className="font-mono font-bold text-brand-700">#{h.id}</span>
+                          <span className={`px-1.5 py-0.5 rounded text-[10px] font-semibold ${
+                            h.status === 'completed' ? 'bg-emerald-100 text-emerald-700' :
+                            h.status === 'failed' ? 'bg-red-100 text-red-700' :
+                            'bg-slate-100 text-slate-600'
+                          }`}>{h.status}</span>
+                          <span className="text-slate-500">{h.total_items ?? 0} items, {h.filled_items ?? 0} co gia</span>
+                        </div>
+                        <span className="text-[11px] text-slate-400">{h.created_at ? formatDate(h.created_at) : ''}</span>
+                      </div>
+                      {/* Files */}
+                      {h.files && h.files.length > 0 ? (
+                        <div className="divide-y divide-slate-100">
+                          {h.files.map((f: any, fi: number) => {
+                            const isPdf = f.type?.includes('pdf');
+                            const isCamKet = f.type?.includes('cam_ket');
+                            const sizeKB = f.size ? Math.round(f.size / 1024) : 0;
+                            return (
+                              <div key={fi} className="px-3 py-2 flex items-center justify-between gap-2">
+                                <div className="flex items-center gap-2 min-w-0 flex-1">
+                                  <div className={`p-1 rounded ${isPdf ? 'bg-red-100' : 'bg-green-100'}`}>
+                                    {isPdf ? <Eye className="h-3 w-3 text-red-600" /> : <FileSpreadsheet className="h-3 w-3 text-green-600" />}
+                                  </div>
+                                  <div className="min-w-0">
+                                    <span className="text-xs font-medium text-slate-800">
+                                      {isCamKet ? 'CAM KET' : 'QUOTATION'} {isPdf ? '.pdf' : '.xlsx'}
+                                    </span>
+                                    <span className="text-[10px] text-slate-400 ml-2">{sizeKB} KB</span>
+                                    <div className="text-[9px] text-slate-400 font-mono truncate">{f.filename}</div>
+                                  </div>
+                                </div>
+                                <div className="flex items-center gap-1 flex-shrink-0">
+                                  {isPdf && f.preview_url && (
+                                    <a href={withToken(f.preview_url)} target="_blank" rel="noopener noreferrer"
+                                      className="inline-flex items-center gap-1 px-2 py-1 rounded bg-red-600 text-white text-[10px] font-medium hover:bg-red-700">
+                                      <Eye className="h-3 w-3" /> Mo PDF
+                                    </a>
+                                  )}
+                                  <a href={withToken(f.download_url)}
+                                    className="inline-flex items-center gap-1 px-2 py-1 rounded bg-brand-600 text-white text-[10px] font-medium hover:bg-brand-700">
+                                    <Download className="h-3 w-3" /> Tai ve
+                                  </a>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      ) : (
+                        <div className="px-3 py-2 text-xs text-slate-400">Khong co file</div>
+                      )}
+                    </div>
+                  ))}
                 </div>
               )}
             </div>
@@ -800,6 +1482,9 @@ export default function BQMSPage() {
 
   return (
     <div className="flex flex-col gap-4 min-h-0 pb-8">
+      {/* ── Samsung Sync Widget */}
+      <SamsungSyncWidget />
+
       {/* ── Page Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
@@ -1050,6 +1735,8 @@ export default function BQMSPage() {
                             onSaveCell={handleSaveCell}
                             onCancelCell={handleCancelCell}
                             rowCounterStart={rowCounter}
+                            pageYear={year}
+                            pageMonth={month}
                           />
                         );
                       })
@@ -1070,6 +1757,8 @@ export default function BQMSPage() {
                             onStartEdit={setEditingCell}
                             onSaveCell={handleSaveCell}
                             onCancelCell={handleCancelCell}
+                            pageYear={year}
+                            pageMonth={month}
                           />
                         );
                       })}
@@ -1146,6 +1835,8 @@ function MonthGroupSection({
   onSaveCell,
   onCancelCell,
   rowCounterStart,
+  pageYear,
+  pageMonth,
 }: {
   summary: MonthSummary;
   items: RFQItem[];
@@ -1158,6 +1849,8 @@ function MonthGroupSection({
   onSaveCell: (rowId: number, field: string, value: string) => void;
   onCancelCell: () => void;
   rowCounterStart: number;
+  pageYear?: number | null;
+  pageMonth?: number | null;
 }) {
   return (
     <>
@@ -1178,6 +1871,8 @@ function MonthGroupSection({
               onStartEdit={onStartEdit}
               onSaveCell={onSaveCell}
               onCancelCell={onCancelCell}
+              pageYear={pageYear}
+              pageMonth={pageMonth}
             />
           );
         })}
@@ -1197,6 +1892,8 @@ function DataRow({
   onStartEdit,
   onSaveCell,
   onCancelCell,
+  pageYear,
+  pageMonth,
 }: {
   item: RFQItem;
   idx: number;
@@ -1207,6 +1904,8 @@ function DataRow({
   onStartEdit: (cell: EditingCell) => void;
   onSaveCell: (rowId: number, field: string, value: string) => void;
   onCancelCell: () => void;
+  pageYear?: number | null;
+  pageMonth?: number | null;
 }) {
   const dateStr = item.effective_date ?? item.inquiry_date ?? item.created_at ?? '';
 
@@ -1325,7 +2024,7 @@ function DataRow({
 
       {/* Expanded detail panel */}
       {isExpanded && (
-        <RowDetailPanel item={item} onClose={() => onRowClick(item.id)} />
+        <RowDetailPanel item={item} onClose={() => onRowClick(item.id)} pageYear={pageYear} pageMonth={pageMonth} />
       )}
     </>
   );

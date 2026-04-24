@@ -3,30 +3,27 @@ BQMS Nightly Sync Task — runs at 23:30 every day.
 
 Steps
 -----
-1. Login to Samsung BQMS portal.
-2. Fetch all Purchase Orders created / updated in the last 30 days.
+1. Login to Samsung BQMS via 4-step MFA (samsung_bqms_client.py).
+2. Fetch all Purchase Orders created/updated in the last 30 days.
 3. Upsert new POs into bqms_samsung_po table.
-4. Download PDFs for newly inserted POs and store them under FILES_BASE_PATH.
+4. Download PDFs for newly inserted POs.
 5. Refresh the bqms_kpi materialized view.
-6. Emit a bqms_sync_done WebSocket event so the frontend updates live.
+6. Log result to etl_sync_log.
+7. Emit bqms_sync_done WebSocket event.
 
-Database access uses a dedicated sync psycopg2 connection — NOT the asyncpg
-pool — because Procrastinate workers run outside the async event loop.
-
-BQMS HTTP interaction is done with httpx (sync client).  The credentials and
-base URL come from app.core.config.settings.
+Uses asyncio.run() to bridge Procrastinate sync → async SamsungBQMSClient.
 """
 
 from __future__ import annotations
 
+import asyncio
+import json
 import logging
-import os
 import time
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
-import httpx
 import psycopg2
 import psycopg2.extras
 
@@ -35,7 +32,6 @@ from app.core.procrastinate_app import app, SYNC_DSN
 
 logger = logging.getLogger(__name__)
 
-# PDF storage directory (created if it does not exist)
 BQMS_PDF_DIR = Path(settings.FILES_BASE_PATH) / "bqms" / "po_pdfs"
 
 
@@ -45,237 +41,329 @@ BQMS_PDF_DIR = Path(settings.FILES_BASE_PATH) / "bqms" / "po_pdfs"
 
 @app.periodic(cron="30 23 * * *")
 @app.task(name="bqms_nightly_sync", queue="bqms")
-def bqms_nightly_sync(timestamp: int = 0) -> dict[str, Any]:  # type: ignore[misc]
-    """
-    Nightly Samsung BQMS synchronisation.
-
-    Returns a result summary dict that is also emitted over WebSocket.
-    """
+def bqms_nightly_sync(timestamp: int = 0) -> dict[str, Any]:
+    """Nightly Samsung BQMS synchronisation."""
     started_at = datetime.now(timezone.utc)
     logger.info("bqms_nightly_sync: starting (utc=%s)", started_at.isoformat())
 
     result: dict[str, Any] = {
-        "new_pos":          0,
-        "pdfs_downloaded":  0,
-        "errors":           0,
+        "new_pos": 0,
+        "updated_pos": 0,
+        "pdfs_downloaded": 0,
+        "errors": 0,
         "duration_seconds": 0.0,
-        "synced_at":        started_at.isoformat(),
+        "synced_at": started_at.isoformat(),
+        "status": "running",
     }
 
     t0 = time.monotonic()
+    sync_id = _create_sync_log("running")
 
     try:
-        # ------------------------------------------------------------------
-        # 1. Login to Samsung BQMS
-        # ------------------------------------------------------------------
-        session_cookie = _bqms_login()
+        date_from = date.today() - timedelta(days=30)
+        date_to = date.today()
 
-        # ------------------------------------------------------------------
-        # 2. Fetch PO list (last 30 days)
-        # ------------------------------------------------------------------
-        date_from = (started_at - timedelta(days=30)).strftime("%Y-%m-%d")
-        po_list = _bqms_fetch_pos(session_cookie, date_from)
-        logger.info("bqms_nightly_sync: fetched %d POs from BQMS", len(po_list))
+        # Run the async sync pipeline
+        sync_result = asyncio.run(_async_sync_pipeline(date_from, date_to))
+        result.update(sync_result)
+        result["status"] = "success"
 
-        # ------------------------------------------------------------------
-        # 3. Upsert new POs into bqms_samsung_po
-        # ------------------------------------------------------------------
-        new_po_ids = _upsert_pos(po_list)
-        result["new_pos"] = len(new_po_ids)
-        logger.info("bqms_nightly_sync: %d new POs upserted", len(new_po_ids))
-
-        # ------------------------------------------------------------------
-        # 4. Download PDFs for new POs
-        # ------------------------------------------------------------------
-        if new_po_ids:
-            pdf_count, pdf_errors = _download_pdfs(session_cookie, new_po_ids)
-            result["pdfs_downloaded"] = pdf_count
-            result["errors"] += pdf_errors
-
-        # ------------------------------------------------------------------
-        # 5. Refresh bqms_kpi materialized view
-        # ------------------------------------------------------------------
+        # Refresh materialized view
         _refresh_bqms_kpi()
-        logger.info("bqms_nightly_sync: bqms_kpi materialized view refreshed")
+        logger.info("bqms_nightly_sync: bqms_kpi refreshed")
 
     except Exception as exc:
-        logger.exception("bqms_nightly_sync: unhandled error: %s", exc)
+        logger.exception("bqms_nightly_sync: error: %s", exc)
         result["errors"] += 1
-        result["error_message"] = str(exc)
+        result["error_message"] = str(exc)[:500]
+        result["status"] = "error"
 
     finally:
         result["duration_seconds"] = round(time.monotonic() - t0, 2)
-        result["synced_at"] = started_at.isoformat()
 
-    # ------------------------------------------------------------------
-    # 6. Emit WebSocket event (best-effort — do not fail the task if
-    #    the event loop / Socket.IO server is not running)
-    # ------------------------------------------------------------------
+    # Update sync log
+    _update_sync_log(sync_id, result)
+
+    # Emit WebSocket event
     _emit_sync_done(result)
 
     logger.info(
-        "bqms_nightly_sync: finished new_pos=%d pdfs=%d errors=%d duration=%.1fs",
-        result["new_pos"], result["pdfs_downloaded"],
-        result["errors"], result["duration_seconds"],
+        "bqms_nightly_sync: done new=%d updated=%d pdfs=%d errors=%d %.1fs",
+        result["new_pos"], result.get("updated_pos", 0),
+        result["pdfs_downloaded"], result["errors"], result["duration_seconds"],
     )
     return result
 
 
 # ---------------------------------------------------------------------------
-# BQMS HTTP helpers
+# Async sync pipeline — uses the correct SamsungBQMSClient
 # ---------------------------------------------------------------------------
 
-def _bqms_login() -> str:
+async def _async_sync_pipeline(
+    date_from: date, date_to: date
+) -> dict[str, Any]:
     """
-    Authenticate with Samsung BQMS and return the session cookie string.
+    Async pipeline: Playwright login → extract cookies → httpx API calls.
+    Returns partial result dict.
+    """
+    from app.etl.bqms_playwright import playwright_fetch_pos
 
-    Raises RuntimeError if login fails.
-    """
-    url = f"{settings.BQMS_BASE_URL}/login"
-    payload = {
-        "username": settings.BQMS_USERNAME,
-        "password": settings.BQMS_PASSWORD,
+    result: dict[str, Any] = {
+        "new_pos": 0,
+        "updated_pos": 0,
+        "pdfs_downloaded": 0,
+        "errors": 0,
     }
-    with httpx.Client(timeout=30, follow_redirects=True) as client:
-        resp = client.post(url, data=payload)
 
-    if resp.status_code not in (200, 302):
-        raise RuntimeError(
-            f"BQMS login failed: HTTP {resp.status_code} — {resp.text[:200]}"
-        )
+    # 1+2. Login via Playwright + intercept PO list response
+    po_list = await playwright_fetch_pos()
+    logger.info("bqms_sync: fetched %d POs from Samsung via Playwright", len(po_list))
 
-    # Build a cookie header from the response cookies
-    cookie_str = "; ".join(f"{k}={v}" for k, v in resp.cookies.items())
-    if not cookie_str:
-        raise RuntimeError("BQMS login succeeded but no session cookie returned")
+    if not po_list:
+        return result
 
-    logger.debug("bqms_login: session cookie obtained")
-    return cookie_str
+    # 3. Upsert POs into database (sync — uses psycopg2)
+    new_pos, updated_pos = _upsert_pos(po_list)
+    result["new_pos"] = len(new_pos)
+    result["updated_pos"] = updated_pos
+    logger.info("bqms_sync: %d new, %d updated POs", len(new_pos), updated_pos)
+
+    # 4. Bridge: UPSERT tất cả PO → bqms_deliveries (trang Giao Hàng)
+    # Chống trùng: po_number + bqms_code
+    # Không ghi đè fields user đã sửa (delivery_status, notes, actual_delivered_qty, etc.)
+    new_deliveries, updated_deliveries = _bridge_po_to_deliveries(po_list)
+    result["deliveries_created"] = new_deliveries
+    result["deliveries_updated"] = updated_deliveries
+    logger.info("bqms_sync: deliveries %d new, %d updated", new_deliveries, updated_deliveries)
+
+    from app.etl.bqms_playwright import _update_step
+    _update_step(6, "done", f"Đã lưu {len(po_list)} PO → Giao Hàng: {new_deliveries} mới, {updated_deliveries} cập nhật")
+
+    return result
 
 
-def _bqms_fetch_pos(session_cookie: str, date_from: str) -> list[dict[str, Any]]:
+# ---------------------------------------------------------------------------
+# Database operations (sync psycopg2)
+# ---------------------------------------------------------------------------
+
+def _upsert_pos(po_list: list[dict[str, Any]]) -> tuple[list[tuple[str, str]], int]:
     """
-    Fetch POs created/updated since *date_from* (YYYY-MM-DD).
+    Upsert POs into bqms_samsung_po.
 
-    Returns a list of PO dicts.  The exact structure depends on the BQMS API;
-    the fields below match the bqms_samsung_po table columns.
-    """
-    url = f"{settings.BQMS_BASE_URL}/api/purchase-orders"
-    headers = {"Cookie": session_cookie}
-    params  = {"from": date_from, "format": "json"}
-
-    with httpx.Client(timeout=60, follow_redirects=True) as client:
-        resp = client.get(url, headers=headers, params=params)
-
-    if resp.status_code != 200:
-        raise RuntimeError(
-            f"BQMS PO fetch failed: HTTP {resp.status_code} — {resp.text[:200]}"
-        )
-
-    try:
-        data = resp.json()
-    except Exception as exc:
-        raise RuntimeError(f"BQMS PO response is not valid JSON: {exc}") from exc
-
-    # Normalise: BQMS may return {"data": [...]} or a bare list
-    if isinstance(data, dict):
-        return data.get("data", data.get("items", []))
-    return data if isinstance(data, list) else []
-
-
-def _upsert_pos(po_list: list[dict[str, Any]]) -> list[str]:
-    """
-    Upsert the fetched POs into bqms_samsung_po.
-
-    Returns a list of po_number strings that were inserted for the first time
-    (not updated), so we know which PDFs to download.
+    Returns (new_po_list[(po_number, secure_key)], updated_count).
+    Field mapping follows Samsung API response from selectPOAcceptList.do:
+      PO_NO, REQ_NO, CIS_CODE, ITEM_CODE, SPECIFICATION, PO_QTY, UNIT_CODE,
+      RECEIVER_NAME, PO_CONFIRM_DT, REQ_DELIVERY_DATE, COMPANY_NAME, secureKey, etc.
     """
     if not po_list:
-        return []
+        return [], 0
 
     conn = psycopg2.connect(SYNC_DSN)
-    new_ids: list[str] = []
+    new_pos: list[tuple[str, str]] = []
+    updated = 0
 
     try:
         with conn, conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             for po in po_list:
-                po_number   = po.get("po_number") or po.get("poNumber", "")
-                supplier    = po.get("supplier_name") or po.get("supplierName", "")
-                total_amount = po.get("total_amount") or po.get("totalAmount") or 0
-                po_date     = po.get("po_date") or po.get("poDate")
-                status      = po.get("status", "pending")
-                raw_data    = psycopg2.extras.Json(po)
+                # Samsung API field mapping (from Playwright intercepted response)
+                po_number = str(po.get("PO_NO") or po.get("po_number") or "")
+                po_seq = str(po.get("PO_SEQ") or po.get("po_seq") or "")
+                request_no = str(po.get("REQ_NO") or "")
+                vendor_code = str(po.get("SP_CODE") or po.get("vendorCode") or "")
+                bqms_code = str(po.get("CIS_CODE") or po.get("ITEM_CODE") or "")
+                old_item_code = str(po.get("OLD_ITEM_CODE") or "")
+                spec = str(po.get("SPECIFICATION") or "")
+                order_qty = po.get("PO_QTY") or po.get("ORDER_QTY") or 0
+                unit_price = po.get("UNIT_PRICE") or 0
+                amount = po.get("AMOUNT") or 0
+                company = str(po.get("COMPANY_NAME") or po.get("COMPANY_CODE") or "")
+                secure_key = str(po.get("secureKey") or "")
+
+                # Parse RECEIVER_NAME: "Full Name: mail.prefix"
+                receiver = str(po.get("RECEIVER_NAME") or "")
+                buyer_name = receiver
+                buyer_email = ""
+                if ":" in receiver:
+                    parts = receiver.split(":", 1)
+                    buyer_name = parts[0].strip()
+                    buyer_email = parts[1].strip()
+
+                # Parse PO date (unix timestamp ms)
+                po_date_raw = po.get("PO_CONFIRM_DT") or po.get("PO_DATE")
+                po_date = None
+                if isinstance(po_date_raw, (int, float)) and po_date_raw > 1_000_000_000:
+                    po_date = datetime.fromtimestamp(po_date_raw / 1000, tz=timezone.utc).date()
+
+                # Parse delivery date (YYYYMMDD string)
+                del_date_raw = po.get("REQ_DELIVERY_DATE") or ""
+                delivery_date = None
+                if isinstance(del_date_raw, str) and len(del_date_raw) >= 8:
+                    try:
+                        delivery_date = datetime.strptime(del_date_raw[:8], "%Y%m%d").date()
+                    except ValueError:
+                        pass
+
+                raw_data = psycopg2.extras.Json(po)
 
                 if not po_number:
                     continue
 
+                # Match actual bqms_samsung_po table schema
                 cur.execute(
                     """
                     INSERT INTO bqms_samsung_po
-                        (po_number, supplier_name, total_amount, po_date, status, raw_data, synced_at)
-                    VALUES (%s, %s, %s, %s, %s, %s, NOW())
+                        (po_number, po_seq, request_no, vendor_code,
+                         bqms_code, cis_code, old_item_code, specification,
+                         order_qty, unit_price, amount,
+                         buyer_name, buyer_email, company,
+                         po_date, preferred_delivery_date,
+                         recipient_name, secure_key, raw_data)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                     ON CONFLICT (po_number) DO UPDATE SET
-                        supplier_name = EXCLUDED.supplier_name,
-                        total_amount  = EXCLUDED.total_amount,
-                        status        = EXCLUDED.status,
-                        raw_data      = EXCLUDED.raw_data,
-                        synced_at     = NOW()
+                        bqms_code = EXCLUDED.bqms_code,
+                        cis_code = EXCLUDED.cis_code,
+                        specification = EXCLUDED.specification,
+                        order_qty = EXCLUDED.order_qty,
+                        unit_price = EXCLUDED.unit_price,
+                        amount = EXCLUDED.amount,
+                        buyer_name = EXCLUDED.buyer_name,
+                        buyer_email = EXCLUDED.buyer_email,
+                        recipient_name = EXCLUDED.recipient_name,
+                        secure_key = EXCLUDED.secure_key,
+                        raw_data = EXCLUDED.raw_data
                     RETURNING (xmax = 0) AS inserted
                     """,
-                    (po_number, supplier, total_amount, po_date, status, raw_data),
+                    (po_number, po_seq, request_no, vendor_code,
+                     bqms_code, bqms_code, old_item_code, spec,
+                     order_qty, unit_price, amount,
+                     buyer_name, buyer_email, company,
+                     po_date, delivery_date,
+                     receiver, secure_key, raw_data),
                 )
                 row = cur.fetchone()
                 if row and row["inserted"]:
-                    new_ids.append(po_number)
+                    new_pos.append((po_number, secure_key))
+                else:
+                    updated += 1
 
     finally:
         conn.close()
 
-    return new_ids
+    return new_pos, updated
 
 
-def _download_pdfs(
-    session_cookie: str, po_numbers: list[str]
-) -> tuple[int, int]:
+def _bridge_po_to_deliveries(po_list: list[dict[str, Any]]) -> tuple[int, int]:
     """
-    Download confirmation PDFs for *po_numbers* from BQMS.
+    UPSERT tất cả PO vào bqms_deliveries (trang Giao Hàng).
 
-    Files are saved to FILES_BASE_PATH/bqms/po_pdfs/<po_number>.pdf.
-    Returns (downloaded_count, error_count).
+    Chống trùng: po_number + bqms_code (unique index).
+    Khi trùng: CHỈ update fields từ Samsung (spec, qty, unit_price, amount, recipient).
+    KHÔNG ghi đè: delivery_status, delivery_date, actual_delivered_qty,
+                   delivery_info, delivery_method, country_origin, notes,
+                   total_delivered_value_vnd (do user sửa trên UI).
+
+    Returns: (new_count, updated_count)
     """
-    BQMS_PDF_DIR.mkdir(parents=True, exist_ok=True)
-    downloaded = 0
-    errors = 0
+    if not po_list:
+        return 0, 0
 
-    headers = {"Cookie": session_cookie}
+    conn = psycopg2.connect(SYNC_DSN)
+    created = 0
+    updated = 0
 
-    with httpx.Client(timeout=60, follow_redirects=True) as client:
-        for po_number in po_numbers:
-            url  = f"{settings.BQMS_BASE_URL}/api/purchase-orders/{po_number}/pdf"
-            dest = BQMS_PDF_DIR / f"{po_number}.pdf"
+    try:
+        with conn, conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            for po in po_list:
+                po_number = str(po.get("PO_NO") or "")
+                bqms_code = str(po.get("CIS_CODE") or po.get("ITEM_CODE") or "")
+                if not po_number or not bqms_code:
+                    continue
 
-            try:
-                resp = client.get(url, headers=headers)
-                if resp.status_code == 200 and resp.content:
-                    dest.write_bytes(resp.content)
-                    # Record the file path in the database
-                    _record_pdf_path(po_number, str(dest))
-                    downloaded += 1
-                    logger.debug("bqms_pdf: saved %s (%d bytes)", dest.name, len(resp.content))
-                else:
-                    logger.warning(
-                        "bqms_pdf: no PDF for %s (HTTP %d)", po_number, resp.status_code
+                spec = str(po.get("SPECIFICATION") or "")
+                qty = po.get("PO_QTY") or po.get("ORDER_QTY") or 0
+                unit = str(po.get("UNIT_CODE") or "EA")
+                unit_price = po.get("UNIT_PRICE") or 0
+                amount = po.get("AMOUNT") or 0
+                quotation_no = str(po.get("REQ_NO") or "")
+                shipping_no = str(po.get("PO_SEQ") or "")
+
+                # Parse RECEIVER_NAME: "Full Name: mail.prefix"
+                receiver = str(po.get("RECEIVER_NAME") or "")
+                recipient_name = receiver
+                buyer_email = ""
+                if ":" in receiver:
+                    parts = receiver.split(":", 1)
+                    recipient_name = parts[0].strip()
+                    buyer_email = parts[1].strip()
+
+                # PO date (unix ms)
+                po_date_raw = po.get("PO_CONFIRM_DT")
+                po_date = None
+                if isinstance(po_date_raw, (int, float)) and po_date_raw > 1_000_000_000:
+                    po_date = datetime.fromtimestamp(po_date_raw / 1000, tz=timezone.utc).date()
+
+                # Delivery date (YYYYMMDD)
+                del_raw = str(po.get("REQ_DELIVERY_DATE") or "")
+                delivery_date = None
+                if len(del_raw) >= 8:
+                    try:
+                        delivery_date = datetime.strptime(del_raw[:8], "%Y%m%d").date()
+                    except ValueError:
+                        pass
+
+                sev_type = str(po.get("COMPANY_NAME") or "")
+
+                try:
+                    # Chống trùng: check bằng po_number + bqms_code + shipping_no
+                    cur.execute(
+                        """SELECT id FROM bqms_deliveries
+                           WHERE po_number = %s AND bqms_code = %s AND shipping_no = %s
+                           LIMIT 1""",
+                        (po_number, bqms_code, shipping_no),
                     )
-                    errors += 1
-            except Exception as exc:
-                logger.warning("bqms_pdf: error downloading %s: %s", po_number, exc)
-                errors += 1
+                    existing = cur.fetchone()
 
-    return downloaded, errors
+                    if existing:
+                        # UPDATE chỉ fields từ Samsung — KHÔNG ghi đè fields user sửa
+                        cur.execute(
+                            """UPDATE bqms_deliveries SET
+                                specification = %s, quantity = %s, unit = %s,
+                                unit_price = %s, amount = %s,
+                                sev_type = %s, buyer_email = %s, recipient_name = %s,
+                                quotation_no = %s, updated_at = NOW()
+                            WHERE id = %s""",
+                            (spec, qty, unit, unit_price, amount,
+                             sev_type, buyer_email, recipient_name,
+                             quotation_no, existing["id"]),
+                        )
+                        updated += 1
+                    else:
+                        # INSERT mới
+                        cur.execute(
+                            """INSERT INTO bqms_deliveries
+                                (po_date, po_number, shipping_no, quotation_no, bqms_code,
+                                 specification, quantity, unit, unit_price, amount,
+                                 sev_type, buyer_email, recipient_name,
+                                 delivery_status, delivery_date, data_source)
+                            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+                                    'chua_giao'::delivery_status, %s, 'samsung_sync')""",
+                            (po_date, po_number, shipping_no, quotation_no, bqms_code,
+                             spec, qty, unit, unit_price, amount,
+                             sev_type, buyer_email, recipient_name,
+                             delivery_date),
+                        )
+                        created += 1
+                except Exception as exc:
+                    logger.warning("bridge_po_delivery: %s for PO %s", exc, po_number)
+
+    finally:
+        conn.close()
+
+    return created, updated
 
 
 def _record_pdf_path(po_number: str, file_path: str) -> None:
-    """Update the bqms_samsung_po row with the local PDF path."""
+    """Update bqms_samsung_po with the local PDF path."""
     conn = psycopg2.connect(SYNC_DSN)
     try:
         with conn, conn.cursor() as cur:
@@ -287,6 +375,59 @@ def _record_pdf_path(po_number: str, file_path: str) -> None:
         conn.close()
 
 
+def _create_sync_log(status: str) -> int | None:
+    """Create etl_sync_log entry, return id."""
+    conn = psycopg2.connect(SYNC_DSN)
+    try:
+        with conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO etl_sync_log (sync_type, status, started_at)
+                VALUES ('bqms_po', %s, NOW())
+                RETURNING id
+                """,
+                (status,),
+            )
+            row = cur.fetchone()
+            return row[0] if row else None
+    except Exception as exc:
+        logger.warning("_create_sync_log: %s", exc)
+        return None
+    finally:
+        conn.close()
+
+
+def _update_sync_log(sync_id: int | None, result: dict[str, Any]) -> None:
+    """Update etl_sync_log with final result."""
+    if not sync_id:
+        return
+    conn = psycopg2.connect(SYNC_DSN)
+    try:
+        with conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                UPDATE etl_sync_log SET
+                    status = %s,
+                    completed_at = NOW(),
+                    rows_inserted = %s,
+                    rows_updated = %s,
+                    error_message = %s
+                WHERE id = %s
+                """,
+                (
+                    result.get("status", "error"),
+                    result.get("new_pos", 0),
+                    result.get("updated_pos", 0),
+                    result.get("error_message"),
+                    sync_id,
+                ),
+            )
+    except Exception as exc:
+        logger.warning("_update_sync_log: %s", exc)
+    finally:
+        conn.close()
+
+
 def _refresh_bqms_kpi() -> None:
     """REFRESH MATERIALIZED VIEW CONCURRENTLY bqms_kpi."""
     conn = psycopg2.connect(SYNC_DSN)
@@ -294,6 +435,8 @@ def _refresh_bqms_kpi() -> None:
         conn.autocommit = True
         with conn.cursor() as cur:
             cur.execute("REFRESH MATERIALIZED VIEW CONCURRENTLY bqms_kpi")
+    except Exception as exc:
+        logger.warning("_refresh_bqms_kpi: %s (view may not exist yet)", exc)
     finally:
         conn.close()
 
@@ -303,23 +446,14 @@ def _refresh_bqms_kpi() -> None:
 # ---------------------------------------------------------------------------
 
 def _emit_sync_done(result: dict[str, Any]) -> None:
-    """
-    Emit the bqms_sync_done Socket.IO event from a sync context.
-
-    We use asyncio.run() to drive a single coroutine call.  If an event
-    loop is already running (e.g. inside pytest-asyncio) this call is
-    skipped gracefully.
-    """
-    import asyncio
-
+    """Emit bqms_sync_done Socket.IO event from sync context."""
     try:
         from app.websocket.handlers import emit_bqms_sync_done
         asyncio.run(emit_bqms_sync_done(result))
     except RuntimeError as exc:
-        # Already inside a running event loop — schedule instead
         if "cannot be called from a running event loop" in str(exc):
             logger.debug("_emit_sync_done: skipping (event loop already running)")
         else:
-            logger.warning("_emit_sync_done: RuntimeError: %s", exc)
+            logger.warning("_emit_sync_done: %s", exc)
     except Exception as exc:
-        logger.warning("_emit_sync_done: failed to emit WebSocket event: %s", exc)
+        logger.warning("_emit_sync_done: failed: %s", exc)

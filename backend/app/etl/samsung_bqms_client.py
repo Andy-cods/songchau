@@ -139,12 +139,7 @@ class SamsungBQMSClient:
 
     # -- Login flow -------------------------------------------------------
 
-    @retry(
-        stop=stop_after_attempt(3),
-        wait=wait_exponential(multiplier=1, min=2, max=10),
-        retry=retry_if_exception_type((httpx.TransportError, httpx.TimeoutException)),
-        reraise=True,
-    )
+    # KHÔNG retry login — Samsung block tài khoản nếu sai nhiều lần
     async def login(self) -> None:
         """
         4-step login flow for Samsung BQMS vendor portal.
@@ -193,28 +188,53 @@ class SamsungBQMSClient:
                 f"Xác thực BQMS thất bại: HTTP {e.response.status_code}"
             ) from e
 
-        # Check for authentication failure in response
-        resp2_text = resp2.text
-        if "loginFail" in resp2_text or "error" in resp2_text.lower()[:200]:
-            raise BQMSAuthError("Sai tên đăng nhập hoặc mật khẩu BQMS")
-
-        logger.debug("BQMS login step 2 OK: xác thực credentials")
-
-        # Step 3: MFA token creation
+        # Parse step 2 response
         try:
-            resp3 = await client.post(self._EP_MFA_TOKEN)
-            resp3.raise_for_status()
-        except httpx.HTTPStatusError as e:
-            raise BQMSAuthError(
-                f"Tạo MFA token thất bại: HTTP {e.response.status_code}"
-            ) from e
+            resp2_data = resp2.json()
+        except Exception:
+            resp2_data = {}
 
-        logger.debug("BQMS login step 3 OK: MFA token created")
+        result = resp2_data.get("result", "")
+        if result != "SUCCESS" or "loginFail" in resp2.text:
+            raise BQMSAuthError(
+                f"Sai tên đăng nhập hoặc mật khẩu BQMS (result={result})"
+            )
+
+        user_id = resp2_data.get("userId", self._username)
+        cert_code = resp2_data.get("certCode", "")
+        cert_name = resp2_data.get("certName", "")
+
+        logger.debug("BQMS login step 2 OK: userId=%s, certCode=%s", user_id, cert_code[:8] if cert_code else "?")
+
+        # Step 3: MFA token creation (may return 404 — that's OK)
+        try:
+            resp3 = await client.post(
+                self._EP_MFA_TOKEN,
+                data={"userId": user_id, "passwordHash": password_hash},
+                headers={"Content-Type": "application/x-www-form-urlencoded"},
+            )
+            logger.debug("BQMS login step 3: HTTP %d", resp3.status_code)
+        except Exception as e:
+            logger.debug("BQMS login step 3: non-fatal error: %s", e)
 
         # Step 4: Complete authentication
+        cert_form = {
+            "userId": user_id,
+            "certId": cert_code,
+            "certName": cert_name,
+            "passwordHash": password_hash,
+            "certPassword": "",
+            "signsrc": "",
+            "signdata": "",
+            "signcert": "",
+        }
         try:
-            resp4 = await client.post(self._EP_AUTH_COMPLETE)
-            resp4.raise_for_status()
+            resp4 = await client.post(
+                self._EP_AUTH_COMPLETE,
+                data=cert_form,
+                headers={"Content-Type": "application/x-www-form-urlencoded"},
+            )
+            logger.debug("BQMS login step 4: HTTP %d", resp4.status_code)
         except httpx.HTTPStatusError as e:
             raise BQMSAuthError(
                 f"Hoàn tất xác thực thất bại: HTTP {e.response.status_code}"
@@ -255,14 +275,6 @@ class SamsungBQMSClient:
         if status_codes is None:
             status_codes = ["N"]
 
-        payload = {
-            "fromDate": date_from.strftime("%Y%m%d"),
-            "toDate": date_to.strftime("%Y%m%d"),
-            "statusCodes": ",".join(status_codes),
-            "pageIndex": "1",
-            "pageSize": "9999",
-        }
-
         logger.info(
             "BQMS lấy danh sách PO: %s → %s (status=%s)",
             date_from.isoformat(),
@@ -270,11 +282,46 @@ class SamsungBQMSClient:
             status_codes,
         )
 
+        # Navigate to PO page first to establish session context
+        try:
+            await client.get(
+                "/bqms/mro/forward/vendor/vendorPoConfirm.do"
+                "?target=vendor&_menuId=AZknkggsAB8V-Qhq&_menuF=true"
+            )
+        except Exception:
+            pass  # non-fatal
+
+        # Samsung BQMS PO list payload (reverse-engineered from portal)
+        payload = {
+            "srchStDate": date_from.strftime("%Y%m%d"),
+            "srchEdDate": date_to.strftime("%Y%m%d"),
+            "srchPoNo": None,
+            "srchCompanyCode": None,
+            "srchStatusCode": status_codes,
+            "mroPageVO": {
+                "pageInfos": [{
+                    "id": "page1",
+                    "pageIndex": 1,
+                    "location": ".paginate",
+                    "pageScript": "search()",
+                    "pageSize": "9999",
+                    "originalPageSize": None,
+                }]
+            },
+        }
+
+        po_headers = {
+            "Content-Type": "application/json; charset=UTF-8",
+            "X-Requested-With": "XMLHttpRequest",
+            "Referer": f"{self._base_url}/bqms/mro/forward/vendor/vendorPoConfirm.do",
+            "Origin": self._base_url,
+        }
+
         try:
             resp = await client.post(
                 self._EP_PO_LIST,
-                data=payload,
-                headers={"Content-Type": "application/x-www-form-urlencoded"},
+                json=payload,
+                headers=po_headers,
             )
             resp.raise_for_status()
         except httpx.HTTPStatusError as e:
@@ -286,10 +333,17 @@ class SamsungBQMSClient:
 
         data = resp.json()
 
-        # Samsung returns different structures; normalize
+        # Samsung response: {"poList": [...], "page1_result": {"totalCnt": "N"}}
         if isinstance(data, dict):
-            # Typical: {"result": [...], "totalCount": N} or {"list": [...]}
-            records = data.get("result") or data.get("list") or data.get("data") or []
+            records = (
+                data.get("poList")
+                or data.get("result")
+                or data.get("list")
+                or data.get("data")
+                or []
+            )
+            total = data.get("page1_result", {}).get("totalCnt", len(records))
+            logger.info("BQMS PO list: totalCnt=%s, records=%d", total, len(records))
         elif isinstance(data, list):
             records = data
         else:
