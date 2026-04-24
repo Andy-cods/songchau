@@ -96,7 +96,7 @@ async def list_products_with_forecast(
     idx = 1
 
     if search:
-        search_clause = f"WHERE p.name ILIKE ${idx} OR p.sku ILIKE ${idx}"
+        search_clause = f"WHERE p.product_name ILIKE ${idx} OR p.bqms_code ILIKE ${idx}"
         params.append(f"%{search}%")
         idx += 1
 
@@ -106,32 +106,54 @@ async def list_products_with_forecast(
     )
     total = count_row["total"]
 
-    rows = await conn.fetch(
-        f"""
-        SELECT
-            p.id,
-            p.name,
-            p.sku,
-            p.unit,
-            df.predicted_qty,
-            df.confidence,
-            df.method,
-            df.forecast_date,
-            df.period_months
-        FROM products p
-        LEFT JOIN LATERAL (
-            SELECT predicted_qty, confidence, method, forecast_date, period_months
-            FROM demand_forecasts
-            WHERE product_id = p.id
-            ORDER BY created_at DESC
-            LIMIT 1
-        ) df ON true
-        {search_clause}
-        ORDER BY p.name
-        LIMIT ${idx} OFFSET ${idx + 1}
-        """,
-        *(params + [page_size, offset]),
-    )
+    # demand_forecasts table may not exist — tolerate missing gracefully
+    try:
+        rows = await conn.fetch(
+            f"""
+            SELECT
+                p.id AS product_id,
+                p.product_name AS name,
+                p.bqms_code AS sku,
+                p.unit,
+                df.predicted_qty,
+                df.confidence,
+                df.method,
+                df.forecast_date,
+                df.period_months
+            FROM products p
+            LEFT JOIN LATERAL (
+                SELECT predicted_qty, confidence, method, forecast_date, period_months
+                FROM demand_forecasts
+                WHERE product_id = p.id
+                ORDER BY created_at DESC
+                LIMIT 1
+            ) df ON true
+            {search_clause}
+            ORDER BY p.product_name NULLS LAST
+            LIMIT ${idx} OFFSET ${idx + 1}
+            """,
+            *(params + [page_size, offset]),
+        )
+    except asyncpg.UndefinedTableError:
+        rows = await conn.fetch(
+            f"""
+            SELECT
+                p.id AS product_id,
+                p.product_name AS name,
+                p.bqms_code AS sku,
+                p.unit,
+                NULL::numeric AS predicted_qty,
+                NULL::numeric AS confidence,
+                NULL::text    AS method,
+                NULL::date    AS forecast_date,
+                NULL::int     AS period_months
+            FROM products p
+            {search_clause}
+            ORDER BY p.product_name NULLS LAST
+            LIMIT ${idx} OFFSET ${idx + 1}
+            """,
+            *(params + [page_size, offset]),
+        )
 
     return {
         "data": {

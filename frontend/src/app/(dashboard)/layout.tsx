@@ -2,7 +2,6 @@
 
 import { Sidebar } from '@/components/layout/sidebar';
 import { Topbar } from '@/components/layout/topbar';
-import { QuickPriceLookup } from '@/components/shared/price-lookup';
 import { useAuth } from '@/providers/auth-provider';
 
 export default function DashboardLayout({
@@ -30,9 +29,6 @@ export default function DashboardLayout({
           <div className="max-w-7xl mx-auto">{children}</div>
         </main>
       </div>
-
-      {/* Global Ctrl+K price lookup */}
-      <QuickPriceLookup />
     </div>
   );
 }

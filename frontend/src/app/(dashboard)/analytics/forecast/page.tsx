@@ -54,7 +54,7 @@ export default function ForecastPage() {
   const [generatingId, setGeneratingId] = useState<string | null>(null);
 
   const { data: productsRaw, isLoading: productsLoading, error } = useQuery<{
-    data: ForecastProduct[];
+    data: { items: ForecastProduct[]; total: number; page: number; pages: number } | ForecastProduct[];
   }>({
     queryKey: ['demand-forecast', 'products'],
     queryFn: () => api.get('/api/v1/demand-forecast/products'),
@@ -83,7 +83,11 @@ export default function ForecastPage() {
     },
   });
 
-  const products = productsRaw?.data ?? [];
+  const products = (() => {
+    const d = productsRaw?.data;
+    if (Array.isArray(d)) return d;
+    return Array.isArray((d as any)?.items) ? (d as any).items : [];
+  })() as ForecastProduct[];
   const result = resultRaw?.data;
 
   // Build chart data: historical (solid) + forecasts (dashed)

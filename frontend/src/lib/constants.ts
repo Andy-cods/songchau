@@ -109,8 +109,8 @@ const NAV_MAIN: SidebarItem[] = [
 const NAV_BQMS: SidebarItem[] = [
   { key: 'bqms', label: 'BQMS', href: '/bqms', icon: ClipboardList },
   { key: 'giao-hang', label: 'Giao hàng', href: '/bqms/deliveries', icon: Truck },
-  { key: 'tra-cuu-gia', label: 'Tra cứu giá', href: '/tra-cuu-gia', icon: BarChart3 },
   { key: 'market-prices', label: 'Tra cứu giá XNK', href: '/market-prices', icon: ClipboardList },
+  // Tra cứu giá nội bộ đã tích hợp vào thanh tìm kiếm (Ctrl+K) — không cần mục riêng
   // Gộp: Tạo BG, Lịch sử BG, Template, RFQ → tất cả trong mục BQMS
   // Ẩn: Lọc đơn AI, Báo cáo (chờ phát triển)
 ];
@@ -152,10 +152,6 @@ const NAV_ADMIN: SidebarItem[] = [
   { key: 'suppliers', label: 'Nhà cung cấp', href: '/suppliers', icon: Building2 },
   { key: 'users', label: 'Người dùng', href: '/users', icon: Users },
   { key: 'settings', label: 'Cài đặt', href: '/settings', icon: Settings },
-  { key: 'performance', label: 'Hiệu suất', href: '/admin/performance', icon: Activity },
-  { key: 'containers', label: 'Containers', href: '/admin/containers', icon: Server },
-  { key: 'backups', label: 'Backup', href: '/admin/backups', icon: HardDrive },
-  { key: 'security-log', label: 'Bảo mật', href: '/admin/security-log', icon: Shield },
 ];
 
 // ═══ SIDEBAR CONFIG PER ROLE ═══════════════════════════════════
