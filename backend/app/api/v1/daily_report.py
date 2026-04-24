@@ -187,11 +187,19 @@ async def revenue_summary(
         row = await conn.fetchrow(
             """
             SELECT
-              COALESCE(SUM(amount), 0) AS total_amount,
+              COALESCE(SUM(
+                COALESCE(NULLIF(p.amount,0),
+                  p.order_qty * COALESCE(
+                    r.quoted_price_bqms_v4, r.quoted_price_bqms_v3,
+                    r.quoted_price_bqms_v2, r.quoted_price_bqms_v1,
+                    r.quoted_price_ama, NULLIF(p.unit_price,0)
+                  ), 0)
+              ), 0) AS total_amount,
               COUNT(*) AS po_count
-            FROM bqms_samsung_po
-            WHERE po_date BETWEEN $1 AND $2
-              AND po_date >= $3
+            FROM bqms_samsung_po p
+            LEFT JOIN bqms_rfq r ON r.id = p.rfq_id
+            WHERE p.po_date BETWEEN $1 AND $2
+              AND p.po_date >= $3
             """,
             d1, d2, cutoff,
         )
@@ -272,15 +280,25 @@ async def revenue_trend(
 
     cutoff = await _get_cutoff(conn)
     trunc = {"day": "day", "week": "week", "month": "month"}[period]
+    # effective amount = amount if non-zero, else order_qty * latest quoted price from rfq
+    amount_expr = (
+        "COALESCE(NULLIF(p.amount,0), "
+        "  p.order_qty * COALESCE("
+        "    r.quoted_price_bqms_v4, r.quoted_price_bqms_v3, "
+        "    r.quoted_price_bqms_v2, r.quoted_price_bqms_v1, "
+        "    r.quoted_price_ama, NULLIF(p.unit_price,0)"
+        "  ), 0)"
+    )
 
     sql = f"""
         SELECT
-          date_trunc('{trunc}', po_date)::date AS bucket,
-          COALESCE(SUM(amount), 0) AS amount,
+          date_trunc('{trunc}', p.po_date)::date AS bucket,
+          COALESCE(SUM({amount_expr}), 0) AS amount,
           COUNT(*) AS po_count
-        FROM bqms_samsung_po
-        WHERE po_date >= $1
-          AND po_date >= (CURRENT_DATE - ($2 || ' {trunc}')::interval)
+        FROM bqms_samsung_po p
+        LEFT JOIN bqms_rfq r ON r.id = p.rfq_id
+        WHERE p.po_date >= $1
+          AND p.po_date >= CURRENT_DATE - ($2::int * INTERVAL '1 {trunc}')
         GROUP BY bucket
         ORDER BY bucket
     """
@@ -289,13 +307,14 @@ async def revenue_trend(
     # YoY series: same period shifted -365 days
     sql_ly = f"""
         SELECT
-          (date_trunc('{trunc}', po_date) + INTERVAL '365 days')::date AS bucket,
-          COALESCE(SUM(amount), 0) AS amount,
+          (date_trunc('{trunc}', p.po_date) + INTERVAL '365 days')::date AS bucket,
+          COALESCE(SUM({amount_expr}), 0) AS amount,
           COUNT(*) AS po_count
-        FROM bqms_samsung_po
-        WHERE po_date >= (CURRENT_DATE - INTERVAL '365 days' - ($1 || ' {trunc}')::interval)
-          AND po_date <  CURRENT_DATE - INTERVAL '300 days'
-        GROUP BY date_trunc('{trunc}', po_date)
+        FROM bqms_samsung_po p
+        LEFT JOIN bqms_rfq r ON r.id = p.rfq_id
+        WHERE p.po_date >= CURRENT_DATE - INTERVAL '365 days' - ($1::int * INTERVAL '1 {trunc}')
+          AND p.po_date <  CURRENT_DATE - INTERVAL '300 days'
+        GROUP BY date_trunc('{trunc}', p.po_date)
         ORDER BY bucket
     """
     rows_ly = await conn.fetch(sql_ly, n)
@@ -329,13 +348,20 @@ async def top_codes_heatmap(
     start = date.today() - timedelta(days=days - 1)
     start = max(start, cutoff)
 
-    # Top codes by total amount in range
+    # Top codes by total amount in range (with RFQ price fallback)
     top_codes = await conn.fetch(
         """
-        SELECT bqms_code, COALESCE(SUM(amount),0) AS total
-        FROM bqms_samsung_po
-        WHERE po_date BETWEEN $1 AND CURRENT_DATE AND bqms_code IS NOT NULL
-        GROUP BY bqms_code
+        SELECT p.bqms_code,
+          COALESCE(SUM(COALESCE(NULLIF(p.amount,0),
+            p.order_qty * COALESCE(
+              r.quoted_price_bqms_v4, r.quoted_price_bqms_v3,
+              r.quoted_price_bqms_v2, r.quoted_price_bqms_v1,
+              r.quoted_price_ama, NULLIF(p.unit_price,0)
+            ), 0)),0) AS total
+        FROM bqms_samsung_po p
+        LEFT JOIN bqms_rfq r ON r.id = p.rfq_id
+        WHERE p.po_date BETWEEN $1 AND CURRENT_DATE AND p.bqms_code IS NOT NULL
+        GROUP BY p.bqms_code
         ORDER BY total DESC
         LIMIT $2
         """,
@@ -348,10 +374,17 @@ async def top_codes_heatmap(
 
     cells = await conn.fetch(
         """
-        SELECT bqms_code, po_date::date AS d, COALESCE(SUM(amount),0) AS amount
-        FROM bqms_samsung_po
-        WHERE bqms_code = ANY($1::text[]) AND po_date BETWEEN $2 AND CURRENT_DATE
-        GROUP BY bqms_code, po_date
+        SELECT p.bqms_code, p.po_date::date AS d,
+          COALESCE(SUM(COALESCE(NULLIF(p.amount,0),
+            p.order_qty * COALESCE(
+              r.quoted_price_bqms_v4, r.quoted_price_bqms_v3,
+              r.quoted_price_bqms_v2, r.quoted_price_bqms_v1,
+              r.quoted_price_ama, NULLIF(p.unit_price,0)
+            ), 0)),0) AS amount
+        FROM bqms_samsung_po p
+        LEFT JOIN bqms_rfq r ON r.id = p.rfq_id
+        WHERE p.bqms_code = ANY($1::text[]) AND p.po_date BETWEEN $2 AND CURRENT_DATE
+        GROUP BY p.bqms_code, p.po_date
         """,
         codes, start,
     )

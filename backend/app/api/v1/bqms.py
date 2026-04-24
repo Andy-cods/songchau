@@ -789,13 +789,38 @@ async def update_rfq_price(
             )
 
     result = await conn.execute(
-        f"UPDATE bqms_rfq SET {field} = $1 WHERE id = $2",
+        f"UPDATE bqms_rfq SET {field} = $1, updated_at = NOW() WHERE id = $2",
         value,
         rfq_id,
     )
 
     if result == "UPDATE 0":
         raise HTTPException(status_code=404, detail=f"Không tìm thấy RFQ #{rfq_id}")
+
+    # Write to bqms_quote_log for vN price fields (round audit trail)
+    # This powers the daily morning report's "báo giá hôm nay" counts.
+    _ROUND_FIELDS = {
+        "quoted_price_bqms_v1": 1,
+        "quoted_price_bqms_v2": 2,
+        "quoted_price_bqms_v3": 3,
+        "quoted_price_bqms_v4": 4,
+    }
+    if field in _ROUND_FIELDS and value is not None:
+        try:
+            # Fetch current item_type so log captures TM/GC snapshot
+            item_type = await conn.fetchval(
+                "SELECT item_type FROM bqms_rfq WHERE id = $1", rfq_id
+            )
+            await conn.execute(
+                """
+                INSERT INTO bqms_quote_log
+                  (rfq_id, round, quoted_price, quoted_currency, item_type, quoted_by, notes)
+                VALUES ($1, $2, $3, 'USD', $4, $5, 'inline-edit from RFQ table')
+                """,
+                rfq_id, _ROUND_FIELDS[field], float(value), item_type, token_data.user_id,
+            )
+        except Exception as exc:
+            logger.warning("quote_log insert failed for rfq=%s: %s", rfq_id, exc)
 
     logger.info(
         "RFQ price updated: id=%d, field=%s, by=%s", rfq_id, field, token_data.user_id
@@ -1288,6 +1313,15 @@ async def update_delivery_status(
     from app.core.concurrency import emit_record_changed
     await emit_record_changed("bqms_delivery", delivery_id, "status_changed", token_data.user_id,
                               metadata={"new_status": new_status})
+
+    # Event-driven notification for manager + warehouse
+    try:
+        from app.services.event_notifications import dispatch_delivery_status_change
+        await dispatch_delivery_status_change(
+            conn, delivery_id, new_status, actor_user_id=str(token_data.user_id),
+        )
+    except Exception as exc:
+        logger.warning("delivery-status notification failed: %s", exc)
 
     return {"data": dict(row), "message": f"Đã cập nhật trạng thái: {new_status}"}
 

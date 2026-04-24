@@ -128,6 +128,18 @@ async def _async_sync_pipeline(
     result["updated_pos"] = updated_pos
     logger.info("bqms_sync: %d new, %d updated POs", len(new_pos), updated_pos)
 
+    # 3b. Event-driven notifications for new POs
+    if new_pos:
+        try:
+            from app.services.event_notifications import dispatch_new_po
+            from app.core.database import db_pool
+            await db_pool.init()
+            async with db_pool.acquire() as conn:
+                n = await dispatch_new_po(conn, [po_num for po_num, _ in new_pos])
+                logger.info("bqms_sync: sent %d new-PO notifications", n)
+        except Exception as exc:
+            logger.warning("new-PO notification dispatch failed: %s", exc)
+
     # 4. Bridge: UPSERT tất cả PO → bqms_deliveries (trang Giao Hàng)
     # Chống trùng: po_number + bqms_code
     # Không ghi đè fields user đã sửa (delivery_status, notes, actual_delivered_qty, etc.)
