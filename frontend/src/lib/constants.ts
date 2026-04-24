@@ -101,6 +101,7 @@ export interface SidebarSection {
 
 const NAV_MAIN: SidebarItem[] = [
   { key: 'dashboard', label: 'Tổng quan', href: '/dashboard', icon: LayoutDashboard },
+  { key: 'daily-report', label: 'Báo cáo hàng ngày', href: '/reports/daily', icon: BarChart3 },
   { key: 'documents', label: 'Quản lý tài liệu', href: '/documents/browser', icon: FolderOpen },
   // Ẩn: Kho hàng, Đơn mua hàng, Vận chuyển, Phê duyệt
 ];
@@ -108,6 +109,7 @@ const NAV_MAIN: SidebarItem[] = [
 const NAV_BQMS: SidebarItem[] = [
   { key: 'bqms', label: 'BQMS', href: '/bqms', icon: ClipboardList },
   { key: 'giao-hang', label: 'Giao hàng', href: '/bqms/deliveries', icon: Truck },
+  { key: 'tra-cuu-gia', label: 'Tra cứu giá', href: '/tra-cuu-gia', icon: BarChart3 },
   { key: 'market-prices', label: 'Tra cứu giá XNK', href: '/market-prices', icon: ClipboardList },
   // Gộp: Tạo BG, Lịch sử BG, Template, RFQ → tất cả trong mục BQMS
   // Ẩn: Lọc đơn AI, Báo cáo (chờ phát triển)

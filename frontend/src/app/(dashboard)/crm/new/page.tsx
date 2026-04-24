@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { ArrowLeft, Contact } from 'lucide-react';
+import { ArrowLeft, Contact, AlertTriangle } from 'lucide-react';
 import Link from 'next/link';
 import { toast } from 'sonner';
 import { api } from '@/lib/api';
@@ -14,20 +14,42 @@ import { Button } from '@/components/ui/button';
 
 // ─── Schema ───────────────────────────────────────────────────
 
-const createCustomerSchema = z.object({
-  company_name: z.string().min(1, 'Vui lòng nhập tên công ty'),
-  short_name: z.string().optional(),
-  // customer_code is required by the backend (min_length=1)
-  customer_code: z.string().min(1, 'Vui lòng nhập mã khách hàng'),
-  tax_code: z.string().optional(),
-  address: z.string().optional(),
-  phone: z.string().optional(),
-  email: z.string().email('Email không hợp lệ').optional().or(z.literal('')),
-  customer_type: z.string().min(1, 'Vui lòng chọn loại khách hàng'),
-  business_system: z.string().optional(),
-});
+const createCustomerSchema = z
+  .object({
+    company_name: z.string().min(1, 'Vui lòng nhập tên công ty'),
+    short_name: z.string().optional(),
+    customer_code: z.string().min(1, 'Vui lòng nhập mã khách hàng'),
+    tax_code: z.string().optional(),
+    address: z.string().optional(),
+    phone: z.string().optional(),
+    email: z.string().email('Email không hợp lệ').optional().or(z.literal('')),
+    customer_type: z.string().min(1, 'Vui lòng chọn loại khách hàng'),
+    business_system: z.string().optional(),
+    // Extended intake
+    contact_name: z.string().min(1, 'Vui lòng nhập người liên hệ'),
+    contact_role: z.string().optional(),
+    industry: z.string().min(1, 'Vui lòng chọn ngành nghề'),
+    company_size: z.string().optional(),
+    lead_source: z.string().optional(),
+    preferred_channel: z.string().optional(),
+    website: z.string().optional(),
+    notes: z.string().optional(),
+  })
+  .refine((d) => !!(d.phone || d.email), {
+    message: 'Phải nhập ít nhất 1 trong 2: Email hoặc Số điện thoại',
+    path: ['phone'],
+  });
 
 type CreateCustomerFormData = z.infer<typeof createCustomerSchema>;
+
+type DuplicateMatch = {
+  id: number;
+  customer_code: string;
+  company_name: string;
+  tax_code: string | null;
+  industry: string | null;
+  lead_source: string | null;
+};
 
 // ─── Options ─────────────────────────────────────────────────
 
@@ -39,10 +61,48 @@ const CUSTOMER_TYPE_OPTIONS = [
   { value: 'other', label: 'Khác' },
 ];
 
-// DB enum: business_system — only 'bqms' and 'imv' are valid values
 const BUSINESS_SYSTEM_OPTIONS = [
   { value: 'bqms', label: 'BQMS (Samsung SEV/SEVT)' },
   { value: 'imv', label: 'iMarket Vietnam (IMV)' },
+];
+
+const INDUSTRY_OPTIONS = [
+  { value: 'electronics', label: 'Điện tử' },
+  { value: 'mechanical', label: 'Cơ khí' },
+  { value: 'plastic', label: 'Nhựa' },
+  { value: 'metal', label: 'Kim loại / Luyện kim' },
+  { value: 'packaging', label: 'Bao bì' },
+  { value: 'logistics', label: 'Logistics' },
+  { value: 'trading', label: 'Thương mại tổng hợp' },
+  { value: 'other', label: 'Khác' },
+];
+
+const COMPANY_SIZE_OPTIONS = [
+  { value: 'micro', label: 'Dưới 10 người' },
+  { value: 'small', label: '10-50 người' },
+  { value: 'medium', label: '50-200 người' },
+  { value: 'large', label: '200-1000 người' },
+  { value: 'enterprise', label: 'Trên 1000 người' },
+];
+
+const LEAD_SOURCE_OPTIONS = [
+  { value: 'samsung_referral', label: 'Samsung giới thiệu' },
+  { value: 'trade_show', label: 'Hội chợ / triển lãm' },
+  { value: 'web', label: 'Website / tìm kiếm' },
+  { value: 'cold_call', label: 'Cold call / email' },
+  { value: 'existing_referral', label: 'KH hiện tại giới thiệu' },
+  { value: 'other', label: 'Khác' },
+];
+
+const CHANNEL_OPTIONS = [
+  { value: 'zalo', label: 'Zalo' },
+  { value: 'email', label: 'Email' },
+  { value: 'call', label: 'Gọi điện' },
+  { value: 'meeting', label: 'Gặp mặt' },
+];
+
+const CONTACT_ROLE_OPTIONS = [
+  'Mua hàng', 'Kỹ thuật', 'Giám đốc', 'Kế toán', 'Kho', 'Khác',
 ];
 
 // ─── Page Component ───────────────────────────────────────────
@@ -50,10 +110,13 @@ const BUSINESS_SYSTEM_OPTIONS = [
 export default function NewCustomerPage() {
   const router = useRouter();
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [duplicates, setDuplicates] = useState<DuplicateMatch[]>([]);
+  const [duplicateAck, setDuplicateAck] = useState(false);
 
   const {
     register,
     handleSubmit,
+    getValues,
     formState: { errors },
   } = useForm<CreateCustomerFormData>({
     resolver: zodResolver(createCustomerSchema),
@@ -67,24 +130,61 @@ export default function NewCustomerPage() {
       email: '',
       customer_type: '',
       business_system: '',
+      contact_name: '',
+      contact_role: '',
+      industry: '',
+      company_size: '',
+      lead_source: '',
+      preferred_channel: '',
+      website: '',
+      notes: '',
     },
   });
 
+  const runDuplicateCheck = async () => {
+    const v = getValues();
+    if (!v.tax_code && !v.email && !v.phone && !v.company_name) {
+      setDuplicates([]);
+      return;
+    }
+    try {
+      const res = await api.post<{ matches: DuplicateMatch[] }>(
+        '/api/v1/crm/customers/check-duplicate',
+        {
+          tax_code: v.tax_code || null,
+          email: v.email || null,
+          phone: v.phone || null,
+          company_name: v.company_name || null,
+        },
+      );
+      setDuplicates(res.matches || []);
+      if ((res.matches?.length || 0) > 0) setDuplicateAck(false);
+    } catch {}
+  };
+
   const onSubmit = async (data: CreateCustomerFormData) => {
+    if (duplicates.length > 0 && !duplicateAck) {
+      toast.error('Có khách hàng trùng — vui lòng xác nhận hoặc mở hồ sơ cũ');
+      return;
+    }
     setIsSubmitting(true);
     try {
       await api.post('/api/v1/crm/customers', {
-        company_name: data.company_name,
+        ...data,
+        email: data.email || undefined,
         short_name: data.short_name || undefined,
-        customer_code: data.customer_code || undefined,
         tax_code: data.tax_code || undefined,
         address: data.address || undefined,
         phone: data.phone || undefined,
-        email: data.email || undefined,
-        customer_type: data.customer_type,
         business_system: data.business_system || undefined,
+        contact_role: data.contact_role || undefined,
+        company_size: data.company_size || undefined,
+        lead_source: data.lead_source || undefined,
+        preferred_channel: data.preferred_channel || undefined,
+        website: data.website || undefined,
+        notes: data.notes || undefined,
       });
-      toast.success('Tạo khách hàng thành công!');
+      toast.success('Tạo khách hàng thành công! Đã tạo card trong CRM pipeline.');
       router.push('/crm');
     } catch (err: unknown) {
       const msg =
@@ -97,203 +197,208 @@ export default function NewCustomerPage() {
     }
   };
 
+  const inputClass = (hasError?: boolean) =>
+    cn(
+      'w-full h-9 px-3 text-sm border rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent',
+      hasError ? 'border-red-400' : 'border-slate-200',
+    );
+
   return (
-    <div className="max-w-2xl">
-      {/* Header */}
+    <div className="max-w-3xl">
       <div className="flex items-center gap-3 mb-6">
-        <Link
-          href="/crm"
-          className="p-2 rounded-md hover:bg-slate-100 text-slate-500 hover:text-slate-700 transition-colors"
-        >
+        <Link href="/crm" className="p-2 rounded-md hover:bg-slate-100 text-slate-500 hover:text-slate-700">
           <ArrowLeft className="h-4 w-4" />
         </Link>
         <div>
-          <h2 className="text-xl font-display font-bold text-slate-900">
-            Thêm khách hàng mới
-          </h2>
-          <p className="text-sm text-slate-500 mt-0.5">
-            Nhập thông tin khách hàng
-          </p>
+          <h2 className="text-xl font-display font-bold text-slate-900">Thêm khách hàng mới</h2>
+          <p className="text-sm text-slate-500 mt-0.5">Nhập đủ thông tin để tự động tạo lead trong CRM pipeline</p>
         </div>
       </div>
 
-      <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
-        {/* Basic Info Card */}
+      <form onSubmit={handleSubmit(onSubmit)} className="space-y-5">
+        {/* Duplicate warning */}
+        {duplicates.length > 0 && (
+          <div className="bg-amber-50 border border-amber-200 rounded-lg p-4">
+            <div className="flex items-start gap-3">
+              <AlertTriangle className="h-5 w-5 text-amber-600 shrink-0 mt-0.5" />
+              <div className="flex-1">
+                <h4 className="font-medium text-amber-900">Khách hàng có thể đã tồn tại</h4>
+                <ul className="mt-2 space-y-1 text-sm text-amber-800">
+                  {duplicates.map((d) => (
+                    <li key={d.id} className="flex items-center justify-between gap-2">
+                      <span>
+                        <span className="font-mono font-semibold">{d.customer_code}</span> · {d.company_name}
+                        {d.tax_code && <span className="text-amber-600 ml-2">MST: {d.tax_code}</span>}
+                      </span>
+                      <Link href={`/crm/${d.id}`} className="text-xs text-amber-700 underline hover:no-underline">
+                        Mở hồ sơ
+                      </Link>
+                    </li>
+                  ))}
+                </ul>
+                <label className="inline-flex items-center gap-2 mt-3 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={duplicateAck}
+                    onChange={(e) => setDuplicateAck(e.target.checked)}
+                    className="rounded border-amber-400"
+                  />
+                  <span className="text-amber-900">Tôi xác nhận đây là KH KHÁC, vẫn tạo mới</span>
+                </label>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Company Info */}
         <div className="bg-white rounded-lg shadow-sm border border-slate-200 p-6">
-          <h3 className="text-sm font-semibold text-slate-700 mb-4">
-            Thông tin cơ bản
-          </h3>
-
+          <h3 className="text-sm font-semibold text-slate-700 mb-4">Thông tin công ty</h3>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {/* Company Name */}
             <div className="md:col-span-2">
-              <label className="block text-sm font-medium text-slate-700 mb-1">
-                Tên công ty <span className="text-red-500">*</span>
-              </label>
-              <input
-                {...register('company_name')}
-                placeholder="Tên đầy đủ công ty"
-                className={cn(
-                  'w-full h-9 px-3 text-sm border rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent',
-                  errors.company_name ? 'border-red-400' : 'border-slate-200'
-                )}
-              />
-              {errors.company_name && (
-                <p className="text-xs text-red-500 mt-1">
-                  {errors.company_name.message}
-                </p>
-              )}
+              <Label required>Tên công ty</Label>
+              <input {...register('company_name')} placeholder="Tên đầy đủ" className={inputClass(!!errors.company_name)} onBlur={runDuplicateCheck} />
+              <ErrMsg e={errors.company_name} />
             </div>
 
-            {/* Short Name */}
             <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1">
-                Tên viết tắt
-              </label>
-              <input
-                {...register('short_name')}
-                placeholder="VD: ABC Corp"
-                className="w-full h-9 px-3 text-sm border border-slate-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
-              />
+              <Label>Tên viết tắt</Label>
+              <input {...register('short_name')} placeholder="VD: ABC Corp" className={inputClass()} />
             </div>
 
-            {/* Customer Code */}
             <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1">
-                Mã khách hàng <span className="text-red-500">*</span>
-              </label>
-              <input
-                {...register('customer_code')}
-                placeholder="VD: KH-001"
-                className={cn(
-                  'w-full h-9 px-3 text-sm border rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent',
-                  errors.customer_code ? 'border-red-400' : 'border-slate-200'
-                )}
-              />
-              {errors.customer_code && (
-                <p className="text-xs text-red-500 mt-1">
-                  {errors.customer_code.message}
-                </p>
-              )}
+              <Label required>Mã khách hàng</Label>
+              <input {...register('customer_code')} placeholder="VD: KH-001" className={inputClass(!!errors.customer_code)} />
+              <ErrMsg e={errors.customer_code} />
             </div>
 
-            {/* Tax Code */}
             <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1">
-                Mã số thuế
-              </label>
-              <input
-                {...register('tax_code')}
-                placeholder="VD: 0312345678"
-                className="w-full h-9 px-3 text-sm border border-slate-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
-              />
+              <Label>Mã số thuế</Label>
+              <input {...register('tax_code')} placeholder="10 hoặc 13 chữ số" className={inputClass()} onBlur={runDuplicateCheck} />
             </div>
 
-            {/* Customer Type */}
             <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1">
-                Loại khách hàng <span className="text-red-500">*</span>
-              </label>
-              <select
-                {...register('customer_type')}
-                className={cn(
-                  'w-full h-9 px-3 text-sm border rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent',
-                  errors.customer_type ? 'border-red-400' : 'border-slate-200'
-                )}
-              >
-                <option value="">-- Chọn loại khách hàng --</option>
-                {CUSTOMER_TYPE_OPTIONS.map((opt) => (
-                  <option key={opt.value} value={opt.value}>
-                    {opt.label}
-                  </option>
-                ))}
+              <Label required>Loại khách hàng</Label>
+              <select {...register('customer_type')} className={inputClass(!!errors.customer_type)}>
+                <option value="">-- Chọn --</option>
+                {CUSTOMER_TYPE_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
               </select>
-              {errors.customer_type && (
-                <p className="text-xs text-red-500 mt-1">
-                  {errors.customer_type.message}
-                </p>
-              )}
+              <ErrMsg e={errors.customer_type} />
             </div>
 
-            {/* Business System */}
             <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1">
-                Hệ thống kinh doanh
-              </label>
-              <select
-                {...register('business_system')}
-                className="w-full h-9 px-3 text-sm border border-slate-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
-              >
-                <option value="">-- Chọn hệ thống --</option>
-                {BUSINESS_SYSTEM_OPTIONS.map((opt) => (
-                  <option key={opt.value} value={opt.value}>
-                    {opt.label}
-                  </option>
-                ))}
+              <Label required>Ngành nghề</Label>
+              <select {...register('industry')} className={inputClass(!!errors.industry)}>
+                <option value="">-- Chọn --</option>
+                {INDUSTRY_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+              </select>
+              <ErrMsg e={errors.industry} />
+            </div>
+
+            <div>
+              <Label>Quy mô công ty</Label>
+              <select {...register('company_size')} className={inputClass()}>
+                <option value="">-- Chọn --</option>
+                {COMPANY_SIZE_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
               </select>
             </div>
 
-            {/* Phone */}
             <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1">
-                Số điện thoại
-              </label>
-              <input
-                type="tel"
-                {...register('phone')}
-                placeholder="+84 hoặc 0..."
-                className="w-full h-9 px-3 text-sm border border-slate-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
-              />
+              <Label>Hệ thống KD</Label>
+              <select {...register('business_system')} className={inputClass()}>
+                <option value="">-- Chọn --</option>
+                {BUSINESS_SYSTEM_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+              </select>
             </div>
 
-            {/* Email */}
-            <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1">
-                Email
-              </label>
-              <input
-                type="email"
-                {...register('email')}
-                placeholder="email@company.com"
-                className={cn(
-                  'w-full h-9 px-3 text-sm border rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent',
-                  errors.email ? 'border-red-400' : 'border-slate-200'
-                )}
-              />
-              {errors.email && (
-                <p className="text-xs text-red-500 mt-1">
-                  {errors.email.message}
-                </p>
-              )}
-            </div>
-
-            {/* Address */}
             <div className="md:col-span-2">
-              <label className="block text-sm font-medium text-slate-700 mb-1">
-                Địa chỉ
-              </label>
-              <input
-                {...register('address')}
-                placeholder="Địa chỉ đầy đủ"
-                className="w-full h-9 px-3 text-sm border border-slate-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
-              />
+              <Label>Địa chỉ</Label>
+              <input {...register('address')} placeholder="Địa chỉ đầy đủ" className={inputClass()} />
+            </div>
+
+            <div className="md:col-span-2">
+              <Label>Website</Label>
+              <input {...register('website')} placeholder="https://..." className={inputClass()} />
             </div>
           </div>
         </div>
 
+        {/* Contact Info */}
+        <div className="bg-white rounded-lg shadow-sm border border-slate-200 p-6">
+          <h3 className="text-sm font-semibold text-slate-700 mb-4">Người liên hệ</h3>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <Label required>Họ tên</Label>
+              <input {...register('contact_name')} placeholder="VD: Nguyễn Văn A" className={inputClass(!!errors.contact_name)} />
+              <ErrMsg e={errors.contact_name} />
+            </div>
+
+            <div>
+              <Label>Chức vụ / Phòng ban</Label>
+              <select {...register('contact_role')} className={inputClass()}>
+                <option value="">-- Chọn --</option>
+                {CONTACT_ROLE_OPTIONS.map((r) => <option key={r} value={r}>{r}</option>)}
+              </select>
+            </div>
+
+            <div>
+              <Label>Số điện thoại</Label>
+              <input type="tel" {...register('phone')} placeholder="0901234567 hoặc +84..." className={inputClass(!!errors.phone)} onBlur={runDuplicateCheck} />
+              <ErrMsg e={errors.phone} />
+            </div>
+
+            <div>
+              <Label>Email</Label>
+              <input type="email" {...register('email')} placeholder="email@company.com" className={inputClass(!!errors.email)} onBlur={runDuplicateCheck} />
+              <ErrMsg e={errors.email} />
+            </div>
+
+            <div>
+              <Label>Kênh ưu tiên</Label>
+              <select {...register('preferred_channel')} className={inputClass()}>
+                <option value="">-- Chọn --</option>
+                {CHANNEL_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+              </select>
+            </div>
+
+            <div>
+              <Label>Nguồn lead</Label>
+              <select {...register('lead_source')} className={inputClass()}>
+                <option value="">-- Chọn --</option>
+                {LEAD_SOURCE_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+              </select>
+            </div>
+          </div>
+        </div>
+
+        {/* Notes */}
+        <div className="bg-white rounded-lg shadow-sm border border-slate-200 p-6">
+          <h3 className="text-sm font-semibold text-slate-700 mb-4">Ghi chú</h3>
+          <textarea {...register('notes')} rows={3} placeholder="Context về khách hàng, yêu cầu đặc biệt..." className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent" />
+        </div>
+
         {/* Actions */}
         <div className="flex items-center justify-end gap-3 pb-6">
-          <Link href="/crm">
-            <Button type="button" variant="outline">
-              Hủy bỏ
-            </Button>
-          </Link>
+          <Link href="/crm"><Button type="button" variant="outline">Hủy bỏ</Button></Link>
           <Button type="submit" loading={isSubmitting} className="gap-2">
             <Contact className="h-4 w-4" />
-            Tạo khách hàng
+            Tạo khách hàng + Lead
           </Button>
         </div>
       </form>
     </div>
   );
+}
+
+function Label({ children, required }: { children: React.ReactNode; required?: boolean }) {
+  return (
+    <label className="block text-sm font-medium text-slate-700 mb-1">
+      {children}
+      {required && <span className="text-red-500 ml-0.5">*</span>}
+    </label>
+  );
+}
+
+function ErrMsg({ e }: { e: any }) {
+  if (!e) return null;
+  return <p className="text-xs text-red-500 mt-1">{e.message}</p>;
 }

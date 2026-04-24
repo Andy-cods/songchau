@@ -182,3 +182,13 @@ v1_router.include_router(quarterly_invoices_router, prefix="/quarterly-invoices"
 from app.api.v1.market_prices import router as market_prices_router
 
 v1_router.include_router(market_prices_router, prefix="/market-prices", tags=["market-prices"])
+
+# ── Daily Report (morning summary + revenue trend) ──
+from app.api.v1.daily_report import router as daily_report_router
+
+v1_router.include_router(daily_report_router, prefix="/daily-report", tags=["daily-report"])
+
+# ── Price Lookup (Ctrl+K quick widget) ──
+from app.api.v1.price_lookup import router as price_lookup_router
+
+v1_router.include_router(price_lookup_router, prefix="/price-lookup", tags=["price-lookup"])

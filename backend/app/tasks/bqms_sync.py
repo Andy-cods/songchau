@@ -39,7 +39,7 @@ BQMS_PDF_DIR = Path(settings.FILES_BASE_PATH) / "bqms" / "po_pdfs"
 # Periodic task — 23:30 every day
 # ---------------------------------------------------------------------------
 
-#DISABLED @app.periodic(cron="30 23 * * *")
+@app.periodic(cron="30 23 * * *")
 @app.task(name="bqms_nightly_sync", queue="bqms")
 def bqms_nightly_sync(timestamp: int = 0) -> dict[str, Any]:
     """Nightly Samsung BQMS synchronisation."""

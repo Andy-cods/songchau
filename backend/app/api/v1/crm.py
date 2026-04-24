@@ -47,6 +47,22 @@ class CustomerCreateRequest(BaseModel):
     email: EmailStr | None = None
     phone: str | None = None
     is_active: bool = True
+    # Extended intake fields (Khối C)
+    contact_name: str | None = Field(None, max_length=200)
+    contact_role: str | None = Field(None, max_length=100)
+    industry: str | None = Field(None, max_length=50)
+    company_size: str | None = Field(None, max_length=50)
+    lead_source: str | None = Field(None, max_length=50)
+    preferred_channel: str | None = Field(None, max_length=20)
+    website: str | None = Field(None, max_length=255)
+    notes: str | None = None
+
+
+class CustomerDuplicateCheckRequest(BaseModel):
+    tax_code: str | None = None
+    email: str | None = None
+    phone: str | None = None
+    company_name: str | None = None
 
 
 class CustomerUpdateRequest(BaseModel):
@@ -372,13 +388,77 @@ async def get_customer_detail(
 # POST /customers
 # ---------------------------------------------------------------------------
 
+@router.post("/customers/check-duplicate")
+async def check_customer_duplicate(
+    body: CustomerDuplicateCheckRequest,
+    token_data: TokenData = Depends(require_role("staff", "manager", "admin")),
+    conn: asyncpg.Connection = Depends(get_db),
+):
+    """Check existing customers by tax_code / email / phone / normalized name.
+
+    Returns all matches so frontend can warn the user before creating duplicate.
+    """
+    clauses = []
+    params: list = []
+    idx = 1
+
+    if body.tax_code:
+        clauses.append(f"tax_code = ${idx}")
+        params.append(body.tax_code.strip())
+        idx += 1
+    if body.email:
+        import re as _re
+        clauses.append(f"LOWER(COALESCE((SELECT email FROM crm_contacts WHERE customer_id=customers.id AND is_primary=true LIMIT 1),'')) = LOWER(${idx})")
+        params.append(body.email.strip())
+        idx += 1
+    if body.phone:
+        clauses.append(f"REGEXP_REPLACE(COALESCE((SELECT phone FROM crm_contacts WHERE customer_id=customers.id AND is_primary=true LIMIT 1),''), '[^0-9]', '', 'g') = REGEXP_REPLACE(${idx}, '[^0-9]', '', 'g')")
+        params.append(body.phone.strip())
+        idx += 1
+    if body.company_name:
+        clauses.append(f"company_name_unaccent ILIKE '%' || LOWER(${idx}) || '%'")
+        params.append(body.company_name.strip())
+        idx += 1
+
+    if not clauses:
+        return {"matches": []}
+
+    where = " OR ".join(f"({c})" for c in clauses)
+    rows = await conn.fetch(
+        f"""
+        SELECT id, customer_code, company_name, tax_code, short_name,
+               industry, lead_source, created_at
+        FROM customers
+        WHERE deleted_at IS NULL AND ({where})
+        ORDER BY created_at DESC
+        LIMIT 10
+        """,
+        *params,
+    )
+    return {
+        "matches": [
+            {
+                "id": r["id"],
+                "customer_code": r["customer_code"],
+                "company_name": r["company_name"],
+                "tax_code": r["tax_code"],
+                "short_name": r["short_name"],
+                "industry": r["industry"],
+                "lead_source": r["lead_source"],
+                "created_at": r["created_at"].isoformat() if r["created_at"] else None,
+            }
+            for r in rows
+        ]
+    }
+
+
 @router.post("/customers", status_code=201)
 async def create_customer(
     body: CustomerCreateRequest,
     token_data: TokenData = Depends(require_role("manager", "admin")),
     conn: asyncpg.Connection = Depends(get_db),
 ):
-    """Tạo khách hàng mới."""
+    """Tạo khách hàng mới + auto-create CRM pipeline card."""
     # Check duplicate customer_code
     existing = await conn.fetchval(
         "SELECT id FROM customers WHERE customer_code = $1", body.customer_code
@@ -390,27 +470,51 @@ async def create_customer(
         """
         INSERT INTO customers (
             customer_code, company_name, short_name, tax_code,
-            address, business_system, customer_type, is_active
-        ) VALUES ($1,$2,$3,$4,$5,$6::text::business_system,$7,$8)
+            address, business_system, customer_type, is_active,
+            contact_name, contact_role, industry, company_size,
+            lead_source, preferred_channel, website, notes
+        ) VALUES ($1,$2,$3,$4,$5,$6::text::business_system,$7,$8,
+                  $9,$10,$11,$12,$13,$14,$15,$16)
         RETURNING *
         """,
         body.customer_code, body.company_name, body.short_name, body.tax_code,
         body.address, body.business_system, body.customer_type, body.is_active,
+        body.contact_name, body.contact_role, body.industry, body.company_size,
+        body.lead_source, body.preferred_channel, body.website, body.notes,
     )
 
-    if body.email or body.phone:
+    # Create primary contact if email/phone/contact_name provided
+    if body.email or body.phone or body.contact_name:
         await conn.execute(
             """
             INSERT INTO crm_contacts (
-                customer_id, full_name, email, phone, is_primary, notes
-            ) VALUES ($1, $2, $3, $4, true, $5)
+                customer_id, full_name, position, email, phone, is_primary, notes
+            ) VALUES ($1, $2, $3, $4, $5, true, $6)
             """,
             row["id"],
-            body.short_name or body.company_name,
+            body.contact_name or body.short_name or body.company_name,
+            body.contact_role,
             body.email,
             body.phone,
-            "Auto-created from customer form",
+            "Auto-created from customer intake form",
         )
+
+    # Auto-create CRM pipeline card in "new" stage
+    try:
+        await conn.execute(
+            """
+            INSERT INTO crm_pipeline_cards (
+                stage, title, customer_name, customer_id, priority, source
+            ) VALUES ('new', $1, $2, $3, $4, 'manual')
+            """,
+            body.company_name,
+            body.company_name,
+            row["id"],
+            "high" if body.lead_source == "samsung_referral" else "normal",
+        )
+    except Exception as exc:
+        # non-fatal if pipeline table not ready
+        logger.warning("pipeline card auto-create failed: %s", exc)
 
     logger.info("Customer %s created by %s", row["id"], token_data.user_id)
     return {"data": dict(row), "message": "Đã tạo khách hàng thành công"}
