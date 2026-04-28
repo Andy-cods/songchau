@@ -192,3 +192,8 @@ v1_router.include_router(daily_report_router, prefix="/daily-report", tags=["dai
 from app.api.v1.price_lookup import router as price_lookup_router
 
 v1_router.include_router(price_lookup_router, prefix="/price-lookup", tags=["price-lookup"])
+
+# ── IMV (iMarketVietnam supplier portal) ──
+from app.api.v1.imv import router as imv_router
+
+v1_router.include_router(imv_router, prefix="/imv", tags=["imv"])

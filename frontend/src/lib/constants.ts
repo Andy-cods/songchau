@@ -111,8 +111,10 @@ const NAV_BQMS: SidebarItem[] = [
   { key: 'giao-hang', label: 'Giao hàng', href: '/bqms/deliveries', icon: Truck },
   { key: 'market-prices', label: 'Tra cứu giá XNK', href: '/market-prices', icon: ClipboardList },
   // Tra cứu giá nội bộ đã tích hợp vào thanh tìm kiếm (Ctrl+K) — không cần mục riêng
-  // Gộp: Tạo BG, Lịch sử BG, Template, RFQ → tất cả trong mục BQMS
-  // Ẩn: Lọc đơn AI, Báo cáo (chờ phát triển)
+];
+
+const NAV_IMV: SidebarItem[] = [
+  { key: 'imv', label: 'IMV — RFQ', href: '/imv', icon: Building2 },
 ];
 
 const NAV_PROCUREMENT: SidebarItem[] = [
@@ -149,6 +151,7 @@ export function getSidebarConfig(role: UserRole): SidebarSection[] {
       return [
         { title: 'Tổng quan', items: NAV_MAIN },
         { title: 'BQMS Samsung', items: NAV_BQMS },
+        { title: 'IMV iMarketVietnam', items: NAV_IMV },
         { title: 'Mua hàng', items: NAV_PROCUREMENT },
         { title: 'Tài chính', items: NAV_FINANCE },
         { title: 'Khách hàng', items: NAV_CRM },
@@ -161,6 +164,7 @@ export function getSidebarConfig(role: UserRole): SidebarSection[] {
       return [
         { title: 'Tổng quan', items: NAV_MAIN },
         { title: 'BQMS Samsung', items: NAV_BQMS },
+        { title: 'IMV iMarketVietnam', items: NAV_IMV },
         { title: 'Mua hàng', items: NAV_PROCUREMENT },
         { title: 'Tài chính', items: NAV_FINANCE },
         { title: 'Khách hàng', items: NAV_CRM },

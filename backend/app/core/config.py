@@ -37,6 +37,11 @@ class Settings(BaseSettings):
     BQMS_PASSWORD: str = ""
     BQMS_BASE_URL: str = "https://www.sec-bqms.com"
 
+    # IMV (iMarketVietnam) supplier portal
+    IMV_USER_ID: str = ""
+    IMV_PASSWORD: str = ""
+    IMV_BASE_URL: str = "https://www.imvmall.com"
+
     # Gemini
     GEMINI_API_KEY: str = ""
 
