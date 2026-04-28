@@ -135,19 +135,6 @@ const NAV_ANALYTICS: SidebarItem[] = [
   // Ẩn: Win/Loss, Báo cáo tự động, Chuỗi doanh thu, Lợi nhuận (có thể mở lại sau)
 ];
 
-const NAV_OPERATIONS: SidebarItem[] = [
-  { key: 'inventory-forecast', label: 'Kho thông minh', href: '/inventory/forecast', icon: Package },
-  { key: 'tasks', label: 'Công việc', href: '/tasks', icon: ListTodo },
-  { key: 'workload', label: 'Phân công', href: '/tasks/workload', icon: Users },
-  { key: 'calendar', label: 'Lịch', href: '/calendar', icon: CalendarDays },
-  { key: 'notifications', label: 'Thông báo', href: '/notifications', icon: Bell },
-];
-
-const NAV_ADVANCED: SidebarItem[] = [
-  { key: 'emails', label: 'Email Samsung', href: '/bqms/emails', icon: Mail },
-  { key: 'forecast', label: 'Dự báo', href: '/analytics/forecast', icon: TrendingUp },
-];
-
 const NAV_ADMIN: SidebarItem[] = [
   { key: 'suppliers', label: 'Nhà cung cấp', href: '/suppliers', icon: Building2 },
   { key: 'users', label: 'Người dùng', href: '/users', icon: Users },
@@ -160,37 +147,32 @@ export function getSidebarConfig(role: UserRole): SidebarSection[] {
   switch (role) {
     case 'admin':
       return [
-        { title: 'Chính', items: NAV_MAIN },
+        { title: 'Tổng quan', items: NAV_MAIN },
         { title: 'BQMS Samsung', items: NAV_BQMS },
         { title: 'Mua hàng', items: NAV_PROCUREMENT },
         { title: 'Tài chính', items: NAV_FINANCE },
         { title: 'Khách hàng', items: NAV_CRM },
         { title: 'Phân tích', items: NAV_ANALYTICS },
-        { title: 'Vận hành', items: NAV_OPERATIONS },
-        { title: 'Nâng cao', items: NAV_ADVANCED },
         { title: 'Hệ thống', items: NAV_ADMIN },
       ];
 
     case 'director':
     case 'manager':
       return [
-        { title: 'Chính', items: NAV_MAIN },
+        { title: 'Tổng quan', items: NAV_MAIN },
         { title: 'BQMS Samsung', items: NAV_BQMS },
         { title: 'Mua hàng', items: NAV_PROCUREMENT },
         { title: 'Tài chính', items: NAV_FINANCE },
         { title: 'Khách hàng', items: NAV_CRM },
         { title: 'Phân tích', items: NAV_ANALYTICS },
-        { title: 'Vận hành', items: NAV_OPERATIONS },
-        { title: 'Nâng cao', items: NAV_ADVANCED },
       ];
 
     case 'accountant':
       return [
         {
-          title: 'Chính',
+          title: 'Tổng quan',
           items: [
             { key: 'dashboard', label: 'Tổng quan', href: '/dashboard', icon: LayoutDashboard },
-            { key: 'documents', label: 'Tài liệu', href: '/documents', icon: FolderOpen },
             { key: 'documents', label: 'Quản lý tài liệu', href: '/documents/browser', icon: FolderOpen },
           ],
         },
@@ -200,20 +182,12 @@ export function getSidebarConfig(role: UserRole): SidebarSection[] {
     case 'warehouse':
       return [
         {
-          title: 'Chính',
+          title: 'Tổng quan',
           items: [
             { key: 'dashboard', label: 'Tổng quan', href: '/dashboard', icon: LayoutDashboard },
             { key: 'giao-hang', label: 'Giao hàng', href: '/bqms/deliveries', icon: Truck },
             { key: 'inventory', label: 'Kho hàng', href: '/inventory', icon: Package },
-            { key: 'documents', label: 'Tài liệu', href: '/documents', icon: FolderOpen },
             { key: 'documents', label: 'Quản lý tài liệu', href: '/documents/browser', icon: FolderOpen },
-          ],
-        },
-        {
-          title: 'Vận hành',
-          items: [
-            { key: 'inventory-forecast', label: 'Kho thông minh', href: '/inventory/forecast', icon: Package },
-            { key: 'tasks', label: 'Công việc', href: '/tasks', icon: ListTodo },
           ],
         },
       ];
@@ -221,12 +195,12 @@ export function getSidebarConfig(role: UserRole): SidebarSection[] {
     case 'sales':
       return [
         {
-          title: 'Chính',
+          title: 'Tổng quan',
           items: [
             { key: 'dashboard', label: 'Tổng quan', href: '/dashboard', icon: LayoutDashboard },
+            { key: 'daily-report', label: 'Báo cáo hàng ngày', href: '/reports/daily', icon: BarChart3 },
             { key: 'bqms', label: 'BQMS', href: '/bqms', icon: ClipboardList },
             { key: 'giao-hang', label: 'Giao hàng', href: '/bqms/deliveries', icon: Truck },
-            { key: 'documents', label: 'Tài liệu', href: '/documents', icon: FolderOpen },
             { key: 'documents', label: 'Quản lý tài liệu', href: '/documents/browser', icon: FolderOpen },
           ],
         },
@@ -243,10 +217,9 @@ export function getSidebarConfig(role: UserRole): SidebarSection[] {
     default:
       return [
         {
-          title: 'Chính',
+          title: 'Tổng quan',
           items: [
             { key: 'dashboard', label: 'Tổng quan', href: '/dashboard', icon: LayoutDashboard },
-            { key: 'documents', label: 'Tài liệu', href: '/documents', icon: FolderOpen },
             { key: 'documents', label: 'Quản lý tài liệu', href: '/documents/browser', icon: FolderOpen },
           ],
         },
