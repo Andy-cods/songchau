@@ -10,8 +10,8 @@ import {
 import {
   Copy, Check, Calendar as CalendarIcon, TrendingUp, TrendingDown,
   Package, Truck, Sparkles, FileText, RefreshCw, Printer, Share2,
-  ArrowRight, Clock, BarChart3, Activity, Bell, ChevronRight,
-  AlertCircle, Zap, Eye,
+  ArrowRight, Clock, BarChart3, Bell, ChevronRight,
+  AlertCircle, Eye, Zap,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -60,21 +60,18 @@ type TopCodesPayload = { start: string; days: number; codes: string[]; matrix: T
 
 // ─── Formatters ────────────────────────────────────────────────
 
-const fmtUSD = (v: number) =>
-  new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(v || 0);
-
-const fmtUSDShort = (v: number) => {
-  if (!v) return '$0';
-  if (v >= 1_000_000) return `$${(v / 1_000_000).toFixed(1)}M`;
-  if (v >= 1_000) return `$${(v / 1_000).toFixed(1)}K`;
-  return `$${v.toFixed(0)}`;
+const fmtVND = (v: number) => {
+  const n = Number(v) || 0;
+  return new Intl.NumberFormat('vi-VN').format(Math.round(n)) + ' ₫';
 };
 
 const fmtVNDShort = (v: number) => {
-  if (!v) return '₫0';
-  if (v >= 1_000_000_000) return `${(v / 1_000_000_000).toFixed(1)}B`;
-  if (v >= 1_000_000) return `${(v / 1_000_000).toFixed(0)}M`;
-  return new Intl.NumberFormat('vi-VN').format(v) + 'đ';
+  const n = Number(v) || 0;
+  if (!n) return '0 ₫';
+  if (Math.abs(n) >= 1_000_000_000) return `${(n / 1_000_000_000).toFixed(2)} tỷ`;
+  if (Math.abs(n) >= 1_000_000) return `${(n / 1_000_000).toFixed(0)} tr`;
+  if (Math.abs(n) >= 1_000) return `${(n / 1_000).toFixed(0)}k`;
+  return `${Math.round(n)} ₫`;
 };
 
 const fmtPct = (v: number | null | undefined) =>
@@ -221,41 +218,36 @@ export default function DailyReportPage() {
           className="grid grid-cols-2 lg:grid-cols-4 gap-4"
         >
           <KpiCard
-            icon={<Sparkles className="h-4 w-4" />}
             label="Hôm nay"
-            value={fmtUSD(revenue?.po_revenue.today.amount || 0)}
+            value={fmtVND(revenue?.po_revenue.today.amount || 0)}
             badge={`${revenue?.po_revenue.today.count || 0} PO`}
             delta={revenue?.po_revenue.delta_yoy_today_pct}
             deltaLabel="vs cùng ngày năm ngoái"
-            gradient="from-sky-500 to-indigo-600"
+            accent="sky"
             loading={loading}
           />
           <KpiCard
-            icon={<Activity className="h-4 w-4" />}
             label="Tuần này"
-            value={fmtUSD(revenue?.po_revenue.week.amount || 0)}
+            value={fmtVND(revenue?.po_revenue.week.amount || 0)}
             badge={`${revenue?.po_revenue.week.count || 0} PO`}
-            gradient="from-emerald-500 to-teal-600"
+            accent="emerald"
             loading={loading}
           />
           <KpiCard
-            icon={<TrendingUp className="h-4 w-4" />}
             label="Tháng này (MTD)"
-            value={fmtUSD(revenue?.po_revenue.month.amount || 0)}
+            value={fmtVND(revenue?.po_revenue.month.amount || 0)}
             badge={`${revenue?.po_revenue.month.count || 0} PO`}
             delta={revenue?.po_revenue.delta_yoy_mtd_pct}
             deltaLabel="YoY MTD"
-            gradient="from-amber-500 to-orange-600"
+            accent="amber"
             loading={loading}
           />
           <KpiCard
-            icon={<Truck className="h-4 w-4" />}
             label="Giao hàng tuần"
-            value={fmtVNDShort(revenue?.delivery_revenue.week.amount_vnd || 0)}
+            value={fmtVND(revenue?.delivery_revenue.week.amount_vnd || 0)}
             badge={`${revenue?.delivery_revenue.week.count || 0} lô`}
-            gradient="from-violet-500 to-purple-600"
+            accent="violet"
             loading={loading}
-            isVND
           />
         </motion.section>
 
@@ -417,7 +409,7 @@ export default function DailyReportPage() {
                       <YAxis
                         tick={{ fontSize: 11, fill: '#64748b' }}
                         width={56}
-                        tickFormatter={(v) => fmtUSDShort(v)}
+                        tickFormatter={(v) => fmtVNDShort(v)}
                         tickLine={false}
                         axisLine={false}
                       />
@@ -440,8 +432,8 @@ export default function DailyReportPage() {
                 )}
               </div>
               <div className="px-5 py-3 border-t border-slate-100 bg-slate-50/50 grid grid-cols-3 gap-4 text-xs">
-                <TrendStat label="Tổng kỳ" value={fmtUSDShort(trend.reduce((s, t) => s + t.amount, 0))} />
-                <TrendStat label="Cao nhất" value={fmtUSDShort(trend.reduce((m, t) => Math.max(m, t.amount), 0))} />
+                <TrendStat label="Tổng kỳ" value={fmtVNDShort(trend.reduce((s, t) => s + t.amount, 0))} />
+                <TrendStat label="Cao nhất" value={fmtVNDShort(trend.reduce((m, t) => Math.max(m, t.amount), 0))} />
                 <TrendStat
                   label="So với năm ngoái"
                   value={(() => {
@@ -582,65 +574,68 @@ function ToolButton({
 }
 
 function KpiCard({
-  icon, label, value, badge, delta, deltaLabel, gradient, loading, isVND,
+  label, value, badge, delta, deltaLabel, accent, loading,
 }: {
-  icon: React.ReactNode;
   label: string;
   value: string;
   badge?: string;
   delta?: number | null;
   deltaLabel?: string;
-  gradient: string;
+  accent: 'sky' | 'emerald' | 'amber' | 'violet';
   loading?: boolean;
-  isVND?: boolean;
 }) {
   const positive = typeof delta === 'number' && delta > 0;
+  const accentBar = {
+    sky: 'bg-sky-500',
+    emerald: 'bg-emerald-500',
+    amber: 'bg-amber-500',
+    violet: 'bg-violet-500',
+  }[accent];
+
   return (
     <motion.div
       variants={{
-        hidden: { opacity: 0, y: 20 },
+        hidden: { opacity: 0, y: 16 },
         visible: { opacity: 1, y: 0 },
       }}
       whileHover={{ y: -2 }}
-      transition={{ type: 'spring', stiffness: 300, damping: 20 }}
-      className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden group"
+      transition={{ type: 'spring', stiffness: 300, damping: 22 }}
+      className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden relative"
     >
-      <div className="p-5 relative">
-        <div className={cn('absolute -top-8 -right-8 h-32 w-32 rounded-full opacity-10 blur-2xl bg-gradient-to-br', gradient)} />
-
-        <div className="flex items-start justify-between relative">
-          <div className={cn('h-9 w-9 rounded-xl flex items-center justify-center text-white shadow-md bg-gradient-to-br', gradient)}>
-            {icon}
-          </div>
+      <div className={cn('absolute top-0 left-0 right-0 h-0.5', accentBar)} />
+      <div className="p-5">
+        <div className="flex items-start justify-between">
+          <div className="text-[11px] uppercase tracking-[0.08em] text-slate-500 font-semibold">{label}</div>
           {badge && (
-            <span className="text-[10px] font-medium px-2 py-1 rounded-full bg-slate-100 text-slate-600">
+            <span className="text-[10px] font-medium px-2 py-0.5 rounded-md bg-slate-100 text-slate-600 tabular-nums">
               {badge}
             </span>
           )}
         </div>
 
-        <div className="mt-4 relative">
-          <div className="text-xs uppercase tracking-wider text-slate-500 font-semibold">{label}</div>
-          {loading ? (
-            <div className="h-8 w-32 bg-slate-100 rounded mt-2 animate-pulse" />
-          ) : (
-            <div className="text-2xl xl:text-[26px] font-bold text-slate-900 mt-1.5 tabular-nums tracking-tight">{value}</div>
-          )}
-        </div>
+        {loading ? (
+          <div className="h-9 w-40 bg-slate-100 rounded mt-3 animate-pulse" />
+        ) : (
+          <div className="mt-2 text-[28px] xl:text-3xl font-bold text-slate-900 tabular-nums tracking-tight leading-tight">
+            {value}
+          </div>
+        )}
 
-        {delta != null && Number.isFinite(delta) && (
-          <div className="mt-3 relative">
-            <div
+        {delta != null && Number.isFinite(delta) ? (
+          <div className="mt-3 flex items-center gap-2">
+            <span
               className={cn(
-                'inline-flex items-center gap-1 text-xs font-semibold px-2 py-1 rounded-full',
+                'inline-flex items-center gap-1 text-xs font-semibold px-2 py-0.5 rounded-md',
                 positive ? 'bg-emerald-50 text-emerald-700' : 'bg-rose-50 text-rose-700',
               )}
             >
               {positive ? <TrendingUp className="h-3 w-3" /> : <TrendingDown className="h-3 w-3" />}
               {fmtPct(delta)}
-            </div>
-            {deltaLabel && <div className="text-[10px] text-slate-400 mt-1">{deltaLabel}</div>}
+            </span>
+            {deltaLabel && <span className="text-[11px] text-slate-400">{deltaLabel}</span>}
           </div>
+        ) : (
+          <div className="mt-3 h-[22px]" />
         )}
       </div>
     </motion.div>
@@ -681,11 +676,11 @@ function TrendTooltip({ active, payload, label }: any) {
       <div className="space-y-1">
         <div className="flex items-center justify-between gap-3">
           <span className="text-sky-300">● Năm nay</span>
-          <span className="font-mono tabular-nums">{fmtUSDShort(cur)}</span>
+          <span className="font-mono tabular-nums">{fmtVNDShort(cur)}</span>
         </div>
         <div className="flex items-center justify-between gap-3">
           <span className="text-slate-400">○ Năm ngoái</span>
-          <span className="font-mono tabular-nums text-slate-300">{fmtUSDShort(ly)}</span>
+          <span className="font-mono tabular-nums text-slate-300">{fmtVNDShort(ly)}</span>
         </div>
         {delta != null && (
           <div className={cn('mt-1 pt-1.5 border-t border-slate-700 text-center font-semibold', delta > 0 ? 'text-emerald-400' : 'text-rose-400')}>
@@ -755,13 +750,13 @@ function Heatmap({ data, max }: { data: TopCodesPayload; max: number }) {
                         ? { background: `rgba(14, 165, 233, ${0.15 + intensity * 0.75})` }
                         : undefined
                     }
-                    title={has ? `${c.date}: ${fmtUSDShort(c.amount)}` : `${c.date}: 0`}
+                    title={has ? `${c.date}: ${fmtVNDShort(c.amount)}` : `${c.date}: 0`}
                   />
                 </div>
               );
             })}
             <div className="text-right text-xs font-mono font-semibold text-slate-900 tabular-nums pl-2">
-              {fmtUSDShort(row.total)}
+              {fmtVNDShort(row.total)}
             </div>
           </div>
         ))}

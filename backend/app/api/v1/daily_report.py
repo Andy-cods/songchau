@@ -250,7 +250,7 @@ async def revenue_summary(
     return {
         "report_date": today.isoformat(),
         "cutoff": cutoff.isoformat(),
-        "currency": "USD",
+        "currency": "VND",
         "po_revenue": {
             "today": today_po,
             "week": week_po,
