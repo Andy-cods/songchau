@@ -553,15 +553,10 @@ export default function BQMSDeliveriesPage() {
 // ─── KPI Cards ──────────────────────────────────────────────────
 
 function KPICards({ kpi }: { kpi: KPIData }) {
-  const deliveryRate = kpi.total_orders > 0
-    ? ((kpi.delivered_count / kpi.total_orders) * 100).toFixed(1)
-    : '0';
-  const inTransitRate = kpi.total_orders > 0
-    ? ((kpi.in_transit_count / kpi.total_orders) * 100).toFixed(1)
-    : '0';
-  const pendingRate = kpi.total_orders > 0
-    ? ((kpi.pending_count / kpi.total_orders) * 100).toFixed(1)
-    : '0';
+  const _t = Number(kpi.total_orders ?? 0);
+  const deliveryRate  = _t > 0 ? ((Number(kpi.delivered_count  ?? 0) / _t) * 100).toFixed(1) : '0';
+  const inTransitRate = _t > 0 ? ((Number(kpi.in_transit_count ?? 0) / _t) * 100).toFixed(1) : '0';
+  const pendingRate   = _t > 0 ? ((Number(kpi.pending_count    ?? 0) / _t) * 100).toFixed(1) : '0';
 
   const cards = [
     { label: 'Tổng đơn', value: fmtNum(kpi.total_orders), sub: `${kpi.total_orders} đơn hàng`, icon: Package, accent: 'border-l-blue-500', iconColor: 'text-blue-500' },

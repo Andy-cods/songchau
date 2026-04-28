@@ -83,7 +83,7 @@ function MarginBadge({ pct }: { pct: number }) {
       : 'bg-red-100 text-red-700';
   return (
     <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${cls}`}>
-      {pct.toFixed(1)}%
+      {Number(pct ?? 0).toFixed(1)}%
     </span>
   );
 }
@@ -229,7 +229,7 @@ export default function ProfitAnalysisPage() {
         />
         <KpiCard
           label="Margin TB"
-          value={overview && overview.avg_margin_pct != null ? `${overview.avg_margin_pct.toFixed(1)}%` : '—'}
+          value={overview && overview.avg_margin_pct != null ? `${Number(overview.avg_margin_pct).toFixed(1)}%` : '—'}
           icon={BarChart2}
           colorClass={
             overview && overview.avg_margin_pct != null

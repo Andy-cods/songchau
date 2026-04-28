@@ -336,7 +336,7 @@ export default function InvoiceDetailPage() {
         <div className="border-t border-slate-100 pt-6">
           <div className="flex items-center justify-between mb-2">
             <span className="text-sm text-slate-600">Tiến độ thanh toán</span>
-            <span className="text-sm font-mono font-medium text-slate-800">{paidPercent.toFixed(0)}%</span>
+            <span className="text-sm font-mono font-medium text-slate-800">{Number(paidPercent ?? 0).toFixed(0)}%</span>
           </div>
           <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
             <div

@@ -100,6 +100,28 @@ export function withToken(url: string): string {
 }
 
 /**
+ * Coerce any value to a finite number, fallback to 0.
+ * Postgres numeric columns serialize as STRING in JSON, so naive
+ * `value.toFixed()` blows up. Always wrap with toNum() first.
+ */
+export function toNum(v: unknown, fallback = 0): number {
+  if (typeof v === 'number') return Number.isFinite(v) ? v : fallback;
+  if (typeof v === 'string') {
+    const n = parseFloat(v);
+    return Number.isFinite(n) ? n : fallback;
+  }
+  return fallback;
+}
+
+/**
+ * Safe .toFixed — never throws. Coerces input to number first.
+ */
+export function safeFixed(v: unknown, digits = 2, fallback = '—'): string {
+  const n = typeof v === 'number' ? v : typeof v === 'string' ? parseFloat(v) : NaN;
+  return Number.isFinite(n) ? n.toFixed(digits) : fallback;
+}
+
+/**
  * Format file size in human-readable format.
  */
 export function formatFileSize(bytes: number): string {

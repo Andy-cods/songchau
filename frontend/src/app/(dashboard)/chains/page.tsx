@@ -258,7 +258,7 @@ export default function ChainListPage() {
                           chain.margin_percent >= 5  ? 'bg-amber-100 text-amber-700' :
                                                        'bg-red-100 text-red-700'
                         }`}>
-                          {chain.margin_percent.toFixed(1)}%
+                          {Number(chain.margin_percent ?? 0).toFixed(1)}%
                         </span>
                       ) : (
                         <span className="text-sm text-slate-300">—</span>

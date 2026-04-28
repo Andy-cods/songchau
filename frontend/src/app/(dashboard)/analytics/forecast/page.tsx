@@ -386,11 +386,11 @@ export default function ForecastPage() {
                                       ? 'bg-amber-500'
                                       : 'bg-red-400'
                                   )}
-                                  style={{ width: `${(f.confidence * 100).toFixed(0)}%` }}
+                                  style={{ width: `${(Number(f.confidence ?? 0) * 100).toFixed(0)}%` }}
                                 />
                               </div>
                               <span className="text-xs text-slate-500 w-10 text-right">
-                                {(f.confidence * 100).toFixed(0)}%
+                                {(Number(f.confidence ?? 0) * 100).toFixed(0)}%
                               </span>
                             </div>
                           </td>

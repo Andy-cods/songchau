@@ -563,7 +563,7 @@ function CoverageBar({ label, value }: { label: string; value: number }) {
     <div className="space-y-2">
       <div className="flex items-center justify-between gap-3 text-sm">
         <span className="text-slate-600">{label}</span>
-        <span className="font-mono text-slate-800">{value.toFixed(1)}%</span>
+        <span className="font-mono text-slate-800">{Number(value ?? 0).toFixed(1)}%</span>
       </div>
       <div className="h-2 overflow-hidden rounded-full bg-slate-100">
         <div className="h-full rounded-full bg-sky-600" style={{ width: `${Math.max(0, Math.min(100, value))}%` }} />

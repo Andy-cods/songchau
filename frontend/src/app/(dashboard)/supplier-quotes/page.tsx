@@ -52,7 +52,7 @@ function MarginBadge({ pct }: { pct: number }) {
                 'text-red-700 bg-red-50';
   return (
     <span className={`px-2 py-0.5 rounded text-xs font-mono font-medium ${cls}`}>
-      {pct.toFixed(1)}%
+      {Number(pct ?? 0).toFixed(1)}%
     </span>
   );
 }

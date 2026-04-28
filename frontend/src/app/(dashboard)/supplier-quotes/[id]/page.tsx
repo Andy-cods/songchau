@@ -68,7 +68,7 @@ function MarginBadge({ pct }: { pct: number }) {
                 'text-red-700 bg-red-100';
   return (
     <span className={`px-2 py-0.5 rounded text-xs font-mono font-medium ${cls}`}>
-      {pct.toFixed(1)}%
+      {Number(pct ?? 0).toFixed(1)}%
     </span>
   );
 }
@@ -195,7 +195,7 @@ function MarginSummaryCard({ quote }: { quote: SupplierQuote }) {
       </div>
       <div>
         <p className="text-xs text-slate-500">Margin trung bình</p>
-        <p className={`text-2xl font-bold font-mono ${textColor}`}>{pct.toFixed(1)}%</p>
+        <p className={`text-2xl font-bold font-mono ${textColor}`}>{Number(pct ?? 0).toFixed(1)}%</p>
       </div>
       {quote.total_amount_cny != null && (
         <div className="ml-auto text-right">

@@ -65,7 +65,7 @@ function MarginBadge({ pct }: { pct: number }) {
       : pct >= 10
       ? 'bg-amber-100 text-amber-700'
       : 'bg-red-100 text-red-700';
-  return <span className={`px-2 py-0.5 rounded text-xs font-mono font-medium ${cls}`}>{pct.toFixed(1)}%</span>;
+  return <span className={`px-2 py-0.5 rounded text-xs font-mono font-medium ${cls}`}>{Number(pct ?? 0).toFixed(1)}%</span>;
 }
 
 // ─── P&L Card ────────────────────────────────────────────────────
@@ -217,7 +217,7 @@ export default function FinanceReportsPage() {
             />
             <PLCard
               label="Biên lợi nhuận"
-              value={pl && pl.margin_pct != null ? `${pl.margin_pct.toFixed(1)}%` : '—'}
+              value={pl && pl.margin_pct != null ? `${Number(pl.margin_pct).toFixed(1)}%` : '—'}
               color="text-brand-600 bg-brand-50"
               icon={PieChart}
             />
@@ -252,7 +252,7 @@ export default function FinanceReportsPage() {
               />
               <Tooltip
                 formatter={(value: number, name: string) =>
-                  name === 'margin_pct' ? `${value.toFixed(1)}%` : fmtVnd(value)
+                  name === 'margin_pct' ? `${Number(value ?? 0).toFixed(1)}%` : fmtVnd(value)
                 }
                 contentStyle={{ fontSize: 12, borderRadius: 8 }}
               />

@@ -147,14 +147,24 @@ export default function DashboardPage() {
   const d = raw?.data ?? {};
 
   /* ── Scalar KPIs ──────────────────────────────────────────── */
-  const rfqThisMonth  = d.rfq_this_month   ?? 0;
-  const rfqMomPct     = d.rfq_mom_pct      ?? 0;
-  const winRate3m     = d.win_rate_3m       ?? 0;
-  const won3m         = d.won_3m            ?? 0;
-  const decided3m     = d.decided_3m        ?? 0;
-  const revThisMonth  = d.revenue_this_month ?? 0;
-  const rfqPending    = d.rfq_pending       ?? 0;
-  const rfqOverdue    = d.rfq_overdue       ?? 0;
+  // Coerce to safe numbers — Postgres numeric serializes as STRING in JSON,
+  // and ?? 0 only catches null/undefined, not strings. So .toFixed() blew up.
+  const _safeN = (v: unknown): number => {
+    if (typeof v === 'number') return Number.isFinite(v) ? v : 0;
+    if (typeof v === 'string') {
+      const n = parseFloat(v);
+      return Number.isFinite(n) ? n : 0;
+    }
+    return 0;
+  };
+  const rfqThisMonth  = _safeN(d.rfq_this_month);
+  const rfqMomPct     = _safeN(d.rfq_mom_pct);
+  const winRate3m     = _safeN(d.win_rate_3m);
+  const won3m         = _safeN(d.won_3m);
+  const decided3m     = _safeN(d.decided_3m);
+  const revThisMonth  = _safeN(d.revenue_this_month);
+  const rfqPending    = _safeN(d.rfq_pending);
+  const rfqOverdue    = _safeN(d.rfq_overdue);
 
   /* ── Arrays ───────────────────────────────────────────────── */
   const monthlyRevenue: any[] = Array.isArray(d.monthly_revenue) ? d.monthly_revenue : [];
@@ -202,10 +212,7 @@ export default function DashboardPage() {
   ];
   const funnelMax = funnelStages[0]?.value || 1;
 
-  const toNum = (v: unknown): number => {
-    const n = typeof v === 'number' ? v : Number(v);
-    return Number.isFinite(n) ? n : 0;
-  };
+  const toNum = _safeN;
   const makersDonut = makers.map((m: any) => ({
     name:  m.maker ?? '',
     value: toNum(m.total),
@@ -213,9 +220,24 @@ export default function DashboardPage() {
     rate:  toNum(m.win_rate),
   }));
 
-  const avgWinRate = winRateTrend.length
-    ? winRateTrend.reduce((s: number, r: any) => s + (r.win_rate ?? 0), 0) / winRateTrend.length
+  // Pre-coerce winRateTrend so children can call .toFixed safely.
+  const winRateTrendSafe = winRateTrend.map((r: any) => ({
+    month: r.month ?? '',
+    win_rate: toNum(r.win_rate),
+    won: toNum(r.won),
+    lost: toNum(r.lost),
+  }));
+  const avgWinRate = winRateTrendSafe.length
+    ? winRateTrendSafe.reduce((s, r) => s + r.win_rate, 0) / winRateTrendSafe.length
     : 0;
+
+  // Pre-coerce owners list so .toFixed never crashes on string win_rate.
+  const ownersSafe = owners.map((o: any) => ({
+    owner: o.owner ?? '--',
+    total: toNum(o.total),
+    won: toNum(o.won),
+    win_rate: toNum(o.win_rate),
+  }));
 
   /* ── Current date display ─────────────────────────────────── */
   const now = new Date();
@@ -772,11 +794,11 @@ export default function DashboardPage() {
             </div>
             {isLoading ? <Skeleton className="h-[260px]" /> : (
               <ResponsiveContainer width="100%" height={260}>
-                <AreaChart data={winRateTrend.map((r: any) => ({
-                  name: monthLabel(r.month ?? ''),
-                  rate: r.win_rate ?? 0,
-                  won: r.won ?? 0,
-                  lost: r.lost ?? 0,
+                <AreaChart data={winRateTrendSafe.map((r) => ({
+                  name: monthLabel(r.month),
+                  rate: r.win_rate,
+                  won: r.won,
+                  lost: r.lost,
                 }))}>
                   <defs>
                     <linearGradient id="grad-winrate" x1="0" y1="0" x2="0" y2="1">
@@ -824,23 +846,23 @@ export default function DashboardPage() {
           <div className="bg-white rounded-xl shadow-[0_1px_3px_rgba(0,0,0,0.05)] border border-slate-100/80 p-6">
             <div className="flex items-center justify-between mb-6">
               <h2 className="text-base font-semibold text-slate-700">Nhân viên nổi bật</h2>
-              <span className="text-xs text-slate-400">{owners.length} người</span>
+              <span className="text-xs text-slate-400">{ownersSafe.length} người</span>
             </div>
             {isLoading ? (
               <div className="space-y-3">
                 {[1,2,3,4,5].map(i => <Skeleton key={i} className="h-10" />)}
               </div>
-            ) : owners.length === 0 ? (
+            ) : ownersSafe.length === 0 ? (
               <p className="text-sm text-slate-400 text-center py-8">Không có dữ liệu</p>
             ) : (
               <div className="space-y-1">
-                {owners
-                  .sort((a: any, b: any) => (b.won ?? 0) - (a.won ?? 0))
+                {ownersSafe
+                  .sort((a, b) => b.won - a.won)
                   .slice(0, 8)
-                  .map((o: any, i: number) => {
-                    const total = o.total ?? 0;
-                    const won = o.won ?? 0;
-                    const rate = o.win_rate ?? 0;
+                  .map((o, i) => {
+                    const total = o.total;
+                    const won = o.won;
+                    const rate = o.win_rate;
                     return (
                       <div
                         key={o.owner ?? i}

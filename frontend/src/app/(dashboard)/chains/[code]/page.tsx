@@ -212,7 +212,7 @@ function MarginBreakdownCard({ breakdown }: { breakdown: MarginBreakdown }) {
         )}
         <h3 className="text-sm font-semibold text-slate-700">Phân tích biên lợi nhuận</h3>
         <span className={`ml-auto text-lg font-bold font-mono ${isPositive ? 'text-green-600' : 'text-red-600'}`}>
-          {breakdown.profit_percent.toFixed(1)}%
+          {Number(breakdown.profit_percent ?? 0).toFixed(1)}%
         </span>
       </div>
 

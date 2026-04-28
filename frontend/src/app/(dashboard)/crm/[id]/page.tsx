@@ -1641,8 +1641,8 @@ function TabBaoGia({ customerId }: { customerId: string }) {
           />
           <KpiCard
             label="Tỷ lệ trúng"
-            value={`${winRateValue.toFixed(1)}%`}
-            highlight={winRateValue >= 50}
+            value={`${Number(winRateValue ?? 0).toFixed(1)}%`}
+            highlight={Number(winRateValue ?? 0) >= 50}
           />
         </div>
       )}
