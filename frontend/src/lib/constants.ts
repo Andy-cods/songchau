@@ -114,7 +114,7 @@ const NAV_BQMS: SidebarItem[] = [
 ];
 
 const NAV_IMV: SidebarItem[] = [
-  { key: 'imv', label: 'IMV — RFQ', href: '/imv', icon: Building2 },
+  { key: 'imv', label: 'IMV iMarketVietnam', href: '/imv', icon: Building2 },
 ];
 
 const NAV_PROCUREMENT: SidebarItem[] = [
