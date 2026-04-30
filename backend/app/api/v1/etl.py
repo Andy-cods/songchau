@@ -5,10 +5,14 @@ Endpoints:
     GET  /etl/sync-status   — Trạng thái sync mới nhất
     POST /etl/sync-now      — Trigger manual sync (admin/manager only)
     GET  /etl/sync-history   — Lịch sử sync (phân trang)
+    GET  /etl/sync-health    — Per-module freshness + run-locally last
+    POST /etl/sync-local     — Trigger local_filesystem_index in a thread
 """
 
 from __future__ import annotations
 
+import logging
+import threading
 from datetime import datetime, timezone
 from typing import Any
 
@@ -19,7 +23,107 @@ from app.core.database import get_db
 from app.core.rbac import require_role
 from app.core.security import TokenData
 
+logger = logging.getLogger(__name__)
 router = APIRouter()
+
+
+# ---------------------------------------------------------------------------
+# GET /etl/sync-health — Per-module freshness summary
+# ---------------------------------------------------------------------------
+
+@router.get("/sync-health")
+async def sync_health(
+    token_data: TokenData = Depends(
+        require_role("staff", "manager", "admin", "accountant", "procurement", "sales", "warehouse")
+    ),
+    conn: asyncpg.Connection = Depends(get_db),
+) -> dict[str, Any]:
+    """Single endpoint that returns last-sync freshness for the 3 main
+    modules (Documents, BQMS, Deliveries) so the frontend can render a
+    chip everywhere without 3 separate calls."""
+
+    # Map: module → list of sync_type entries that count toward its freshness
+    MODULES = {
+        "documents":  ["local_filesystem_index", "file_index_crawl", "onedrive_delta", "onedrive"],
+        "bqms":       ["bqms_po", "bqms_excel_import"],
+        "deliveries": ["bqms_po"],  # bridged from BQMS
+    }
+
+    out: dict[str, Any] = {"now": datetime.now(timezone.utc).isoformat(), "modules": {}}
+    for module, sync_types in MODULES.items():
+        row = await conn.fetchrow(
+            """
+            SELECT sync_type, status, started_at, completed_at, error_message,
+                   files_processed, rows_inserted, rows_updated
+            FROM etl_sync_log
+            WHERE sync_type = ANY($1::text[])
+            ORDER BY started_at DESC
+            LIMIT 1
+            """,
+            sync_types,
+        )
+        if row:
+            ago_min = None
+            if row["completed_at"]:
+                ago_min = round((datetime.now(timezone.utc) - row["completed_at"]).total_seconds() / 60)
+            stale = ago_min is None or ago_min > 60
+            out["modules"][module] = {
+                "sync_type": row["sync_type"],
+                "status": row["status"],
+                "started_at": row["started_at"].isoformat() if row["started_at"] else None,
+                "completed_at": row["completed_at"].isoformat() if row["completed_at"] else None,
+                "minutes_ago": ago_min,
+                "is_stale": stale,
+                "error_message": row["error_message"],
+                "files_processed": row["files_processed"],
+                "rows_inserted": row["rows_inserted"],
+            }
+        else:
+            out["modules"][module] = {
+                "status": "never",
+                "minutes_ago": None,
+                "is_stale": True,
+                "error_message": "Chưa có lần sync nào",
+            }
+
+    # Indexed file count for documents
+    out["files_indexed"] = await conn.fetchval(
+        "SELECT COUNT(*) FROM onedrive_file_index WHERE sync_status = 'indexed'"
+    )
+    return out
+
+
+# ---------------------------------------------------------------------------
+# POST /etl/sync-local — Trigger local filesystem indexer NOW (in thread)
+# ---------------------------------------------------------------------------
+
+@router.post("/sync-local")
+async def trigger_local_sync(
+    token_data: TokenData = Depends(require_role("admin", "manager", "procurement")),
+    conn: asyncpg.Connection = Depends(get_db),
+) -> dict[str, Any]:
+    """Run local_filesystem_index immediately in a background thread.
+    Lets users force a refresh without waiting for the 15-min cron tick.
+    """
+    # Reject if a local index is already running
+    running = await conn.fetchval(
+        "SELECT id FROM etl_sync_log "
+        "WHERE sync_type = 'local_filesystem_index' AND status = 'running' "
+        "AND started_at > NOW() - INTERVAL '10 minutes' LIMIT 1"
+    )
+    if running:
+        raise HTTPException(409, f"Local indexer đang chạy (job #{running}). Đợi 1-2 phút.")
+
+    def _thread_run():
+        try:
+            from app.tasks.local_filesystem_index import local_filesystem_index
+            local_filesystem_index(timestamp=0)
+        except Exception as exc:
+            logger.exception("manual local_filesystem_index failed: %s", exc)
+
+    threading.Thread(target=_thread_run, daemon=True).start()
+    logger.info("local_filesystem_index triggered manually by user=%s", token_data.user_id)
+    return {"message": "Đã bắt đầu quét lại tài liệu (chạy nền 30-90s)"}
 
 
 # ---------------------------------------------------------------------------

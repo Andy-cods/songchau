@@ -29,6 +29,7 @@ import {
 } from 'lucide-react';
 import { api } from '@/lib/api';
 import { SamsungSyncWidget } from '@/components/features/SamsungSyncWidget';
+import { SyncFreshnessChip } from '@/components/shared/sync-freshness-chip';
 import { cn, formatDate } from '@/lib/utils';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -1493,15 +1494,18 @@ export default function BQMSPage() {
           </div>
           <div>
             <h1 className="text-lg font-bold text-slate-900">BQMS — Quản lý RFQ Samsung</h1>
-            <p className="text-xs text-slate-500">
-              Bảng tổng hợp RFQ · {total.toLocaleString('vi-VN')} bản ghi
-              {isFetching && !isLoading && (
-                <span className="ml-2 text-brand-500">
-                  <Loader2 className="inline h-3 w-3 animate-spin mr-0.5" />
-                  Đang cập nhật...
-                </span>
-              )}
-            </p>
+            <div className="flex items-center gap-3 flex-wrap mt-1">
+              <span className="text-xs text-slate-500">
+                {total.toLocaleString('vi-VN')} bản ghi
+                {isFetching && !isLoading && (
+                  <span className="ml-2 text-brand-500">
+                    <Loader2 className="inline h-3 w-3 animate-spin mr-0.5" />
+                    Đang cập nhật...
+                  </span>
+                )}
+              </span>
+              <SyncFreshnessChip module="bqms" />
+            </div>
           </div>
         </div>
         <div className="flex items-center gap-2">

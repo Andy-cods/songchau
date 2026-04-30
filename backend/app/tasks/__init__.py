@@ -18,3 +18,5 @@ from app.tasks import onedrive_sync   # noqa: F401 — registers onedrive_delta_
 from app.tasks import report_generation  # noqa: F401 — registers generate_scheduled_reports (daily 07:00)
 from app.tasks import smart_classify     # noqa: F401 — registers batch_classify_rfq
 from app.tasks import file_index_crawler # noqa: F401 — registers file_index_crawl (mỗi 6 giờ)
+from app.tasks import local_filesystem_index  # noqa: F401 — registers local_filesystem_index (mỗi 15 phút)
+from app.tasks import imv_sync           # noqa: F401 — registers imv_nightly_sync

@@ -217,7 +217,7 @@ def _process_upcoming(
             SELECT
                 wi.id::text          AS workflow_id,
                 wi.title,
-                wi.current_state,
+                wi.current_status,
                 wi.deadline,
                 wi.created_by::text  AS created_by,
                 u.email              AS creator_email,
@@ -225,7 +225,7 @@ def _process_upcoming(
             FROM workflow_instances wi
             LEFT JOIN users u ON u.id = wi.created_by
             WHERE wi.deadline BETWEEN %s AND %s
-              AND wi.current_state IN ('pending_l1', 'pending_l2')
+              AND wi.current_status IN ('pending_l1', 'pending_l2')
               AND NOT EXISTS (
                   SELECT 1 FROM notifications n2
                   WHERE n2.link = '/workflows/' || wi.id::text
@@ -286,7 +286,7 @@ def _process_overdue(
             SELECT
                 wi.id::text          AS workflow_id,
                 wi.title,
-                wi.current_state,
+                wi.current_status,
                 wi.deadline,
                 wi.created_by::text  AS created_by,
                 u.email              AS creator_email,
@@ -294,7 +294,7 @@ def _process_overdue(
             FROM workflow_instances wi
             LEFT JOIN users u ON u.id = wi.created_by
             WHERE wi.deadline < %s
-              AND wi.current_state IN ('pending_l1', 'pending_l2')
+              AND wi.current_status IN ('pending_l1', 'pending_l2')
               AND NOT EXISTS (
                   SELECT 1 FROM notifications n2
                   WHERE n2.link = '/workflows/' || wi.id::text

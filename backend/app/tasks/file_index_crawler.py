@@ -34,7 +34,7 @@ BATCH_SIZE = 500
 # Periodic task — mỗi 6 giờ
 # ---------------------------------------------------------------------------
 
-@app.periodic(cron="0 */6 * * *")
+@app.periodic(cron="*/30 * * * *")
 @app.task(name="file_index_crawl", queue="etl")
 def file_index_crawl(timestamp: int = 0) -> dict[str, Any]:
     """

@@ -10,6 +10,7 @@ import {
 import { api } from '@/lib/api';
 import { cn, formatDate, formatCurrency } from '@/lib/utils';
 import { StatusBadge } from '@/components/shared/status-badge';
+import { SyncFreshnessChip } from '@/components/shared/sync-freshness-chip';
 import { DELIVERY_STATUS_CONFIG } from '@/lib/constants';
 import type { DeliveryStatus } from '@/types/models';
 
@@ -294,9 +295,12 @@ export default function BQMSDeliveriesPage() {
             <h2 className="text-xl font-display font-bold text-slate-900">
               BQMS — Theo dõi giao hàng
             </h2>
-            <p className="text-sm text-slate-500 mt-0.5">
-              Thống kê tình trạng giao hàng · {total.toLocaleString('vi-VN')} đơn
-            </p>
+            <div className="flex items-center gap-3 flex-wrap mt-0.5">
+              <p className="text-sm text-slate-500">
+                {total.toLocaleString('vi-VN')} đơn
+              </p>
+              <SyncFreshnessChip module="deliveries" />
+            </div>
           </div>
           <div className="flex items-center gap-2">
             {/* Tab switcher */}

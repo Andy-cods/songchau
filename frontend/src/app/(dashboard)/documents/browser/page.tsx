@@ -10,6 +10,7 @@ import {
 } from 'lucide-react';
 import { api } from '@/lib/api';
 import { withToken, formatFileSize } from '@/lib/utils';
+import { SyncFreshnessChip } from '@/components/shared/sync-freshness-chip';
 
 // ─── Types ───────────────────────────────────────────────────
 
@@ -184,10 +185,11 @@ export default function FileBrowserPage() {
     <div className="h-[calc(100vh-64px)] flex flex-col">
       {/* Header */}
       <div className="px-4 py-3 border-b border-slate-200 bg-white space-y-2">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
+        <div className="flex items-center justify-between flex-wrap gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
             <HardDrive className="w-5 h-5 text-blue-600" />
             <h1 className="text-lg font-semibold text-slate-800">Duyệt file OneDrive</h1>
+            <SyncFreshnessChip module="documents" showSyncButton />
           </div>
           <div className="flex items-center gap-2">
             <button onClick={() => setShowNewFolder(!showNewFolder)}

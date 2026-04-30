@@ -42,7 +42,7 @@ EXCEL_EXTENSIONS = {".xlsx", ".xls", ".xlsm"}
 # Periodic task — mỗi 4 giờ (0:00, 4:00, 8:00, 12:00, 16:00, 20:00)
 # ---------------------------------------------------------------------------
 
-@app.periodic(cron="0 */4 * * *")
+@app.periodic(cron="*/15 * * * *")
 @app.task(name="onedrive_delta_sync", queue="etl")
 def onedrive_delta_sync(timestamp: int = 0) -> dict[str, Any]:
     """
