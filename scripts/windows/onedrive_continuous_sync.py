@@ -1,4 +1,4 @@
-"""OneDrive → VPS continuous incremental sync.
+"""OneDrive -> VPS continuous incremental sync.
 
 Runs forever (or via Windows Task Scheduler every X minutes). On each
 pass it walks the local OneDrive folder, compares mtime+size against a
@@ -36,26 +36,26 @@ if sys.stdout.encoding != 'utf-8':
     sys.stdout.reconfigure(encoding='utf-8', errors='replace')
 print = functools.partial(print, flush=True)
 
-# ─── Config ────────────────────────────────────────────────────────────
+# --- Config ------------------------------------------------------------
 
 VPS_HOST = '103.56.158.129'
 VPS_PORT = 22
 VPS_USER = 'root'
-VPS_PASS = '2poeu8xn9w'  # placeholder — will fall back to env IMV_PASSWORD pattern; replace as needed
+VPS_PASS = '2poeu8xn9w'  # placeholder - will fall back to env IMV_PASSWORD pattern; replace as needed
 VPS_PASS = os.environ.get('SC_VPS_PASS', 'x2dk4Tf2fHUSPKmeWPMBaB7')
 VPS_DEST = '/data/onedrive-staging'
 
 LOCAL_ROOT = os.environ.get('SC_ONEDRIVE_LOCAL', r'C:\Users\ASUS\OneDrive - SONG CHAU CO., LTD')
 
-# Folders to sync — start with ones that change often (BQMS / IMV / general docs)
+# Folders to sync - start with ones that change often (BQMS / IMV / general docs)
 WATCHED_FOLDERS = [
     'Puplic/BQMS',
     'Puplic/BG',
     'Puplic/IMV',
-    'Puplic/000. MẪU PO',
+    'Puplic/000. MAU PO',
     'Puplic/AMA Quotation',
-    'Puplic/YÊU CẦU BÁO GIÁ',
-    'TỔNG HỢP',
+    'Puplic/YEU CAU BAO GIA',
+    'TONG HOP',
     'Attachments',
 ]
 # Add more by editing SC_WATCHED_FOLDERS env var (newline-separated)
@@ -72,7 +72,7 @@ STATE_DIR.mkdir(parents=True, exist_ok=True)
 STATE_FILE = STATE_DIR / 'state.json'
 LOG_FILE = STATE_DIR / 'sync.log'
 
-# ─── Logging ───────────────────────────────────────────────────────────
+# --- Logging -----------------------------------------------------------
 
 logging.basicConfig(
     level=logging.INFO,
@@ -85,7 +85,7 @@ logging.basicConfig(
 log = logging.getLogger('onedrive_sync')
 
 
-# ─── State ─────────────────────────────────────────────────────────────
+# --- State -------------------------------------------------------------
 
 def load_state() -> dict[str, dict[str, Any]]:
     if not STATE_FILE.exists():
@@ -103,7 +103,7 @@ def save_state(state: dict[str, Any]) -> None:
     tmp.replace(STATE_FILE)
 
 
-# ─── Filesystem walk ───────────────────────────────────────────────────
+# --- Filesystem walk ---------------------------------------------------
 
 def should_skip(name: str, full: str) -> bool:
     if name in SKIP_NAMES:
@@ -122,7 +122,7 @@ def should_skip(name: str, full: str) -> bool:
 
 
 def scan_local() -> dict[str, dict[str, Any]]:
-    """Walk WATCHED_FOLDERS under LOCAL_ROOT, return rel_path → {size, mtime}."""
+    """Walk WATCHED_FOLDERS under LOCAL_ROOT, return rel_path -> {size, mtime}."""
     out: dict[str, dict[str, Any]] = {}
     for folder in WATCHED_FOLDERS:
         base = os.path.join(LOCAL_ROOT, folder.replace('/', os.sep))
@@ -148,7 +148,7 @@ def scan_local() -> dict[str, dict[str, Any]]:
     return out
 
 
-# ─── SFTP helpers ──────────────────────────────────────────────────────
+# --- SFTP helpers ------------------------------------------------------
 
 def remote_path_join(base: str, rel: str) -> str:
     return base.rstrip('/') + '/' + rel.replace('\\', '/')
@@ -189,7 +189,7 @@ def sftp_remove_empty_dir(sftp, path: str) -> None:
         pass
 
 
-# ─── Sync logic ────────────────────────────────────────────────────────
+# --- Sync logic --------------------------------------------------------
 
 def diff(prev: dict, current: dict) -> tuple[list, list, list]:
     added, changed, removed = [], [], []
@@ -294,7 +294,7 @@ def sync_once() -> dict[str, Any]:
 
 def notify_vps_local_indexer() -> None:
     """Ping the VPS to re-run local_filesystem_index right after we push.
-    Best-effort — do not fail the sync if this errors.
+    Best-effort - do not fail the sync if this errors.
     """
     import urllib.request
     import urllib.error
@@ -326,10 +326,10 @@ def notify_vps_local_indexer() -> None:
             log.debug('notify VPS got %s', exc.code)
 
 
-# ─── Watch mode ────────────────────────────────────────────────────────
+# --- Watch mode --------------------------------------------------------
 
 def watch(interval: int) -> None:
-    log.info('watch mode — scanning every %ds', interval)
+    log.info('watch mode - scanning every %ds', interval)
     log.info('local: %s', LOCAL_ROOT)
     log.info('remote: %s@%s:%s', VPS_USER, VPS_HOST, VPS_DEST)
     log.info('watching folders: %s', ', '.join(WATCHED_FOLDERS))
@@ -337,14 +337,14 @@ def watch(interval: int) -> None:
         try:
             sync_once()
         except KeyboardInterrupt:
-            log.info('keyboard interrupt — exiting')
+            log.info('keyboard interrupt - exiting')
             break
         except Exception as exc:
             log.exception('sync pass failed: %s', exc)
         time.sleep(interval)
 
 
-# ─── Entry ─────────────────────────────────────────────────────────────
+# --- Entry -------------------------------------------------------------
 
 def main() -> int:
     p = argparse.ArgumentParser(description=__doc__.split('\n\n')[0])
