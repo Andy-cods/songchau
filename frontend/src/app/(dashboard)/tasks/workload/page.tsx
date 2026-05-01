@@ -75,7 +75,8 @@ export default function WorkloadPage() {
     },
   });
 
-  const workload = data?.data ?? [];
+  const _wRaw: any = data?.data;
+  const workload = Array.isArray(_wRaw) ? _wRaw : Array.isArray(_wRaw?.items) ? _wRaw.items : [];
 
   const maxTotal = Math.max(...workload.map((w) => w.pending_count + w.in_progress_count), 1);
 

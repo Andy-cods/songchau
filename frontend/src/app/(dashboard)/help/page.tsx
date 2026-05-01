@@ -286,7 +286,10 @@ export default function HelpPage() {
     enabled: activeCategory === 'general',
   });
 
-  const articles: Article[] = articlesRaw?.data ?? (articlesRaw as any) ?? [];
+  const _aRaw: any = articlesRaw?.data ?? articlesRaw;
+  const articles: Article[] = Array.isArray(_aRaw)
+    ? _aRaw
+    : Array.isArray(_aRaw?.items) ? _aRaw.items : [];
   const firstLogin = firstLoginRaw?.data ?? (firstLoginRaw as any);
 
   return (

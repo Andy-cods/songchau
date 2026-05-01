@@ -1,0 +1,918 @@
+{
+  "started_at": "2026-05-01T17:47:28.291412",
+  "auth": {
+    "login_ok": true,
+    "token_length": 321
+  },
+  "pages": [
+    {
+      "path": "/dashboard",
+      "status": 200,
+      "load_ms": 2854,
+      "console_errors": 0,
+      "critical_errors": 0,
+      "sample_errors": [],
+      "ok": true
+    },
+    {
+      "path": "/reports/daily",
+      "status": 200,
+      "load_ms": 2707,
+      "console_errors": 0,
+      "critical_errors": 0,
+      "sample_errors": [],
+      "ok": true
+    },
+    {
+      "path": "/documents/browser",
+      "status": 200,
+      "load_ms": 2450,
+      "console_errors": 0,
+      "critical_errors": 0,
+      "sample_errors": [],
+      "ok": true
+    },
+    {
+      "path": "/documents",
+      "status": 200,
+      "load_ms": 2382,
+      "console_errors": 0,
+      "critical_errors": 0,
+      "sample_errors": [],
+      "ok": true
+    },
+    {
+      "path": "/documents/ocr",
+      "status": 200,
+      "load_ms": 2399,
+      "console_errors": 0,
+      "critical_errors": 0,
+      "sample_errors": [],
+      "ok": true
+    },
+    {
+      "path": "/bqms",
+      "status": 200,
+      "load_ms": 2833,
+      "console_errors": 0,
+      "critical_errors": 0,
+      "sample_errors": [],
+      "ok": true
+    },
+    {
+      "path": "/bqms/deliveries",
+      "status": 200,
+      "load_ms": 2525,
+      "console_errors": 0,
+      "critical_errors": 0,
+      "sample_errors": [],
+      "ok": true
+    },
+    {
+      "path": "/bqms/classify",
+      "status": 200,
+      "load_ms": 2343,
+      "console_errors": 0,
+      "critical_errors": 0,
+      "sample_errors": [],
+      "ok": true
+    },
+    {
+      "path": "/bqms/emails",
+      "status": 200,
+      "load_ms": 2354,
+      "console_errors": 0,
+      "critical_errors": 0,
+      "sample_errors": [],
+      "ok": true
+    },
+    {
+      "path": "/bqms/rfq",
+      "status": 200,
+      "load_ms": 2473,
+      "console_errors": 0,
+      "critical_errors": 0,
+      "sample_errors": [],
+      "ok": true
+    },
+    {
+      "path": "/bqms/quotation",
+      "status": 200,
+      "load_ms": 2441,
+      "console_errors": 0,
+      "critical_errors": 0,
+      "sample_errors": [],
+      "ok": true
+    },
+    {
+      "path": "/bqms/quotation/new",
+      "status": 200,
+      "load_ms": 2290,
+      "console_errors": 0,
+      "critical_errors": 0,
+      "sample_errors": [],
+      "ok": true
+    },
+    {
+      "path": "/bqms/quotation/history",
+      "status": 200,
+      "load_ms": 2572,
+      "console_errors": 0,
+      "critical_errors": 0,
+      "sample_errors": [],
+      "ok": true
+    },
+    {
+      "path": "/bqms/quotation/templates",
+      "status": 200,
+      "load_ms": 2328,
+      "console_errors": 0,
+      "critical_errors": 0,
+      "sample_errors": [],
+      "ok": true
+    },
+    {
+      "path": "/market-prices",
+      "status": 200,
+      "load_ms": 3839,
+      "console_errors": 0,
+      "critical_errors": 0,
+      "sample_errors": [],
+      "ok": true
+    },
+    {
+      "path": "/tra-cuu-gia",
+      "status": 200,
+      "load_ms": 2325,
+      "console_errors": 0,
+      "critical_errors": 0,
+      "sample_errors": [],
+      "ok": true
+    },
+    {
+      "path": "/imv",
+      "status": 200,
+      "load_ms": 2441,
+      "console_errors": 0,
+      "critical_errors": 0,
+      "sample_errors": [],
+      "ok": true
+    },
+    {
+      "path": "/procurement",
+      "status": 200,
+      "load_ms": 2387,
+      "console_errors": 0,
+      "critical_errors": 0,
+      "sample_errors": [],
+      "ok": true
+    },
+    {
+      "path": "/finance",
+      "status": 200,
+      "load_ms": 2425,
+      "console_errors": 0,
+      "critical_errors": 0,
+      "sample_errors": [],
+      "ok": true
+    },
+    {
+      "path": "/finance/overview",
+      "status": 200,
+      "load_ms": 2447,
+      "console_errors": 0,
+      "critical_errors": 0,
+      "sample_errors": [],
+      "ok": true
+    },
+    {
+      "path": "/finance/cash-book",
+      "status": 200,
+      "load_ms": 2410,
+      "console_errors": 0,
+      "critical_errors": 0,
+      "sample_errors": [],
+      "ok": true
+    },
+    {
+      "path": "/finance/payables",
+      "status": 200,
+      "load_ms": 2315,
+      "console_errors": 0,
+      "critical_errors": 0,
+      "sample_errors": [],
+      "ok": true
+    },
+    {
+      "path": "/finance/receivables",
+      "status": 200,
+      "load_ms": 2354,
+      "console_errors": 0,
+      "critical_errors": 0,
+      "sample_errors": [],
+      "ok": true
+    },
+    {
+      "path": "/finance/quarterly-invoices",
+      "status": 200,
+      "load_ms": 2412,
+      "console_errors": 0,
+      "critical_errors": 0,
+      "sample_errors": [],
+      "ok": true
+    },
+    {
+      "path": "/finance/reports",
+      "status": 200,
+      "load_ms": 2334,
+      "console_errors": 0,
+      "critical_errors": 0,
+      "sample_errors": [],
+      "ok": true
+    },
+    {
+      "path": "/invoices",
+      "status": 200,
+      "load_ms": 2319,
+      "console_errors": 0,
+      "critical_errors": 0,
+      "sample_errors": [],
+      "ok": true
+    },
+    {
+      "path": "/crm",
+      "status": 200,
+      "load_ms": 2293,
+      "console_errors": 0,
+      "critical_errors": 0,
+      "sample_errors": [],
+      "ok": true
+    },
+    {
+      "path": "/crm/new",
+      "status": 200,
+      "load_ms": 2366,
+      "console_errors": 0,
+      "critical_errors": 0,
+      "sample_errors": [],
+      "ok": true
+    },
+    {
+      "path": "/analytics",
+      "status": 200,
+      "load_ms": 3056,
+      "console_errors": 0,
+      "critical_errors": 0,
+      "sample_errors": [],
+      "ok": true
+    },
+    {
+      "path": "/analytics/price-trends",
+      "status": 200,
+      "load_ms": 2691,
+      "console_errors": 0,
+      "critical_errors": 0,
+      "sample_errors": [],
+      "ok": true
+    },
+    {
+      "path": "/analytics/profit",
+      "status": 200,
+      "load_ms": 2444,
+      "console_errors": 0,
+      "critical_errors": 0,
+      "sample_errors": [],
+      "ok": true
+    },
+    {
+      "path": "/analytics/win-loss",
+      "status": 200,
+      "load_ms": 2502,
+      "console_errors": 0,
+      "critical_errors": 0,
+      "sample_errors": [],
+      "ok": true
+    },
+    {
+      "path": "/analytics/forecast",
+      "status": 200,
+      "load_ms": 2383,
+      "console_errors": 0,
+      "critical_errors": 0,
+      "sample_errors": [],
+      "ok": true
+    },
+    {
+      "path": "/inventory",
+      "status": 200,
+      "load_ms": 2416,
+      "console_errors": 0,
+      "critical_errors": 0,
+      "sample_errors": [],
+      "ok": true
+    },
+    {
+      "path": "/inventory/forecast",
+      "status": 200,
+      "load_ms": 2527,
+      "console_errors": 0,
+      "critical_errors": 0,
+      "sample_errors": [],
+      "ok": true
+    },
+    {
+      "path": "/suppliers",
+      "status": 200,
+      "load_ms": 2384,
+      "console_errors": 0,
+      "critical_errors": 0,
+      "sample_errors": [],
+      "ok": true
+    },
+    {
+      "path": "/suppliers/new",
+      "status": 200,
+      "load_ms": 2305,
+      "console_errors": 0,
+      "critical_errors": 0,
+      "sample_errors": [],
+      "ok": true
+    },
+    {
+      "path": "/supplier-quotes",
+      "status": 200,
+      "load_ms": 2362,
+      "console_errors": 0,
+      "critical_errors": 0,
+      "sample_errors": [],
+      "ok": true
+    },
+    {
+      "path": "/supplier-quotes/new",
+      "status": 200,
+      "load_ms": 2331,
+      "console_errors": 0,
+      "critical_errors": 0,
+      "sample_errors": [],
+      "ok": true
+    },
+    {
+      "path": "/purchase-orders",
+      "status": 200,
+      "load_ms": 2352,
+      "console_errors": 0,
+      "critical_errors": 0,
+      "sample_errors": [],
+      "ok": true
+    },
+    {
+      "path": "/purchase-orders/new",
+      "status": 200,
+      "load_ms": 2316,
+      "console_errors": 0,
+      "critical_errors": 0,
+      "sample_errors": [],
+      "ok": true
+    },
+    {
+      "path": "/sales-orders",
+      "status": 404,
+      "load_ms": 2246,
+      "console_errors": 1,
+      "critical_errors": 0,
+      "sample_errors": [
+        "CONSOLE: Failed to load resource: the server responded with a status of 404 ()"
+      ],
+      "ok": false
+    },
+    {
+      "path": "/users",
+      "status": 200,
+      "load_ms": 2499,
+      "console_errors": 0,
+      "critical_errors": 0,
+      "sample_errors": [],
+      "ok": true
+    },
+    {
+      "path": "/users/new",
+      "status": 200,
+      "load_ms": 2379,
+      "console_errors": 0,
+      "critical_errors": 0,
+      "sample_errors": [],
+      "ok": true
+    },
+    {
+      "path": "/settings",
+      "status": 200,
+      "load_ms": 2329,
+      "console_errors": 0,
+      "critical_errors": 0,
+      "sample_errors": [],
+      "ok": true
+    },
+    {
+      "path": "/calendar",
+      "status": 200,
+      "load_ms": 2425,
+      "console_errors": 0,
+      "critical_errors": 0,
+      "sample_errors": [],
+      "ok": true
+    },
+    {
+      "path": "/notifications",
+      "status": 200,
+      "load_ms": 2415,
+      "console_errors": 0,
+      "critical_errors": 0,
+      "sample_errors": [],
+      "ok": true
+    },
+    {
+      "path": "/notifications/settings",
+      "status": 200,
+      "load_ms": 2402,
+      "console_errors": 0,
+      "critical_errors": 0,
+      "sample_errors": [],
+      "ok": true
+    },
+    {
+      "path": "/help",
+      "status": 200,
+      "load_ms": 2335,
+      "console_errors": 0,
+      "critical_errors": 0,
+      "sample_errors": [],
+      "ok": true
+    },
+    {
+      "path": "/audit",
+      "status": 200,
+      "load_ms": 2464,
+      "console_errors": 0,
+      "critical_errors": 0,
+      "sample_errors": [],
+      "ok": true
+    },
+    {
+      "path": "/approvals",
+      "status": 200,
+      "load_ms": 2374,
+      "console_errors": 0,
+      "critical_errors": 0,
+      "sample_errors": [],
+      "ok": true
+    },
+    {
+      "path": "/admin/performance",
+      "status": 200,
+      "load_ms": 2517,
+      "console_errors": 0,
+      "critical_errors": 0,
+      "sample_errors": [],
+      "ok": true
+    },
+    {
+      "path": "/admin/containers",
+      "status": 200,
+      "load_ms": 2413,
+      "console_errors": 0,
+      "critical_errors": 0,
+      "sample_errors": [],
+      "ok": true
+    },
+    {
+      "path": "/admin/backups",
+      "status": 200,
+      "load_ms": 2452,
+      "console_errors": 1,
+      "critical_errors": 1,
+      "sample_errors": [
+        "CONSOLE: TypeError: b.filter is not a function\n    at f (https://erp.songchau.vn/_next/static/chunks/app/(dashboard)/admin/backups/page-302ff15c15aea4ee.js:46:1006)\n    at rE (https://erp.songchau.vn/_next/static/chunks/fd9d1056-be1c216edb5ad3ce.js:1:40344)\n    at l$ (https://erp.songchau.vn/_next/static/chu"
+      ],
+      "ok": false
+    },
+    {
+      "path": "/admin/security-log",
+      "status": 200,
+      "load_ms": 2332,
+      "console_errors": 0,
+      "critical_errors": 0,
+      "sample_errors": [],
+      "ok": true
+    },
+    {
+      "path": "/admin/data-quality",
+      "status": 200,
+      "load_ms": 2454,
+      "console_errors": 0,
+      "critical_errors": 0,
+      "sample_errors": [],
+      "ok": true
+    },
+    {
+      "path": "/admin/errors",
+      "status": 200,
+      "load_ms": 2380,
+      "console_errors": 0,
+      "critical_errors": 0,
+      "sample_errors": [],
+      "ok": true
+    },
+    {
+      "path": "/admin/migration",
+      "status": 200,
+      "load_ms": 11152,
+      "console_errors": 0,
+      "critical_errors": 0,
+      "sample_errors": [],
+      "ok": true
+    },
+    {
+      "path": "/admin/retry-queue",
+      "status": 0,
+      "load_ms": 0,
+      "console_errors": 0,
+      "critical_errors": 0,
+      "ok": false,
+      "error": "Page.goto: Timeout 25000ms exceeded.\nCall log:\nnavigating to \"https://erp.songchau.vn/admin/retry-queue\", waiting until \"networkidle\"\n"
+    },
+    {
+      "path": "/admin/user-activity",
+      "status": 0,
+      "load_ms": 0,
+      "console_errors": 0,
+      "critical_errors": 0,
+      "ok": false,
+      "error": "Page.goto: Timeout 25000ms exceeded.\nCall log:\nnavigating to \"https://erp.songchau.vn/admin/user-activity\", waiting until \"networkidle\"\n"
+    },
+    {
+      "path": "/chains",
+      "status": 200,
+      "load_ms": 2399,
+      "console_errors": 0,
+      "critical_errors": 0,
+      "sample_errors": [],
+      "ok": true
+    },
+    {
+      "path": "/shipments",
+      "status": 200,
+      "load_ms": 2317,
+      "console_errors": 0,
+      "critical_errors": 0,
+      "sample_errors": [],
+      "ok": true
+    },
+    {
+      "path": "/tasks",
+      "status": 200,
+      "load_ms": 2332,
+      "console_errors": 0,
+      "critical_errors": 0,
+      "sample_errors": [],
+      "ok": true
+    },
+    {
+      "path": "/tasks/workload",
+      "status": 200,
+      "load_ms": 2398,
+      "console_errors": 0,
+      "critical_errors": 0,
+      "sample_errors": [],
+      "ok": true
+    },
+    {
+      "path": "/workflows",
+      "status": 200,
+      "load_ms": 2429,
+      "console_errors": 0,
+      "critical_errors": 0,
+      "sample_errors": [],
+      "ok": true
+    },
+    {
+      "path": "/settings/language",
+      "status": 200,
+      "load_ms": 2318,
+      "console_errors": 0,
+      "critical_errors": 0,
+      "sample_errors": [],
+      "ok": true
+    }
+  ],
+  "api": [
+    {
+      "method": "GET",
+      "path": "/api/v1/dashboard/kpis",
+      "status": 200,
+      "duration_ms": 110,
+      "bytes": 360,
+      "ok": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/dashboard/kpis-v2",
+      "status": 200,
+      "duration_ms": 349,
+      "bytes": 9663,
+      "ok": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/etl/sync-health",
+      "status": 200,
+      "duration_ms": 104,
+      "bytes": 838,
+      "ok": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/etl/sync-status",
+      "status": 200,
+      "duration_ms": 116,
+      "bytes": 722,
+      "ok": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/notifications?limit=5",
+      "status": 200,
+      "duration_ms": 48,
+      "bytes": 715,
+      "ok": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/daily-report/morning",
+      "status": 200,
+      "duration_ms": 84,
+      "bytes": 325,
+      "ok": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/daily-report/revenue",
+      "status": 200,
+      "duration_ms": 61,
+      "bytes": 401,
+      "ok": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/daily-report/trend?period=day&n=7",
+      "status": 200,
+      "duration_ms": 132,
+      "bytes": 99,
+      "ok": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/daily-report/top-codes?days=14&limit=5",
+      "status": 200,
+      "duration_ms": 68,
+      "bytes": 2823,
+      "ok": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/price-lookup/search?q=10",
+      "status": 200,
+      "duration_ms": 87,
+      "bytes": 1584,
+      "ok": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/imv/kpi",
+      "status": 200,
+      "duration_ms": 89,
+      "bytes": 1940,
+      "ok": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/imv/rfq/list?limit=3",
+      "status": 200,
+      "duration_ms": 49,
+      "bytes": 6835,
+      "ok": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/imv/orders/list?limit=3",
+      "status": 200,
+      "duration_ms": 45,
+      "bytes": 11322,
+      "ok": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/imv/deliveries/list?limit=3",
+      "status": 200,
+      "duration_ms": 47,
+      "bytes": 11518,
+      "ok": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/imv/payments/list?limit=3",
+      "status": 200,
+      "duration_ms": 51,
+      "bytes": 7239,
+      "ok": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/imv/sync-history?limit=5",
+      "status": 200,
+      "duration_ms": 91,
+      "bytes": 1227,
+      "ok": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/bqms/kpi-summary",
+      "status": 404,
+      "duration_ms": 51,
+      "ok": false,
+      "error": "Not Found"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/bqms/list-rfq?limit=5",
+      "status": 404,
+      "duration_ms": 59,
+      "ok": false,
+      "error": "Not Found"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/bqms/sync-status",
+      "status": 404,
+      "duration_ms": 79,
+      "ok": false,
+      "error": "Not Found"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/bqms/contacts",
+      "status": 200,
+      "duration_ms": 67,
+      "bytes": 34198,
+      "ok": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/crm/customers?limit=5",
+      "status": 200,
+      "duration_ms": 68,
+      "bytes": 2406,
+      "ok": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/finance-management/dashboard",
+      "status": 200,
+      "duration_ms": 66,
+      "bytes": 398,
+      "ok": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/quarterly-invoices/list?limit=5",
+      "status": 404,
+      "duration_ms": 49,
+      "ok": false,
+      "error": "Not Found"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/market-prices/dashboard",
+      "status": 200,
+      "duration_ms": 670,
+      "bytes": 19353,
+      "ok": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/market-prices/sellers?limit=5",
+      "status": 200,
+      "duration_ms": 108,
+      "bytes": 720,
+      "ok": true
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/file-browser/folder?path=/",
+      "status": 503,
+      "duration_ms": 41,
+      "ok": false,
+      "error": "Service Temporarily Unavailable"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/users?limit=5",
+      "status": 503,
+      "duration_ms": 37,
+      "ok": false,
+      "error": "Service Temporarily Unavailable"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/suppliers?limit=5",
+      "status": 503,
+      "duration_ms": 44,
+      "ok": false,
+      "error": "Service Temporarily Unavailable"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/email-history?limit=5",
+      "status": 503,
+      "duration_ms": 33,
+      "ok": false,
+      "error": "Service Temporarily Unavailable"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/documents/folders",
+      "status": 503,
+      "duration_ms": 35,
+      "ok": false,
+      "error": "Service Temporarily Unavailable"
+    }
+  ],
+  "flows": [
+    {
+      "flow": "sidebar_sections",
+      "ok": true,
+      "missing": [],
+      "sidebar_chars": 354
+    },
+    {
+      "flow": "ctrl_k_search",
+      "ok": false,
+      "error": "Locator.inner_text: Timeout 30000ms exceeded.\nCall log:\nwaiting for locator(\"[role=\\\"dialog\\\"]\")\n"
+    },
+    {
+      "flow": "freshness_chip_documents",
+      "ok": true,
+      "page": "/documents/browser"
+    },
+    {
+      "flow": "freshness_chip_bqms",
+      "ok": true,
+      "page": "/bqms"
+    },
+    {
+      "flow": "freshness_chip_deliveries",
+      "ok": true,
+      "page": "/bqms/deliveries"
+    },
+    {
+      "flow": "crm_new_form_fields",
+      "ok": true,
+      "missing": [],
+      "total_fields": 16
+    },
+    {
+      "flow": "crm_duplicate_check",
+      "ok": true,
+      "matches_count": 1
+    },
+    {
+      "flow": "daily_report",
+      "ok": false,
+      "has_kpi": false,
+      "has_morning_card": true,
+      "has_chart": true,
+      "kpi_values": [
+        "0 ₫",
+        "0 ₫",
+        "0 ₫",
+        "0 ₫"
+      ]
+    },
+    {
+      "flow": "imv_tabs",
+      "ok": true,
+      "missing_tabs": [],
+      "tabs_clicked": 6
+    }
+  ],
+  "console_errors": [],
+  "summary": {
+    "auth_ok": true,
+    "pages_ok": "62/66",
+    "pages_pct": 93.9,
+    "api_ok": "21/30",
+    "api_pct": 70.0,
+    "flows_ok": "7/9",
+    "flows_pct": 77.8,
+    "finished_at": "2026-05-01T17:52:14.797035"
+  }
+}

@@ -186,8 +186,11 @@ export default function CalendarPage() {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['calendar', 'leaves'] }),
   });
 
-  const events = eventsRaw?.data ?? [];
-  const leaves = leavesRaw?.data ?? [];
+  // API may return either an array or {items:[...]} — coerce safely.
+  const _toArr = (v: any) =>
+    Array.isArray(v) ? v : Array.isArray(v?.items) ? v.items : [];
+  const events = _toArr(eventsRaw?.data);
+  const leaves = _toArr(leavesRaw?.data);
 
   // Build calendar grid
   const startDow = firstDay.getDay(); // 0=Sun

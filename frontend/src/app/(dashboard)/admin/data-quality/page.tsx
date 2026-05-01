@@ -102,7 +102,10 @@ export default function DataQualityPage() {
     },
   });
 
-  const items: DataQualityItem[] = qualityRaw?.data ?? (qualityRaw as any) ?? [];
+  const _qRaw: any = qualityRaw?.data ?? qualityRaw;
+  const items: DataQualityItem[] = Array.isArray(_qRaw)
+    ? _qRaw
+    : Array.isArray(_qRaw?.items) ? _qRaw.items : [];
 
   const passCount = items.filter((i) => i.status.toLowerCase() === 'pass').length;
   const warnCount = items.filter((i) => i.status.toLowerCase() === 'warning').length;
