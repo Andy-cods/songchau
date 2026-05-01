@@ -1,0 +1,424 @@
+{
+  "started_at": "2026-05-01T18:16:16.100378",
+  "mutations": [
+    {
+      "flow": "local_filesystem_sync",
+      "steps": [
+        {
+          "step": "pre_state",
+          "files_before": 62766,
+          "ok": true
+        },
+        {
+          "step": "trigger",
+          "status": 200,
+          "ok": true
+        },
+        {
+          "step": "poll_30s",
+          "documents_minutes_ago": 0,
+          "files_indexed": 62766,
+          "ok": true
+        }
+      ],
+      "ok": true
+    },
+    {
+      "flow": "crm_create_customer",
+      "steps": [
+        {
+          "step": "pre_duplicate_check",
+          "ok": true,
+          "matches_before": 1
+        },
+        {
+          "step": "create",
+          "status": 201,
+          "duration_ms": 98,
+          "ok": true,
+          "customer_id": 13
+        },
+        {
+          "step": "verify_in_list",
+          "ok": false,
+          "matches_in_list": 0
+        },
+        {
+          "step": "post_duplicate_check",
+          "ok": true,
+          "matches_after": 2
+        },
+        {
+          "step": "cleanup_delete",
+          "status": 405,
+          "ok": true
+        }
+      ],
+      "ok": false
+    },
+    {
+      "flow": "bqms_price_edit_with_log",
+      "steps": [],
+      "ok": false,
+      "error": "no RFQ available to test"
+    },
+    {
+      "flow": "notifications_mark_all_read",
+      "steps": [
+        {
+          "step": "pre_state",
+          "unread_before": 1,
+          "ok": true
+        },
+        {
+          "step": "mark_all",
+          "status": 200,
+          "ok": true,
+          "updated": 1
+        },
+        {
+          "step": "verify_unread_zero",
+          "unread_after": 0,
+          "ok": true
+        }
+      ],
+      "ok": true
+    },
+    {
+      "flow": "imv_manual_sync",
+      "steps": [
+        {
+          "step": "trigger",
+          "status": 200,
+          "ok": true,
+          "message": "Đã bắt đầu sync IMV (entities=all)"
+        },
+        {
+          "step": "poll_timeout",
+          "ok": false
+        }
+      ],
+      "ok": false
+    }
+  ],
+  "performance": [
+    {
+      "endpoint": "/api/v1/dashboard/kpis-v2",
+      "status": 200,
+      "duration_ms": 54,
+      "budget_ms": 1500,
+      "bytes": 9724,
+      "ok": true
+    },
+    {
+      "endpoint": "/api/v1/etl/sync-health",
+      "status": 200,
+      "duration_ms": 71,
+      "budget_ms": 1000,
+      "bytes": 836,
+      "ok": true
+    },
+    {
+      "endpoint": "/api/v1/imv/rfq/list?limit=200",
+      "status": 200,
+      "duration_ms": 82,
+      "budget_ms": 3000,
+      "bytes": 213748,
+      "ok": true
+    },
+    {
+      "endpoint": "/api/v1/imv/orders/list?limit=200",
+      "status": 200,
+      "duration_ms": 98,
+      "budget_ms": 3000,
+      "bytes": 42228,
+      "ok": true
+    },
+    {
+      "endpoint": "/api/v1/imv/deliveries/list?limit=200",
+      "status": 200,
+      "duration_ms": 53,
+      "budget_ms": 3000,
+      "bytes": 60914,
+      "ok": true
+    },
+    {
+      "endpoint": "/api/v1/imv/payments/list?limit=200",
+      "status": 200,
+      "duration_ms": 46,
+      "budget_ms": 3000,
+      "bytes": 22940,
+      "ok": true
+    },
+    {
+      "endpoint": "/api/v1/imv/kpi",
+      "status": 200,
+      "duration_ms": 78,
+      "budget_ms": 1500,
+      "bytes": 1940,
+      "ok": true
+    },
+    {
+      "endpoint": "/api/v1/bqms/list-rfq?limit=500",
+      "status": 404,
+      "duration_ms": 36,
+      "budget_ms": 3000,
+      "bytes": 0,
+      "ok": false
+    },
+    {
+      "endpoint": "/api/v1/market-prices/dashboard",
+      "status": 200,
+      "duration_ms": 654,
+      "budget_ms": 3000,
+      "bytes": 19353,
+      "ok": true
+    },
+    {
+      "endpoint": "/api/v1/daily-report/trend?period=day&n=30",
+      "status": 200,
+      "duration_ms": 62,
+      "budget_ms": 1500,
+      "bytes": 826,
+      "ok": true
+    },
+    {
+      "endpoint": "/api/v1/daily-report/top-codes?days=21&limit=12",
+      "status": 200,
+      "duration_ms": 42,
+      "budget_ms": 2000,
+      "bytes": 6445,
+      "ok": true
+    },
+    {
+      "endpoint": "/api/v1/crm/customers?limit=100",
+      "status": 200,
+      "duration_ms": 56,
+      "budget_ms": 2000,
+      "bytes": 2730,
+      "ok": true
+    },
+    {
+      "endpoint": "/api/v1/quarterly-invoices?limit=200",
+      "status": 404,
+      "duration_ms": 43,
+      "budget_ms": 3000,
+      "bytes": 0,
+      "ok": false
+    },
+    {
+      "endpoint": "/api/v1/finance-management/dashboard",
+      "status": 200,
+      "duration_ms": 93,
+      "budget_ms": 2000,
+      "bytes": 398,
+      "ok": true
+    }
+  ],
+  "mobile": [
+    {
+      "viewport": "mobile",
+      "size": "375x812",
+      "page": "/dashboard",
+      "main_visible": true,
+      "sidebar_width": 244,
+      "overflow_horizontal": false,
+      "scroll_width": 375,
+      "client_width": 375,
+      "ok": true
+    },
+    {
+      "viewport": "mobile",
+      "size": "375x812",
+      "page": "/reports/daily",
+      "main_visible": true,
+      "sidebar_width": 244,
+      "overflow_horizontal": false,
+      "scroll_width": 375,
+      "client_width": 375,
+      "ok": true
+    },
+    {
+      "viewport": "mobile",
+      "size": "375x812",
+      "page": "/bqms",
+      "main_visible": true,
+      "sidebar_width": 244,
+      "overflow_horizontal": false,
+      "scroll_width": 375,
+      "client_width": 375,
+      "ok": true
+    },
+    {
+      "viewport": "mobile",
+      "size": "375x812",
+      "page": "/imv",
+      "main_visible": true,
+      "sidebar_width": 244,
+      "overflow_horizontal": false,
+      "scroll_width": 375,
+      "client_width": 375,
+      "ok": true
+    },
+    {
+      "viewport": "mobile",
+      "size": "375x812",
+      "page": "/crm",
+      "main_visible": true,
+      "sidebar_width": 244,
+      "overflow_horizontal": false,
+      "scroll_width": 375,
+      "client_width": 375,
+      "ok": true
+    },
+    {
+      "viewport": "mobile",
+      "size": "375x812",
+      "page": "/documents/browser",
+      "main_visible": true,
+      "sidebar_width": 244,
+      "overflow_horizontal": false,
+      "scroll_width": 375,
+      "client_width": 375,
+      "ok": true
+    },
+    {
+      "viewport": "tablet",
+      "size": "768x1024",
+      "page": "/dashboard",
+      "main_visible": true,
+      "sidebar_width": 244,
+      "overflow_horizontal": false,
+      "scroll_width": 768,
+      "client_width": 768,
+      "ok": true
+    },
+    {
+      "viewport": "tablet",
+      "size": "768x1024",
+      "page": "/reports/daily",
+      "main_visible": true,
+      "sidebar_width": 244,
+      "overflow_horizontal": false,
+      "scroll_width": 768,
+      "client_width": 768,
+      "ok": true
+    },
+    {
+      "viewport": "tablet",
+      "size": "768x1024",
+      "page": "/bqms",
+      "main_visible": true,
+      "sidebar_width": 244,
+      "overflow_horizontal": false,
+      "scroll_width": 768,
+      "client_width": 768,
+      "ok": true
+    },
+    {
+      "viewport": "tablet",
+      "size": "768x1024",
+      "page": "/imv",
+      "main_visible": true,
+      "sidebar_width": 244,
+      "overflow_horizontal": false,
+      "scroll_width": 768,
+      "client_width": 768,
+      "ok": true
+    },
+    {
+      "viewport": "tablet",
+      "size": "768x1024",
+      "page": "/crm",
+      "main_visible": true,
+      "sidebar_width": 244,
+      "overflow_horizontal": false,
+      "scroll_width": 768,
+      "client_width": 768,
+      "ok": true
+    },
+    {
+      "viewport": "tablet",
+      "size": "768x1024",
+      "page": "/documents/browser",
+      "main_visible": true,
+      "sidebar_width": 244,
+      "overflow_horizontal": false,
+      "scroll_width": 768,
+      "client_width": 768,
+      "ok": true
+    },
+    {
+      "viewport": "desktop",
+      "size": "1600x900",
+      "page": "/dashboard",
+      "main_visible": true,
+      "sidebar_width": 244,
+      "overflow_horizontal": false,
+      "scroll_width": 1600,
+      "client_width": 1600,
+      "ok": true
+    },
+    {
+      "viewport": "desktop",
+      "size": "1600x900",
+      "page": "/reports/daily",
+      "main_visible": true,
+      "sidebar_width": 244,
+      "overflow_horizontal": false,
+      "scroll_width": 1600,
+      "client_width": 1600,
+      "ok": true
+    },
+    {
+      "viewport": "desktop",
+      "size": "1600x900",
+      "page": "/bqms",
+      "main_visible": true,
+      "sidebar_width": 244,
+      "overflow_horizontal": false,
+      "scroll_width": 1600,
+      "client_width": 1600,
+      "ok": true
+    },
+    {
+      "viewport": "desktop",
+      "size": "1600x900",
+      "page": "/imv",
+      "main_visible": true,
+      "sidebar_width": 244,
+      "overflow_horizontal": false,
+      "scroll_width": 1600,
+      "client_width": 1600,
+      "ok": true
+    },
+    {
+      "viewport": "desktop",
+      "size": "1600x900",
+      "page": "/crm",
+      "main_visible": true,
+      "sidebar_width": 244,
+      "overflow_horizontal": false,
+      "scroll_width": 1600,
+      "client_width": 1600,
+      "ok": true
+    },
+    {
+      "viewport": "desktop",
+      "size": "1600x900",
+      "page": "/documents/browser",
+      "main_visible": true,
+      "sidebar_width": 244,
+      "overflow_horizontal": false,
+      "scroll_width": 1600,
+      "client_width": 1600,
+      "ok": true
+    }
+  ],
+  "summary": {
+    "mutations_ok": "2/5",
+    "performance_ok": "12/14",
+    "mobile_ok": "18/18",
+    "finished_at": "2026-05-01T18:19:55.880793"
+  }
+}

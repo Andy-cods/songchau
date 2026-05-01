@@ -19,8 +19,21 @@ export function Sidebar() {
   const [menuOpen, setMenuOpen] = useState(false);
 
   useEffect(() => {
+    // Auto-collapse on small viewports (mobile/tablet) so the sidebar
+    // doesn't eat 65% of a 375px screen. User preference still wins on
+    // desktop via localStorage.
     const stored = localStorage.getItem(COLLAPSED_KEY);
-    if (stored === 'true') setCollapsed(true);
+    const isNarrow = typeof window !== 'undefined' && window.innerWidth < 1024;
+    if (stored === 'true' || isNarrow) setCollapsed(true);
+
+    if (typeof window !== 'undefined') {
+      const onResize = () => {
+        if (window.innerWidth < 1024) setCollapsed(true);
+        else if (localStorage.getItem(COLLAPSED_KEY) !== 'true') setCollapsed(false);
+      };
+      window.addEventListener('resize', onResize);
+      return () => window.removeEventListener('resize', onResize);
+    }
   }, []);
 
   useEffect(() => {
