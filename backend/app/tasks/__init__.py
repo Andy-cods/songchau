@@ -11,7 +11,11 @@ To add new task modules:
     2. Add     from app.tasks import my_module  below.
 """
 
-from app.tasks import bqms_sync       # noqa: F401 — registers bqms_nightly_sync
+# Temporarily disabled per user request 2026-05-04: Samsung BQMS portal scrape
+# (Playwright login + selectPOAcceptList.do XHR). The Excel-driven auto-import
+# below is now the source of truth for bqms_rfq + bqms_deliveries.
+# To re-enable, uncomment the line below.
+# from app.tasks import bqms_sync       # noqa: F401 — registers bqms_nightly_sync
 from app.tasks import reports         # noqa: F401 — registers generate_daily_reports
 from app.tasks import notifications   # noqa: F401 — registers send_email_notification, check_deadline_reminders
 from app.tasks import onedrive_sync   # noqa: F401 — registers onedrive_delta_sync (mỗi 4 giờ)
