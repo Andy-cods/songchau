@@ -1,4 +1,4 @@
-"""OneDrive -> VPS continuous incremental sync.
+"""OneDrive → VPS continuous incremental sync.
 
 Runs forever (or via Windows Task Scheduler every X minutes). On each
 pass it walks the local OneDrive folder, compares mtime+size against a
@@ -23,39 +23,41 @@ import os
 import socket
 import stat as stat_module
 import sys
+import threading
 import time
 import unicodedata
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 
 import paramiko
 
+PARALLEL_WORKERS = int(os.environ.get('SC_SYNC_WORKERS', '8'))
+
 # Force UTF-8
 if sys.stdout.encoding != 'utf-8':
     sys.stdout.reconfigure(encoding='utf-8', errors='replace')
 print = functools.partial(print, flush=True)
 
-# --- Config ------------------------------------------------------------
+# ─── Config ────────────────────────────────────────────────────────────
 
 VPS_HOST = '103.56.158.129'
 VPS_PORT = 22
 VPS_USER = 'root'
-VPS_PASS = '2poeu8xn9w'  # placeholder - will fall back to env IMV_PASSWORD pattern; replace as needed
+VPS_PASS = '2poeu8xn9w'  # placeholder — will fall back to env IMV_PASSWORD pattern; replace as needed
 VPS_PASS = os.environ.get('SC_VPS_PASS', 'x2dk4Tf2fHUSPKmeWPMBaB7')
 VPS_DEST = '/data/onedrive-staging'
 
 LOCAL_ROOT = os.environ.get('SC_ONEDRIVE_LOCAL', r'C:\Users\ASUS\OneDrive - SONG CHAU CO., LTD')
 
-# Folders to sync - start with ones that change often (BQMS / IMV / general docs)
+# Folders to sync — narrowed to high-velocity ones only.
+# Excluded for now (too big / too static, can re-enable via SC_WATCHED_FOLDERS):
+#   Puplic/BG, Puplic/000. MẪU PO, Puplic/AMA Quotation,
+#   Puplic/YÊU CẦU BÁO GIÁ, TỔNG HỢP
 WATCHED_FOLDERS = [
     'Puplic/BQMS',
-    'Puplic/BG',
     'Puplic/IMV',
-    'Puplic/000. MAU PO',
-    'Puplic/AMA Quotation',
-    'Puplic/YEU CAU BAO GIA',
-    'TONG HOP',
     'Attachments',
 ]
 # Add more by editing SC_WATCHED_FOLDERS env var (newline-separated)
@@ -72,7 +74,7 @@ STATE_DIR.mkdir(parents=True, exist_ok=True)
 STATE_FILE = STATE_DIR / 'state.json'
 LOG_FILE = STATE_DIR / 'sync.log'
 
-# --- Logging -----------------------------------------------------------
+# ─── Logging ───────────────────────────────────────────────────────────
 
 logging.basicConfig(
     level=logging.INFO,
@@ -85,7 +87,7 @@ logging.basicConfig(
 log = logging.getLogger('onedrive_sync')
 
 
-# --- State -------------------------------------------------------------
+# ─── State ─────────────────────────────────────────────────────────────
 
 def load_state() -> dict[str, dict[str, Any]]:
     if not STATE_FILE.exists():
@@ -103,7 +105,7 @@ def save_state(state: dict[str, Any]) -> None:
     tmp.replace(STATE_FILE)
 
 
-# --- Filesystem walk ---------------------------------------------------
+# ─── Filesystem walk ───────────────────────────────────────────────────
 
 def should_skip(name: str, full: str) -> bool:
     if name in SKIP_NAMES:
@@ -122,7 +124,7 @@ def should_skip(name: str, full: str) -> bool:
 
 
 def scan_local() -> dict[str, dict[str, Any]]:
-    """Walk WATCHED_FOLDERS under LOCAL_ROOT, return rel_path -> {size, mtime}."""
+    """Walk WATCHED_FOLDERS under LOCAL_ROOT, return rel_path → {size, mtime}."""
     out: dict[str, dict[str, Any]] = {}
     for folder in WATCHED_FOLDERS:
         base = os.path.join(LOCAL_ROOT, folder.replace('/', os.sep))
@@ -148,7 +150,7 @@ def scan_local() -> dict[str, dict[str, Any]]:
     return out
 
 
-# --- SFTP helpers ------------------------------------------------------
+# ─── SFTP helpers ──────────────────────────────────────────────────────
 
 def remote_path_join(base: str, rel: str) -> str:
     return base.rstrip('/') + '/' + rel.replace('\\', '/')
@@ -189,7 +191,7 @@ def sftp_remove_empty_dir(sftp, path: str) -> None:
         pass
 
 
-# --- Sync logic --------------------------------------------------------
+# ─── Sync logic ────────────────────────────────────────────────────────
 
 def diff(prev: dict, current: dict) -> tuple[list, list, list]:
     added, changed, removed = [], [], []
@@ -229,47 +231,76 @@ def sync_once() -> dict[str, Any]:
             'pushed': 0, 'removed': 0, 'total': len(current),
         }
 
-    # Connect SFTP
-    log.info('connecting to %s as %s', VPS_HOST, VPS_USER)
-    transport = paramiko.Transport((VPS_HOST, VPS_PORT))
-    transport.banner_timeout = 30
-    transport.connect(username=VPS_USER, password=VPS_PASS)
-    sftp = paramiko.SFTPClient.from_transport(transport)
+    # Open one SSH transport + N parallel SFTP channels for true concurrency.
+    log.info('connecting to %s as %s (parallel=%d)', VPS_HOST, VPS_USER, PARALLEL_WORKERS)
+    tls = threading.local()
+    transports: list[paramiko.Transport] = []
+    transports_lock = threading.Lock()
 
-    pushed = 0
-    push_bytes = 0
-    failed = 0
+    def get_sftp() -> paramiko.SFTPClient:
+        if getattr(tls, 'sftp', None) is None:
+            t = paramiko.Transport((VPS_HOST, VPS_PORT))
+            t.banner_timeout = 30
+            t.connect(username=VPS_USER, password=VPS_PASS)
+            tls.sftp = paramiko.SFTPClient.from_transport(t)
+            with transports_lock:
+                transports.append(t)
+        return tls.sftp
+
+    made_dirs: set[str] = set()
+    mkdir_lock = threading.Lock()
+    counter_lock = threading.Lock()
+    counters = {'pushed': 0, 'bytes': 0, 'failed': 0}
+
+    def push_one(rel: str) -> None:
+        local_full = os.path.join(LOCAL_ROOT, rel.replace('/', os.sep))
+        if not os.path.exists(local_full):
+            return
+        remote = remote_path_join(VPS_DEST, rel)
+        remote_dir = remote.rsplit('/', 1)[0]
+        try:
+            sftp = get_sftp()
+            with mkdir_lock:
+                if remote_dir not in made_dirs:
+                    sftp_mkdir_p(sftp, remote_dir)
+                    made_dirs.add(remote_dir)
+            sftp.put(local_full, remote)
+            size = current[rel]['size']
+            with counter_lock:
+                counters['pushed'] += 1
+                counters['bytes'] += size
+                if counters['pushed'] % 200 == 0:
+                    log.info('  pushed %d / %d  (%.1f MB)',
+                             counters['pushed'], len(to_push), counters['bytes'] / 1024 / 1024)
+        except Exception as exc:
+            with counter_lock:
+                counters['failed'] += 1
+            log.warning('push failed %s: %s', rel, str(exc)[:120])
 
     try:
-        for rel in to_push:
-            local_full = os.path.join(LOCAL_ROOT, rel.replace('/', os.sep))
-            if not os.path.exists(local_full):
-                continue
-            remote = remote_path_join(VPS_DEST, rel)
-            try:
-                sftp_mkdir_p(sftp, remote.rsplit('/', 1)[0])
-                sftp.put(local_full, remote)
-                size = current[rel]['size']
-                pushed += 1
-                push_bytes += size
-                if pushed % 50 == 0:
-                    log.info('  pushed %d / %d  (%.1f MB)', pushed, len(to_push), push_bytes / 1024 / 1024)
-            except Exception as exc:
-                failed += 1
-                log.warning('push failed %s: %s', rel, str(exc)[:120])
+        with ThreadPoolExecutor(max_workers=PARALLEL_WORKERS, thread_name_prefix='sftp') as ex:
+            list(ex.map(push_one, to_push))
 
-        # Removals
-        removed_count = 0
-        for rel in removed:
-            remote = remote_path_join(VPS_DEST, rel)
-            if sftp_remove(sftp, remote):
-                removed_count += 1
-        if removed_count:
-            log.info('removed %d files on VPS', removed_count)
-
+        # Removals on a single channel (rare path, no need to parallelize)
+        if removed:
+            del_sftp = get_sftp()
+            removed_count = 0
+            for rel in removed:
+                remote = remote_path_join(VPS_DEST, rel)
+                if sftp_remove(del_sftp, remote):
+                    removed_count += 1
+            if removed_count:
+                log.info('removed %d files on VPS', removed_count)
     finally:
-        sftp.close()
-        transport.close()
+        for t in transports:
+            try:
+                t.close()
+            except Exception:
+                pass
+
+    pushed = counters['pushed']
+    push_bytes = counters['bytes']
+    failed = counters['failed']
 
     save_state(current)
     duration = round((datetime.now() - started).total_seconds(), 1)
@@ -294,7 +325,7 @@ def sync_once() -> dict[str, Any]:
 
 def notify_vps_local_indexer() -> None:
     """Ping the VPS to re-run local_filesystem_index right after we push.
-    Best-effort - do not fail the sync if this errors.
+    Best-effort — do not fail the sync if this errors.
     """
     import urllib.request
     import urllib.error
@@ -326,10 +357,10 @@ def notify_vps_local_indexer() -> None:
             log.debug('notify VPS got %s', exc.code)
 
 
-# --- Watch mode --------------------------------------------------------
+# ─── Watch mode ────────────────────────────────────────────────────────
 
 def watch(interval: int) -> None:
-    log.info('watch mode - scanning every %ds', interval)
+    log.info('watch mode — scanning every %ds', interval)
     log.info('local: %s', LOCAL_ROOT)
     log.info('remote: %s@%s:%s', VPS_USER, VPS_HOST, VPS_DEST)
     log.info('watching folders: %s', ', '.join(WATCHED_FOLDERS))
@@ -337,14 +368,14 @@ def watch(interval: int) -> None:
         try:
             sync_once()
         except KeyboardInterrupt:
-            log.info('keyboard interrupt - exiting')
+            log.info('keyboard interrupt — exiting')
             break
         except Exception as exc:
             log.exception('sync pass failed: %s', exc)
         time.sleep(interval)
 
 
-# --- Entry -------------------------------------------------------------
+# ─── Entry ─────────────────────────────────────────────────────────────
 
 def main() -> int:
     p = argparse.ArgumentParser(description=__doc__.split('\n\n')[0])
