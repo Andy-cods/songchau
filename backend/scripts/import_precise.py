@@ -469,6 +469,13 @@ async def import_bqms_rfq(conn, source: Path, dry_run: bool, verbose: bool) -> d
 
     stats = _empty_stats()
     last_date = None  # forward-fill tracker for column A merged cells
+    # Reject anchor dates > today + 30d. Background: Excel auto-converts
+    # ambiguous text like "4/10" using the host locale. On EN-US Excel
+    # "4/10" becomes 2026-04-10 (Apr 10), but on VI-VN it becomes
+    # 2026-10-04 (Oct 4). When the user is on a different locale than
+    # the file expects, dozens of cells get stored as future dates.
+    # Those bad cells then poison fill-down for all rows below.
+    max_anchor = date.today() + timedelta(days=30)
 
     for idx, row in enumerate(rows):
         if _is_empty_row(row):
@@ -485,6 +492,9 @@ async def import_bqms_rfq(conn, source: Path, dry_run: bool, verbose: bool) -> d
         # Excel merges date cells visually but stores the value only in
         # the first row of each group; openpyxl returns None for the rest.
         cell_date = parse_date(_get(row, 0))
+        if cell_date is not None and cell_date > max_anchor:
+            # Suspect future-dated cell -- skip as fill-down anchor.
+            cell_date = None
         if cell_date is not None:
             last_date = cell_date
         inquiry_date = cell_date if cell_date is not None else last_date
