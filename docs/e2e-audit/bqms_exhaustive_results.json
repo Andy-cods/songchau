@@ -1,0 +1,597 @@
+{
+  "started_at": "2026-05-03T10:27:04.658357",
+  "apis": [
+    {
+      "label": "sync_latest",
+      "method": "GET",
+      "path": "/api/v1/bqms/sync/latest",
+      "status": 200,
+      "duration_ms": 80,
+      "bytes": 253,
+      "ok": true,
+      "error": null
+    },
+    {
+      "label": "sync_circuit",
+      "method": "GET",
+      "path": "/api/v1/bqms/sync/circuit",
+      "status": 200,
+      "duration_ms": 36,
+      "bytes": 101,
+      "ok": true,
+      "error": null
+    },
+    {
+      "label": "sync_steps",
+      "method": "GET",
+      "path": "/api/v1/bqms/sync/steps",
+      "status": 200,
+      "duration_ms": 107,
+      "bytes": 307,
+      "ok": true,
+      "error": null
+    },
+    {
+      "label": "sync_history_10",
+      "method": "GET",
+      "path": "/api/v1/bqms/sync/history?limit=10",
+      "status": 200,
+      "duration_ms": 108,
+      "bytes": 2623,
+      "ok": true,
+      "error": null
+    },
+    {
+      "label": "sync_history_100",
+      "method": "GET",
+      "path": "/api/v1/bqms/sync/history?limit=100",
+      "status": 200,
+      "duration_ms": 56,
+      "bytes": 4662,
+      "ok": true,
+      "error": null
+    },
+    {
+      "label": "kpi",
+      "method": "GET",
+      "path": "/api/v1/bqms/kpi",
+      "status": 200,
+      "duration_ms": 90,
+      "bytes": 197,
+      "ok": true,
+      "error": null
+    },
+    {
+      "label": "records_10",
+      "method": "GET",
+      "path": "/api/v1/bqms/records?limit=10",
+      "status": 200,
+      "duration_ms": 203,
+      "bytes": 21,
+      "ok": true,
+      "error": null
+    },
+    {
+      "label": "records_100",
+      "method": "GET",
+      "path": "/api/v1/bqms/records?limit=100",
+      "status": 200,
+      "duration_ms": 66,
+      "bytes": 21,
+      "ok": true,
+      "error": null
+    },
+    {
+      "label": "rfq_10",
+      "method": "GET",
+      "path": "/api/v1/bqms/rfq?limit=10",
+      "status": 200,
+      "duration_ms": 91,
+      "bytes": 9226,
+      "ok": true,
+      "error": null
+    },
+    {
+      "label": "rfq_100",
+      "method": "GET",
+      "path": "/api/v1/bqms/rfq?limit=100",
+      "status": 200,
+      "duration_ms": 203,
+      "bytes": 95738,
+      "ok": true,
+      "error": null
+    },
+    {
+      "label": "rfq_500",
+      "method": "GET",
+      "path": "/api/v1/bqms/rfq?limit=500",
+      "status": 422,
+      "duration_ms": 54,
+      "bytes": 0,
+      "ok": false,
+      "error": "Unprocessable Entity"
+    },
+    {
+      "label": "rfq_1000",
+      "method": "GET",
+      "path": "/api/v1/bqms/rfq?limit=1000",
+      "status": 422,
+      "duration_ms": 355,
+      "bytes": 0,
+      "ok": false,
+      "error": "Unprocessable Entity"
+    },
+    {
+      "label": "rfq_table_p1",
+      "method": "GET",
+      "path": "/api/v1/bqms/rfq-table?limit=10&page=1",
+      "status": 200,
+      "duration_ms": 132,
+      "bytes": 65629,
+      "ok": true,
+      "error": null
+    },
+    {
+      "label": "rfq_table_p5",
+      "method": "GET",
+      "path": "/api/v1/bqms/rfq-table?limit=10&page=5",
+      "status": 200,
+      "duration_ms": 117,
+      "bytes": 65464,
+      "ok": true,
+      "error": null
+    },
+    {
+      "label": "rfq_table_100",
+      "method": "GET",
+      "path": "/api/v1/bqms/rfq-table?limit=100&page=1",
+      "status": 200,
+      "duration_ms": 129,
+      "bytes": 65629,
+      "ok": true,
+      "error": null
+    },
+    {
+      "label": "rfq_table_year_2026",
+      "method": "GET",
+      "path": "/api/v1/bqms/rfq-table?year=2026&limit=20",
+      "status": 200,
+      "duration_ms": 121,
+      "bytes": 64896,
+      "ok": true,
+      "error": null
+    },
+    {
+      "label": "rfq_table_year_2025",
+      "method": "GET",
+      "path": "/api/v1/bqms/rfq-table?year=2025&limit=20",
+      "status": 200,
+      "duration_ms": 83,
+      "bytes": 90723,
+      "ok": true,
+      "error": null
+    },
+    {
+      "label": "rfq_table_year_2024",
+      "method": "GET",
+      "path": "/api/v1/bqms/rfq-table?year=2024&limit=20",
+      "status": 200,
+      "duration_ms": 214,
+      "bytes": 95175,
+      "ok": true,
+      "error": null
+    },
+    {
+      "label": "rfq_table_year_2023",
+      "method": "GET",
+      "path": "/api/v1/bqms/rfq-table?year=2023&limit=20",
+      "status": 200,
+      "duration_ms": 591,
+      "bytes": 95626,
+      "ok": true,
+      "error": null
+    },
+    {
+      "label": "pareto",
+      "method": "GET",
+      "path": "/api/v1/bqms/analytics/pareto",
+      "status": 200,
+      "duration_ms": 56,
+      "bytes": 2103,
+      "ok": true,
+      "error": null
+    },
+    {
+      "label": "pareto_50",
+      "method": "GET",
+      "path": "/api/v1/bqms/analytics/pareto?top_n=50",
+      "status": 200,
+      "duration_ms": 53,
+      "bytes": 5109,
+      "ok": true,
+      "error": null
+    },
+    {
+      "label": "deliveries_10",
+      "method": "GET",
+      "path": "/api/v1/bqms/deliveries?limit=10",
+      "status": 200,
+      "duration_ms": 140,
+      "bytes": 9505,
+      "ok": true,
+      "error": null
+    },
+    {
+      "label": "deliveries_100",
+      "method": "GET",
+      "path": "/api/v1/bqms/deliveries?limit=100",
+      "status": 200,
+      "duration_ms": 105,
+      "bytes": 100547,
+      "ok": true,
+      "error": null
+    },
+    {
+      "label": "deliveries_500",
+      "method": "GET",
+      "path": "/api/v1/bqms/deliveries?limit=500",
+      "status": 422,
+      "duration_ms": 222,
+      "bytes": 0,
+      "ok": false,
+      "error": "Unprocessable Entity"
+    },
+    {
+      "label": "del_chua_giao",
+      "method": "GET",
+      "path": "/api/v1/bqms/deliveries?status=chua_giao&limit=20",
+      "status": 200,
+      "duration_ms": 66,
+      "bytes": 19018,
+      "ok": true,
+      "error": null
+    },
+    {
+      "label": "del_dang_giao",
+      "method": "GET",
+      "path": "/api/v1/bqms/deliveries?status=dang_giao&limit=20",
+      "status": 200,
+      "duration_ms": 70,
+      "bytes": 19736,
+      "ok": true,
+      "error": null
+    },
+    {
+      "label": "del_da_giao",
+      "method": "GET",
+      "path": "/api/v1/bqms/deliveries?status=da_giao&limit=20",
+      "status": 503,
+      "duration_ms": 46,
+      "bytes": 0,
+      "ok": false,
+      "error": "Service Temporarily Unavailable"
+    },
+    {
+      "label": "del_kpi",
+      "method": "GET",
+      "path": "/api/v1/bqms/deliveries/kpi",
+      "status": 200,
+      "duration_ms": 123,
+      "bytes": 151,
+      "ok": true,
+      "error": null
+    },
+    {
+      "label": "del_export",
+      "method": "GET",
+      "path": "/api/v1/bqms/deliveries/export",
+      "status": 503,
+      "duration_ms": 39,
+      "bytes": 0,
+      "ok": false,
+      "error": "Service Temporarily Unavailable"
+    },
+    {
+      "label": "contacts",
+      "method": "GET",
+      "path": "/api/v1/bqms/contacts",
+      "status": 503,
+      "duration_ms": 68,
+      "bytes": 0,
+      "ok": false,
+      "error": "Service Temporarily Unavailable"
+    },
+    {
+      "label": "q_templates",
+      "method": "GET",
+      "path": "/api/v1/quotations/templates",
+      "status": 503,
+      "duration_ms": 103,
+      "bytes": 0,
+      "ok": false,
+      "error": "Service Temporarily Unavailable"
+    },
+    {
+      "label": "q_history",
+      "method": "GET",
+      "path": "/api/v1/quotations/history?limit=10",
+      "status": 503,
+      "duration_ms": 112,
+      "bytes": 0,
+      "ok": false,
+      "error": "Service Temporarily Unavailable"
+    },
+    {
+      "label": "q_lookup",
+      "method": "GET",
+      "path": "/api/v1/quotations/lookup",
+      "status": 503,
+      "duration_ms": 40,
+      "bytes": 0,
+      "ok": false,
+      "error": "Service Temporarily Unavailable"
+    },
+    {
+      "label": "etl_sync_status",
+      "method": "GET",
+      "path": "/api/v1/etl/sync-status",
+      "status": 503,
+      "duration_ms": 45,
+      "bytes": 0,
+      "ok": false,
+      "error": "Service Temporarily Unavailable"
+    },
+    {
+      "label": "etl_sync_health",
+      "method": "GET",
+      "path": "/api/v1/etl/sync-health",
+      "status": 503,
+      "duration_ms": 48,
+      "bytes": 0,
+      "ok": false,
+      "error": "Service Temporarily Unavailable"
+    },
+    {
+      "label": "etl_sync_history",
+      "method": "GET",
+      "path": "/api/v1/etl/sync-history?limit=10",
+      "status": 200,
+      "duration_ms": 90,
+      "bytes": 6157,
+      "ok": true,
+      "error": null
+    },
+    {
+      "label": "morning",
+      "method": "GET",
+      "path": "/api/v1/daily-report/morning",
+      "status": 503,
+      "duration_ms": 39,
+      "bytes": 0,
+      "ok": false,
+      "error": "Service Temporarily Unavailable"
+    },
+    {
+      "label": "revenue",
+      "method": "GET",
+      "path": "/api/v1/daily-report/revenue",
+      "status": 503,
+      "duration_ms": 55,
+      "bytes": 0,
+      "ok": false,
+      "error": "Service Temporarily Unavailable"
+    },
+    {
+      "label": "trend_d7",
+      "method": "GET",
+      "path": "/api/v1/daily-report/trend?period=day&n=7",
+      "status": 503,
+      "duration_ms": 48,
+      "bytes": 0,
+      "ok": false,
+      "error": "Service Temporarily Unavailable"
+    },
+    {
+      "label": "trend_w4",
+      "method": "GET",
+      "path": "/api/v1/daily-report/trend?period=week&n=4",
+      "status": 503,
+      "duration_ms": 35,
+      "bytes": 0,
+      "ok": false,
+      "error": "Service Temporarily Unavailable"
+    },
+    {
+      "label": "trend_m6",
+      "method": "GET",
+      "path": "/api/v1/daily-report/trend?period=month&n=6",
+      "status": 503,
+      "duration_ms": 34,
+      "bytes": 0,
+      "ok": false,
+      "error": "Service Temporarily Unavailable"
+    },
+    {
+      "label": "top_codes",
+      "method": "GET",
+      "path": "/api/v1/daily-report/top-codes?days=30&limit=20",
+      "status": 503,
+      "duration_ms": 138,
+      "bytes": 0,
+      "ok": false,
+      "error": "Service Temporarily Unavailable"
+    },
+    {
+      "label": "notif_20",
+      "method": "GET",
+      "path": "/api/v1/notifications?limit=20",
+      "status": 503,
+      "duration_ms": 34,
+      "bytes": 0,
+      "ok": false,
+      "error": "Service Temporarily Unavailable"
+    },
+    {
+      "label": "notif_read",
+      "method": "GET",
+      "path": "/api/v1/notifications?is_read=true&limit=10",
+      "status": 503,
+      "duration_ms": 44,
+      "bytes": 0,
+      "ok": false,
+      "error": "Service Temporarily Unavailable"
+    },
+    {
+      "label": "notif_unread",
+      "method": "GET",
+      "path": "/api/v1/notifications?is_read=false&limit=10",
+      "status": 200,
+      "duration_ms": 209,
+      "bytes": 38,
+      "ok": true,
+      "error": null
+    }
+  ],
+  "sync_accuracy": {
+    "rfq_kpi": {},
+    "delivery_kpi": {},
+    "sync_health": {},
+    "morning_report": {}
+  },
+  "buttons": [
+    {
+      "page": "/bqms",
+      "metric": "interactive_count",
+      "buttons": 22,
+      "inputs": 1,
+      "selects": 2,
+      "ok": true
+    },
+    {
+      "page": "/bqms",
+      "button": "sync_button",
+      "visible": true,
+      "clicked": true,
+      "ok": true
+    },
+    {
+      "page": "/bqms",
+      "button": "refresh_button",
+      "visible": true,
+      "clicked": true,
+      "ok": true
+    },
+    {
+      "page": "/bqms",
+      "button": "search_button",
+      "visible": false,
+      "ok": false
+    },
+    {
+      "page": "/bqms",
+      "button": "export_button",
+      "visible": false,
+      "ok": false
+    },
+    {
+      "page": "/bqms",
+      "button": "analytics_button",
+      "visible": false,
+      "ok": false
+    },
+    {
+      "page": "/bqms",
+      "button": "pareto_button",
+      "visible": false,
+      "ok": false
+    },
+    {
+      "page": "/bqms",
+      "button": "create_quote_link",
+      "visible": true,
+      "clicked": true,
+      "ok": true
+    },
+    {
+      "page": "/bqms/deliveries",
+      "metric": "interactive_count",
+      "buttons": 16,
+      "inputs": 1,
+      "ok": true
+    },
+    {
+      "page": "/bqms/deliveries",
+      "button": "export_excel",
+      "visible": true,
+      "clicked": true,
+      "ok": true
+    },
+    {
+      "page": "/bqms/deliveries",
+      "button": "search",
+      "visible": false,
+      "ok": false
+    },
+    {
+      "page": "/bqms/deliveries",
+      "button": "filter",
+      "visible": false,
+      "ok": false
+    },
+    {
+      "page": "/bqms/deliveries",
+      "button": "tab_contacts",
+      "visible": true,
+      "clicked": true,
+      "ok": true
+    },
+    {
+      "page": "/bqms/deliveries",
+      "button": "tab_deliveries",
+      "visible": true,
+      "clicked": true,
+      "ok": true
+    },
+    {
+      "page": "/bqms/deliveries",
+      "button": "refresh",
+      "visible": false,
+      "ok": false
+    },
+    {
+      "page": "/bqms/quotation/new",
+      "metric": "form_fields",
+      "count": 1,
+      "sample": [
+        {
+          "n": "VD: QT24138430",
+          "t": "text"
+        }
+      ],
+      "ok": false
+    },
+    {
+      "page": "/bqms/quotation/templates",
+      "metric": "buttons",
+      "count": 8,
+      "ok": true
+    },
+    {
+      "page": "/bqms/quotation/history",
+      "metric": "table_rows",
+      "count": 16,
+      "ok": true
+    }
+  ],
+  "cross_flow": {
+    "samples": [],
+    "complete_chain_samples": 0,
+    "ok": true
+  },
+  "summary": {
+    "apis_ok": "26/45",
+    "buttons_ok": "10/18",
+    "rfq_samples_complete": 0,
+    "finished_at": "2026-05-03T10:27:36.388567"
+  }
+}

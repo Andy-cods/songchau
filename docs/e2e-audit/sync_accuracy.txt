@@ -1,0 +1,43 @@
+=== sync_accuracy_audit ===
+01_total_rfq=/tmp/sync_audit.sh:line50:-c:commandnotfound
+02_total_po=/tmp/sync_audit.sh:line50:-c:commandnotfound
+03_total_delivery=/tmp/sync_audit.sh:line50:-c:commandnotfound
+04_total_quote_log=/tmp/sync_audit.sh:line50:-c:commandnotfound
+05_total_contacts=/tmp/sync_audit.sh:line50:-c:commandnotfound
+10_po_orphan_no_rfq=/tmp/sync_audit.sh:line50:-c:commandnotfound
+11_po_with_rfq_pct=/tmp/sync_audit.sh:line50:-c:commandnotfound
+20_delivery_orphan_no_po=/tmp/sync_audit.sh:line50:-c:commandnotfound
+21_delivery_with_po_pct=/tmp/sync_audit.sh:line50:-c:commandnotfound
+30_dup_po_numbers=/tmp/sync_audit.sh:line50:-c:commandnotfound
+31_dup_delivery_keys=/tmp/sync_audit.sh:line50:-c:commandnotfound
+40_po_amount_zero=/tmp/sync_audit.sh:line50:-c:commandnotfound
+41_po_amount_zero_pct=/tmp/sync_audit.sh:line50:-c:commandnotfound
+50_rfq_with_v1=/tmp/sync_audit.sh:line50:-c:commandnotfound
+51_rfq_with_v2=/tmp/sync_audit.sh:line50:-c:commandnotfound
+52_rfq_with_v3=/tmp/sync_audit.sh:line50:-c:commandnotfound
+53_rfq_with_item_type=/tmp/sync_audit.sh:line50:-c:commandnotfound
+54_rfq_won_pct=/tmp/sync_audit.sh:line50:-c:commandnotfound
+60_del_pending_old=/tmp/sync_audit.sh:line50:-c:commandnotfound
+61_del_in_transit_no_date=/tmp/sync_audit.sh:line50:-c:commandnotfound
+62_del_done_no_date=/tmp/sync_audit.sh:line50:-c:commandnotfound
+70_last_bqms_sync_hours=/tmp/sync_audit.sh:line50:-c:commandnotfound
+71_last_local_index_min=/tmp/sync_audit.sh:line50:-c:commandnotfound
+72_last_imv_sync_hours=/tmp/sync_audit.sh:line50:-c:commandnotfound
+80_rfq_modified_30d=/tmp/sync_audit.sh:line50:-c:commandnotfound
+81_po_modified_30d=/tmp/sync_audit.sh:line50:-c:commandnotfound
+82_del_modified_30d=/tmp/sync_audit.sh:line50:-c:commandnotfound
+=== delivery_status_breakdown ===
+chua_giao|2533
+da_giao|125
+dang_giao|18
+pending|1
+=== sync_log recent (5) ===
+local_filesystem_index|success|2026-05-01 18:16:16.885223+00|2026-05-01 18:16:39.245647+00
+local_filesystem_index|success|2026-04-30 01:11:36.804732+00|2026-04-30 01:12:04.330385+00
+bqms_po|success|2026-04-24 14:00:10.725122+00|2026-04-24 14:00:28.168444+00
+bqms_po|success|2026-04-10 01:36:03.477014+00|2026-04-10 01:36:20.968157+00
+bqms_po|success|2026-04-09 23:30:00.585189+00|2026-04-09 23:30:44.795745+00
+=== rfq_year_breakdown ===
+ERROR:  column "effective_date" does not exist
+LINE 1: SELECT EXTRACT(YEAR FROM COALESCE(inquiry_date, effective_da...
+                                                        ^
