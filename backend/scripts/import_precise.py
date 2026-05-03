@@ -91,7 +91,10 @@ SCHEMA_MIGRATION_STMTS: list[str] = [
     "ALTER TABLE bqms_won_quotations ADD COLUMN IF NOT EXISTS synced_at TIMESTAMPTZ",
 
     # -- Unique indexes for ON CONFLICT (idempotent: IF NOT EXISTS) --
-    "CREATE UNIQUE INDEX IF NOT EXISTS uq_bqms_rfq_rfq_bqms ON bqms_rfq (rfq_number, bqms_code)",
+    # uq_bqms_rfq_dedup created out-of-band 2026-05-04 after deleting 3877
+    # content-duplicate rows. The (rfq_number, bqms_code) pair is NOT unique
+    # for this dataset (e.g. 16 rows of QT23047153/'' with different specs).
+    "CREATE UNIQUE INDEX IF NOT EXISTS uq_bqms_rfq_dedup ON bqms_rfq (rfq_number, bqms_code, source_hash)",
     "CREATE UNIQUE INDEX IF NOT EXISTS uq_bqms_del_po_ship_bqms ON bqms_deliveries (po_number, shipping_no, bqms_code)",
     "CREATE UNIQUE INDEX IF NOT EXISTS uq_bqms_ord_rfq_bqms ON bqms_orders (rfq_number, bqms_code)",
     "CREATE UNIQUE INDEX IF NOT EXISTS uq_bqms_rmp_po_bqms ON bqms_raw_material_po (po_number, bqms_code)",
@@ -411,7 +414,16 @@ def find_file(source_path: Path, filename: str) -> Path | None:
 # ===========================================================================
 
 async def import_bqms_rfq(conn, source: Path, dry_run: bool, verbose: bool) -> dict:
-    """1. bqms_rfq <-- Thong ke hoi hang BQMS.xlsx, sheet TONG HOP BQMS"""
+    """1. bqms_rfq <-- Thong ke hoi hang BQMS.xlsx, sheet TONG HOP BQMS
+
+    Idempotency: ON CONFLICT (rfq_number, bqms_code, source_hash). Identical
+    Excel row content (same source_hash) is a no-op; new content INSERTs.
+    Requires UNIQUE INDEX uq_bqms_rfq_dedup created during 2026-05-04 dedup.
+
+    Date fill-down: column A (inquiry_date) in Excel uses merged cells -- only
+    the first row of each date group has the date filled in. We track the
+    last seen date and forward-fill to subsequent rows with empty col A.
+    """
     fp = find_file(source, "Thong ke hoi hang BQMS.xlsx")
     if not fp:
         logger.warning("  File not found: Thong ke hoi hang BQMS.xlsx")
@@ -434,7 +446,7 @@ async def import_bqms_rfq(conn, source: Path, dry_run: bool, verbose: bool) -> d
             $14, $15, COALESCE($16::rfq_result, 'pending'), $17,
             $18, $19, NOW()
         )
-        ON CONFLICT (rfq_number, bqms_code)
+        ON CONFLICT (rfq_number, bqms_code, source_hash)
             DO UPDATE SET
                 inquiry_date = COALESCE(EXCLUDED.inquiry_date, bqms_rfq.inquiry_date),
                 person_in_charge_name = COALESCE(EXCLUDED.person_in_charge_name, bqms_rfq.person_in_charge_name),
@@ -451,12 +463,13 @@ async def import_bqms_rfq(conn, source: Path, dry_run: bool, verbose: bool) -> d
                 result = COALESCE(EXCLUDED.result, bqms_rfq.result),
                 report = COALESCE(EXCLUDED.report, bqms_rfq.report),
                 notes = COALESCE(EXCLUDED.notes, bqms_rfq.notes),
-                source_hash = EXCLUDED.source_hash,
                 synced_at = NOW(),
                 updated_at = NOW()
     """
 
     stats = _empty_stats()
+    last_date = None  # forward-fill tracker for column A merged cells
+
     for idx, row in enumerate(rows):
         if _is_empty_row(row):
             stats["skip"] += 1
@@ -468,12 +481,20 @@ async def import_bqms_rfq(conn, source: Path, dry_run: bool, verbose: bool) -> d
             stats["skip"] += 1
             continue
 
+        # Forward-fill inquiry_date from the most recent non-empty col A.
+        # Excel merges date cells visually but stores the value only in
+        # the first row of each group; openpyxl returns None for the rest.
+        cell_date = parse_date(_get(row, 0))
+        if cell_date is not None:
+            last_date = cell_date
+        inquiry_date = cell_date if cell_date is not None else last_date
+
         # Parse purchase_price_rmb: strip "¥" prefix
         rmb_raw = row[7] if len(row) > 7 else None
         rmb_val = parse_number(rmb_raw)
 
         params = [
-            parse_date(_get(row, 0)),          # inquiry_date
+            inquiry_date,                       # inquiry_date (filled-down)
             safe_str(_get(row, 1)),             # person_in_charge_name
             rfq_number,                         # rfq_number
             bqms_code,                          # bqms_code
