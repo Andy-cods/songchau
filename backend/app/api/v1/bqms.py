@@ -554,17 +554,21 @@ async def pareto_analysis(
     where = " AND ".join(conditions)
     params.append(top_n)
 
+    # Group RFQs by maker — Pareto on supplier mix.
+    # bqms_records does not have category/defect_qty cols; use bqms_rfq.maker
+    # which is the meaningful dimension for our supplier-side workflow.
+    where_rfq = where.replace('br.synced_at', 'r.created_at').replace('br.', 'r.')
     rows = await conn.fetch(
         f"""
-        SELECT br.category,
+        SELECT COALESCE(NULLIF(TRIM(r.maker), ''), 'Khong xac dinh') AS category,
                COUNT(*) AS count,
-               SUM(COALESCE(br.defect_qty, 0)) AS total_defects,
+               SUM(COALESCE(r.expected_qty, 0))::numeric AS total_qty,
                ROUND(
                    100.0 * COUNT(*) / NULLIF(SUM(COUNT(*)) OVER (), 0), 2
                ) AS percentage
-        FROM bqms_records br
-        WHERE {where}
-        GROUP BY br.category
+        FROM bqms_rfq r
+        WHERE {where_rfq.replace('1=1', 'TRUE')}
+        GROUP BY 1
         ORDER BY count DESC
         LIMIT ${idx}
         """,

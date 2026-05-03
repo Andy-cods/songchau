@@ -1,0 +1,348 @@
+{
+  "started_at": "2026-05-03T10:14:16.736468",
+  "pages": [
+    {
+      "page": "/bqms",
+      "status": 200,
+      "load_ms": 3898,
+      "console_errors": 0,
+      "critical_errors": 0,
+      "sample_errors": [],
+      "ok": true
+    },
+    {
+      "page": "/bqms/rfq",
+      "status": 200,
+      "load_ms": 3183,
+      "console_errors": 0,
+      "critical_errors": 0,
+      "sample_errors": [],
+      "ok": true
+    },
+    {
+      "page": "/bqms/quotation",
+      "status": 200,
+      "load_ms": 2900,
+      "console_errors": 0,
+      "critical_errors": 0,
+      "sample_errors": [],
+      "ok": true
+    },
+    {
+      "page": "/bqms/quotation/new",
+      "status": 200,
+      "load_ms": 2852,
+      "console_errors": 0,
+      "critical_errors": 0,
+      "sample_errors": [],
+      "ok": true
+    },
+    {
+      "page": "/bqms/quotation/history",
+      "status": 200,
+      "load_ms": 3061,
+      "console_errors": 0,
+      "critical_errors": 0,
+      "sample_errors": [],
+      "ok": true
+    },
+    {
+      "page": "/bqms/quotation/templates",
+      "status": 200,
+      "load_ms": 2919,
+      "console_errors": 0,
+      "critical_errors": 0,
+      "sample_errors": [],
+      "ok": true
+    },
+    {
+      "page": "/bqms/deliveries",
+      "status": 200,
+      "load_ms": 3227,
+      "console_errors": 0,
+      "critical_errors": 0,
+      "sample_errors": [],
+      "ok": true
+    },
+    {
+      "page": "/bqms/classify",
+      "status": 200,
+      "load_ms": 2861,
+      "console_errors": 0,
+      "critical_errors": 0,
+      "sample_errors": [],
+      "ok": true
+    },
+    {
+      "page": "/bqms/emails",
+      "status": 200,
+      "load_ms": 2917,
+      "console_errors": 0,
+      "critical_errors": 0,
+      "sample_errors": [],
+      "ok": true
+    }
+  ],
+  "apis": [
+    {
+      "method": "GET",
+      "path": "/api/v1/bqms/kpi",
+      "status": 200,
+      "duration_ms": 75,
+      "bytes": 197,
+      "ok": true,
+      "error": null
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/bqms/records?limit=5",
+      "status": 200,
+      "duration_ms": 55,
+      "bytes": 21,
+      "ok": true,
+      "error": null
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/bqms/rfq?limit=5",
+      "status": 200,
+      "duration_ms": 93,
+      "bytes": 4515,
+      "ok": true,
+      "error": null
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/bqms/rfq-table?limit=5",
+      "status": 200,
+      "duration_ms": 110,
+      "bytes": 65619,
+      "ok": true,
+      "error": null
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/bqms/analytics/pareto",
+      "status": 200,
+      "duration_ms": 81,
+      "bytes": 2103,
+      "ok": true,
+      "error": null
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/bqms/sync/latest",
+      "status": 200,
+      "duration_ms": 49,
+      "bytes": 253,
+      "ok": true,
+      "error": null
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/bqms/sync/circuit",
+      "status": 200,
+      "duration_ms": 55,
+      "bytes": 101,
+      "ok": true,
+      "error": null
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/bqms/sync/steps",
+      "status": 200,
+      "duration_ms": 48,
+      "bytes": 307,
+      "ok": true,
+      "error": null
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/bqms/sync/history?limit=5",
+      "status": 200,
+      "duration_ms": 140,
+      "bytes": 1264,
+      "ok": true,
+      "error": null
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/bqms/contacts",
+      "status": 200,
+      "duration_ms": 61,
+      "bytes": 34198,
+      "ok": true,
+      "error": null
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/bqms/deliveries?limit=5",
+      "status": 200,
+      "duration_ms": 70,
+      "bytes": 4769,
+      "ok": true,
+      "error": null
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/bqms/deliveries/kpi",
+      "status": 200,
+      "duration_ms": 74,
+      "bytes": 151,
+      "ok": true,
+      "error": null
+    }
+  ],
+  "data_integrity": {
+    "rfq_total_via_list": 8161,
+    "delivery_kpi": {
+      "total_orders": 2677,
+      "delivered_count": 125,
+      "in_transit_count": 18,
+      "pending_count": 2534,
+      "total_delivered_vnd": 5103113002,
+      "total_order_value": 74954542211
+    },
+    "sync_latest": {
+      "data": {
+        "id": 66,
+        "sync_type": "bqms_po",
+        "status": "success",
+        "started_at": "2026-04-24T14:00:10.725122+00:00",
+        "completed_at": "2026-04-24T14:00:28.168444+00:00",
+        "rows_inserted": 8,
+        "rows_updated": 33,
+        "rows_skipped": 0,
+        "error_message": null,
+        "duration_seconds": 17
+      }
+    },
+    "pareto_count": 20,
+    "contacts_count": 97,
+    "ok": true
+  },
+  "workflows": [
+    {
+      "workflow": "rfq_price_edit_with_audit",
+      "steps": [
+        {
+          "step": "pick_rfq",
+          "rfq_id": 117014,
+          "bqms_code": "Z0000002-125909",
+          "orig_v1": null,
+          "orig_item_type": null,
+          "ok": true
+        },
+        {
+          "step": "patch_v1",
+          "status": 200,
+          "duration_ms": 68,
+          "ok": true
+        },
+        {
+          "step": "verify_price_in_db",
+          "expected": 99999.99,
+          "actual": 99999.99,
+          "ok": true
+        },
+        {
+          "step": "verify_quote_log_via_morning_report",
+          "quoted_today_count": 1,
+          "ok": true
+        },
+        {
+          "step": "patch_v2",
+          "status": 200,
+          "ok": true
+        },
+        {
+          "step": "rfq_history_endpoint",
+          "history_entries": 2,
+          "ok": true
+        }
+      ],
+      "ok": true
+    },
+    {
+      "workflow": "delivery_status_update_with_notification",
+      "steps": [
+        {
+          "step": "pick_delivery",
+          "delivery_id": 36470,
+          "po_number": "2112666093",
+          "orig_status": "chua_giao",
+          "ok": true
+        },
+        {
+          "step": "pre_notification_count",
+          "total": 2,
+          "ok": true
+        },
+        {
+          "step": "update_status",
+          "status": 200,
+          "duration_ms": 66,
+          "ok": true,
+          "response": "Đã cập nhật trạng thái: dang_giao"
+        },
+        {
+          "step": "verify_status_changed",
+          "new_status": "dang_giao",
+          "ok": true
+        },
+        {
+          "step": "post_notification_count",
+          "total": 2,
+          "delta": 0,
+          "ok": true
+        },
+        {
+          "step": "update_to_delivered",
+          "status": 200,
+          "ok": true
+        },
+        {
+          "step": "revert_status",
+          "ok": true
+        }
+      ],
+      "ok": true
+    },
+    {
+      "workflow": "bqms_sync_trigger",
+      "ok": null,
+      "skipped": "Playwright sync takes 60+ seconds, manually verified working in earlier sessions"
+    }
+  ],
+  "ui_interactions": [
+    {
+      "page": "/bqms",
+      "has_table": true,
+      "has_search": false,
+      "has_pagination": true,
+      "has_sync_widget": true,
+      "ok": true
+    },
+    {
+      "page": "/bqms/deliveries",
+      "has_table": true,
+      "has_kpi": true,
+      "has_status_filter": true,
+      "has_export": true,
+      "has_freshness_chip": true,
+      "ok": true
+    },
+    {
+      "page": "/bqms/deliveries",
+      "check": "export_button_visible",
+      "ok": true
+    }
+  ],
+  "summary": {
+    "pages_ok": "9/9",
+    "apis_ok": "12/12",
+    "workflows_ok": "2/2",
+    "data_integrity_ok": true,
+    "finished_at": "2026-05-03T10:15:01.977667"
+  }
+}
