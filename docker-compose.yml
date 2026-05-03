@@ -179,6 +179,9 @@ services:
     environment:
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
       REDIS_URL: redis://redis:6379/0
+    volumes:
+      - ./data/files:/data/files
+      - /data/onedrive-staging:/data/onedrive-staging:ro
     command: python -m procrastinate --app=app.core.procrastinate_app.app worker --concurrency=5
     networks: [internal]
     depends_on:
@@ -187,9 +190,9 @@ services:
     deploy:
       resources:
         limits:
-          memory: 512M
+          memory: 1G
         reservations:
-          memory: 256M
+          memory: 384M
 
   gotenberg:
     image: gotenberg/gotenberg:8
@@ -243,6 +246,9 @@ services:
     env_file: .env
     environment:
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+    volumes:
+      - ./data/files:/data/files
+      - /data/onedrive-staging:/data/onedrive-staging:ro
     command: python -m procrastinate --app=app.core.procrastinate_app.app worker --concurrency=1 --listen-notify
     networks: [internal]
     depends_on:
@@ -251,6 +257,6 @@ services:
     deploy:
       resources:
         limits:
-          memory: 128M
+          memory: 1G
         reservations:
-          memory: 64M
+          memory: 384M
