@@ -109,7 +109,7 @@ const NAV_MAIN: SidebarItem[] = [
 const NAV_BQMS: SidebarItem[] = [
   { key: 'bqms', label: 'BQMS', href: '/bqms', icon: ClipboardList },
   { key: 'giao-hang', label: 'Giao hàng', href: '/bqms/deliveries', icon: Truck },
-  { key: 'market-prices', label: 'Tra cứu giá XNK', href: '/market-prices', icon: ClipboardList },
+  // Tra cứu giá XNK đã chuyển sang nhóm "Phân tích" (NAV_ANALYTICS)
   // Tra cứu giá nội bộ đã tích hợp vào thanh tìm kiếm (Ctrl+K) — không cần mục riêng
 ];
 
@@ -133,6 +133,7 @@ const NAV_CRM: SidebarItem[] = [
 ];
 
 const NAV_ANALYTICS: SidebarItem[] = [
+  { key: 'market-prices', label: 'Tra cứu giá XNK', href: '/market-prices', icon: ClipboardList },
   { key: 'price-trends', label: 'Xu hướng giá', href: '/analytics/price-trends', icon: TrendingUp },
   // Ẩn: Win/Loss, Báo cáo tự động, Chuỗi doanh thu, Lợi nhuận (có thể mở lại sau)
 ];
@@ -212,6 +213,7 @@ export function getSidebarConfig(role: UserRole): SidebarSection[] {
         {
           title: 'Phân tích',
           items: [
+            { key: 'market-prices', label: 'Tra cứu giá XNK', href: '/market-prices', icon: ClipboardList },
             { key: 'price-trends', label: 'Xu hướng giá', href: '/analytics/price-trends', icon: TrendingUp },
           ],
         },
