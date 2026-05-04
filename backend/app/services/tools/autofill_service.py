@@ -264,6 +264,43 @@ async def lookup_prices(conn, items: list[dict]) -> list[dict]:
 
 # ─── Image Matching ───────────────────────────────────────────
 
+_RFQ_STAGING_ROOT = Path('/data/onedrive-staging/Puplic/BQMS/RFQ')
+_IMAGE_EXTS = {'.png', '.jpg', '.jpeg', '.gif', '.bmp'}
+
+
+def discover_rfq_images(rfq_no: str) -> list[tuple[str, bytes]]:
+    """Find images on disk for a given RFQ.
+
+    Walks /data/onedrive-staging/Puplic/BQMS/RFQ/RFQ {year}/THANG */{rfq_no}*/
+    and returns (filename, bytes) for every PNG/JPG. Filenames typically follow
+    the BQMS code (e.g. Z0000002-508700.png), which match_images_to_orders
+    can then match by substring.
+
+    Returns empty list if no folder found -- silent fallback so the rest of
+    the pipeline still runs.
+    """
+    if not rfq_no or rfq_no == 'UNKNOWN' or not _RFQ_STAGING_ROOT.exists():
+        return []
+
+    out: list[tuple[str, bytes]] = []
+    try:
+        for year_dir in _RFQ_STAGING_ROOT.glob('RFQ */'):
+            for month_dir in year_dir.glob('THANG */'):
+                for rfq_dir in month_dir.glob(f'{rfq_no}*/'):
+                    for img_path in rfq_dir.iterdir():
+                        if img_path.is_file() and img_path.suffix.lower() in _IMAGE_EXTS:
+                            try:
+                                out.append((img_path.name, img_path.read_bytes()))
+                            except OSError as exc:
+                                logger.debug('discover_rfq_images: skip %s: %s', img_path, exc)
+    except OSError as exc:
+        logger.warning('discover_rfq_images: walk failed: %s', exc)
+
+    if out:
+        logger.info('discover_rfq_images: %s -> %d images', rfq_no, len(out))
+    return out
+
+
 def match_images_to_orders(
     uploaded_files: list[tuple[str, bytes]],
     orders: list[dict],
@@ -333,7 +370,7 @@ def _copy_merged_ranges_for_row(ws, src_row: int, dst_row: int) -> None:
             )
 
 
-def _pil_image_to_xl(img_bytes: bytes, max_w: int = 80, max_h: int = 80) -> XLImage | None:
+def _pil_image_to_xl(img_bytes: bytes, max_w: int = 150, max_h: int = 150) -> XLImage | None:
     """Convert image bytes → openpyxl Image, resized with PIL."""
     try:
         from PIL import Image as PILImage
@@ -408,7 +445,7 @@ def fill_cam_ket(
                     ws.add_image(xl_img, f"{get_column_letter(COL_N)}{start_row}")
 
         date_row = 31 + extra_rows
-        _safe_set_cell(ws, date_row, COL_L, f"Ngay {now.day} Thang {now.month} nam {now.year}")
+        _safe_set_cell(ws, date_row, COL_L, f"Ngày {now.day} Tháng {now.month} năm {now.year}")
     else:
         # Create from scratch
         wb = openpyxl.Workbook()
@@ -496,7 +533,7 @@ def fill_cam_ket(
         # Footer
         footer_row = 7 + len(products) + 2
         ws.merge_cells(f'A{footer_row}:H{footer_row}')
-        ws[f'A{footer_row}'] = f'Ngay {now.day} Thang {now.month} Nam {now.year}'
+        ws[f'A{footer_row}'] = f'Ngày {now.day} Tháng {now.month} năm {now.year}'
         ws[f'A{footer_row}'].font = data_font
         ws[f'A{footer_row}'].alignment = Alignment(horizontal='right')
 
@@ -792,10 +829,18 @@ async def run_autofill_job(
         output_dir = FILES_BASE / year_str / month_str / folder_name
         output_dir.mkdir(parents=True, exist_ok=True)
 
-        # 3. Match images
-        images_map: dict[str, bytes] = {}
-        if images:
-            images_map = match_images_to_orders(images, items)
+        # 3. Match images: combine user-uploaded with auto-discovered from
+        # /data/onedrive-staging/Puplic/BQMS/RFQ/.../{rfq_no}*/
+        all_image_files: list[tuple[str, bytes]] = list(images or [])
+        discovered = discover_rfq_images(rfq_no)
+        # User upload wins on filename collision
+        seen_names = {n for n, _ in all_image_files}
+        for fname, fbytes in discovered:
+            if fname not in seen_names:
+                all_image_files.append((fname, fbytes))
+        images_map: dict[str, bytes] = match_images_to_orders(all_image_files, items)
+        if images_map:
+            logger.info('autofill: %d products matched to images', len(images_map))
 
         # Filter items by flow_type
         if flow_type == "gc":

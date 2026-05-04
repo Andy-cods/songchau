@@ -1934,11 +1934,7 @@ function DataRow({
 
         {/* Ngày */}
         <td className="px-3 py-2 text-slate-500 whitespace-nowrap">
-          <div className="flex items-center gap-1">
-            {urgency === 'red' && <AlertTriangle className="h-3 w-3 text-red-500 flex-shrink-0" />}
-            {urgency === 'amber' && <Clock className="h-3 w-3 text-amber-500 flex-shrink-0" />}
-            {dateStr ? formatDate(dateStr) : '—'}
-          </div>
+          {dateStr ? formatDate(dateStr) : '—'}
         </td>
 
         {/* Người PT */}
