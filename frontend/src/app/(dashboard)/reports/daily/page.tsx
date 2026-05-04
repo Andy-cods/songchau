@@ -33,6 +33,8 @@ type MorningReport = {
     }>;
   };
   text_version: string;
+  historical_text?: string | null;
+  has_historical?: boolean;
 };
 
 type RevenueSummary = {
@@ -342,6 +344,21 @@ export default function DailyReportPage() {
                       <div>* GC: Gia công</div>
                       <div>* TM: Thương mại</div>
                     </div>
+
+                    {/* Báo cáo gốc nhân viên ghi tay trong Excel "Thống kê hỏi hàng" cột S */}
+                    {morning.has_historical && morning.historical_text ? (
+                      <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50/50 p-3">
+                        <div className="flex items-center gap-2 mb-2">
+                          <span className="text-[11px] font-semibold uppercase tracking-wide text-amber-700">
+                            Báo cáo gốc trong Excel
+                          </span>
+                          <span className="text-[10px] text-amber-600/70">(do nhân viên ghi)</span>
+                        </div>
+                        <pre className="whitespace-pre-wrap text-xs text-slate-700 font-mono leading-relaxed">
+                          {morning.historical_text}
+                        </pre>
+                      </div>
+                    ) : null}
                   </>
                 ) : null}
               </div>

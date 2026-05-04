@@ -63,9 +63,28 @@ async def morning_report(
     ),
     conn: asyncpg.Connection = Depends(get_db),
 ) -> dict[str, Any]:
-    """Morning summary matching the canonical text-report format."""
+    """Morning summary matching the canonical text-report format.
+
+    For historical dates, also returns the staff-written daily report blob
+    extracted from the `Báo cáo` column of Thong ke hoi hang BQMS.xlsx
+    (when present). Front-end shows it as `historical_text` so the user
+    sees the EXACT report typed that day, not a regenerated approximation.
+    """
 
     today = report_date or date.today()
+
+    # Historical report from Excel "Báo cáo" column. Pick the longest
+    # report blob whose inquiry_date matches -- staff usually writes one
+    # multi-line summary on the first row of each day.
+    historical_text = await conn.fetchval(
+        """
+        SELECT report FROM bqms_rfq
+        WHERE inquiry_date = $1 AND report IS NOT NULL AND LENGTH(report) > 50
+        ORDER BY LENGTH(report) DESC
+        LIMIT 1
+        """,
+        today,
+    )
 
     # 1. Tổng số yêu cầu (RFQ received today)
     requests_row = await conn.fetchrow(
@@ -167,6 +186,8 @@ async def morning_report(
             "breakdown": breakdown,
         },
         "text_version": text_version,
+        "historical_text": historical_text,
+        "has_historical": historical_text is not None,
     }
 
 

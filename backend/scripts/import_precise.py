@@ -432,19 +432,38 @@ async def import_bqms_rfq(conn, source: Path, dry_run: bool, verbose: bool) -> d
     rows = read_excel_raw(str(fp), "TONG HOP BQMS", header_row=1)
     logger.info("  Read %d data rows from TONG HOP BQMS", len(rows))
 
+    # Column-to-DB mapping (verified against header row 2026-05-04):
+    #   row[ 0] A 'Ngày'                     -> inquiry_date
+    #   row[ 1] B 'Người phụ trách'          -> person_in_charge_name
+    #   row[ 2] C 'RFQ No.'                  -> rfq_number
+    #   row[ 3] D 'BQMS code'                -> bqms_code
+    #   row[ 4] E 'Spec'                     -> specification
+    #   row[ 5] F 'Maker'                    -> maker
+    #   row[ 6] G 'Số lượng dự kiến'         -> expected_qty
+    #   row[ 7] H 'Giá nhập RMB'             -> purchase_price_rmb
+    #   row[ 8] I 'Giá nhập VND'             -> purchase_price_vnd
+    #   row[ 9] J 'Giá báo cho AMA'          -> quoted_price_ama
+    #   row[10] K 'Giá báo cho BQMS V1'      -> quoted_price_bqms_v1
+    #   row[11] L 'V2'                       -> quoted_price_bqms_v2
+    #   row[12] M 'V3'                       -> quoted_price_bqms_v3
+    #   row[13] N 'V4'                       -> quoted_price_bqms_v4  (was wrongly read as notes)
+    #   row[14] O 'Ghi chú'                  -> notes                 (was wrongly read as supplier_name)
+    #   row[15] P 'NCC'                      -> supplier_name         (was wrongly read as result)
+    #   row[16] Q 'Kết quả (Y/N)'            -> result                (was missing entirely)
+    #   row[18] S 'Báo cáo'                  -> report                (was reading row[17] = blank col R)
     sql = """
         INSERT INTO bqms_rfq (
             inquiry_date, person_in_charge_name, rfq_number, bqms_code,
             specification, maker, expected_qty,
             purchase_price_rmb, purchase_price_vnd,
             quoted_price_ama, quoted_price_bqms_v1,
-            quoted_price_bqms_v2, quoted_price_bqms_v3,
+            quoted_price_bqms_v2, quoted_price_bqms_v3, quoted_price_bqms_v4,
             notes, supplier_name, result, report,
             data_source, source_hash, synced_at
         ) VALUES (
-            $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13,
-            $14, $15, COALESCE($16::rfq_result, 'pending'), $17,
-            $18, $19, NOW()
+            $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14,
+            $15, $16, COALESCE($17::rfq_result, 'pending'), $18,
+            $19, $20, NOW()
         )
         ON CONFLICT (rfq_number, bqms_code, source_hash)
             DO UPDATE SET
@@ -459,6 +478,7 @@ async def import_bqms_rfq(conn, source: Path, dry_run: bool, verbose: bool) -> d
                 quoted_price_bqms_v1 = COALESCE(EXCLUDED.quoted_price_bqms_v1, bqms_rfq.quoted_price_bqms_v1),
                 quoted_price_bqms_v2 = COALESCE(EXCLUDED.quoted_price_bqms_v2, bqms_rfq.quoted_price_bqms_v2),
                 quoted_price_bqms_v3 = COALESCE(EXCLUDED.quoted_price_bqms_v3, bqms_rfq.quoted_price_bqms_v3),
+                quoted_price_bqms_v4 = COALESCE(EXCLUDED.quoted_price_bqms_v4, bqms_rfq.quoted_price_bqms_v4),
                 supplier_name = COALESCE(EXCLUDED.supplier_name, bqms_rfq.supplier_name),
                 result = COALESCE(EXCLUDED.result, bqms_rfq.result),
                 report = COALESCE(EXCLUDED.report, bqms_rfq.report),
@@ -504,25 +524,26 @@ async def import_bqms_rfq(conn, source: Path, dry_run: bool, verbose: bool) -> d
         rmb_val = parse_number(rmb_raw)
 
         params = [
-            inquiry_date,                       # inquiry_date (filled-down)
-            safe_str(_get(row, 1)),             # person_in_charge_name
-            rfq_number,                         # rfq_number
-            bqms_code,                          # bqms_code
-            safe_str(_get(row, 4)),             # specification
-            safe_str(_get(row, 5)),             # maker
-            parse_number(_get(row, 6)),         # expected_qty
-            rmb_val,                            # purchase_price_rmb
-            parse_number(_get(row, 8)),         # purchase_price_vnd
-            parse_number(_get(row, 9)),         # quoted_price_ama
-            parse_number(_get(row, 10)),        # quoted_price_bqms_v1
-            parse_number(_get(row, 11)),        # quoted_price_bqms_v2
-            parse_number(_get(row, 12)),        # quoted_price_bqms_v3
-            safe_str(_get(row, 13)),            # notes
-            safe_str(_get(row, 14)),            # supplier_name
-            parse_result(_get(row, 15)),        # result
-            safe_str(_get(row, 17)),            # report (col 17)
-            DATA_SOURCE,                        # data_source
-            compute_source_hash(row),           # source_hash
+            inquiry_date,                       # $1  inquiry_date (filled-down)
+            safe_str(_get(row, 1)),             # $2  person_in_charge_name (col B)
+            rfq_number,                         # $3  rfq_number             (col C)
+            bqms_code,                          # $4  bqms_code              (col D)
+            safe_str(_get(row, 4)),             # $5  specification         (col E)
+            safe_str(_get(row, 5)),             # $6  maker                 (col F)
+            parse_number(_get(row, 6)),         # $7  expected_qty          (col G)
+            rmb_val,                            # $8  purchase_price_rmb     (col H)
+            parse_number(_get(row, 8)),         # $9  purchase_price_vnd    (col I)
+            parse_number(_get(row, 9)),         # $10 quoted_price_ama      (col J)
+            parse_number(_get(row, 10)),        # $11 quoted_price_bqms_v1  (col K)
+            parse_number(_get(row, 11)),        # $12 quoted_price_bqms_v2  (col L)
+            parse_number(_get(row, 12)),        # $13 quoted_price_bqms_v3  (col M)
+            parse_number(_get(row, 13)),        # $14 quoted_price_bqms_v4  (col N) NEW
+            safe_str(_get(row, 14)),            # $15 notes                  (col O Ghi chú) FIXED
+            safe_str(_get(row, 15)),            # $16 supplier_name         (col P NCC) FIXED
+            parse_result(_get(row, 16)),        # $17 result                 (col Q Kết quả) FIXED
+            safe_str(_get(row, 18)),            # $18 report                 (col S Báo cáo) FIXED
+            DATA_SOURCE,                        # $19 data_source
+            compute_source_hash(row),           # $20 source_hash
         ]
 
         await _exec_row(conn, sql, params, stats, idx, dry_run, verbose)

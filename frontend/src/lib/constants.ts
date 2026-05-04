@@ -117,19 +117,19 @@ const NAV_IMV: SidebarItem[] = [
   { key: 'imv', label: 'IMV iMarketVietnam', href: '/imv', icon: Building2 },
 ];
 
-const NAV_PROCUREMENT: SidebarItem[] = [
+// Merged 2026-05-04 per user request: Mua hàng + Khách hàng -> 1 group
+const NAV_BUSINESS: SidebarItem[] = [
+  { key: 'crm', label: 'Khách hàng', href: '/crm', icon: Contact },
   { key: 'procurement', label: 'Mua hàng', href: '/procurement', icon: ShoppingCart },
 ];
 
+// Consolidated 2026-05-04 per user request: 4 items -> 3.
+// "Bảng kê HĐ quý" merged into "Hóa đơn" (accessible as a quarterly-view tab
+// from inside /invoices). To restore standalone link, add the line back.
 const NAV_FINANCE: SidebarItem[] = [
   { key: 'tai-chinh', label: 'Tài chính tổng hợp', href: '/finance/overview', icon: DollarSign },
   { key: 'invoices', label: 'Hóa đơn', href: '/invoices', icon: Receipt },
-  { key: 'quarterly-invoices', label: 'Bảng kê HĐ quý', href: '/finance/quarterly-invoices', icon: Receipt },
   { key: 'finance-reports', label: 'Báo cáo TC', href: '/finance/reports', icon: PieChart },
-];
-
-const NAV_CRM: SidebarItem[] = [
-  { key: 'crm', label: 'Khách hàng', href: '/crm', icon: Contact },
 ];
 
 const NAV_ANALYTICS: SidebarItem[] = [
@@ -153,9 +153,8 @@ export function getSidebarConfig(role: UserRole): SidebarSection[] {
         { title: 'Tổng quan', items: NAV_MAIN },
         { title: 'BQMS Samsung', items: NAV_BQMS },
         { title: 'IMV iMarketVietnam', items: NAV_IMV },
-        { title: 'Mua hàng', items: NAV_PROCUREMENT },
+        { title: 'Khách hàng & Mua hàng', items: NAV_BUSINESS },
         { title: 'Tài chính', items: NAV_FINANCE },
-        { title: 'Khách hàng', items: NAV_CRM },
         { title: 'Phân tích', items: NAV_ANALYTICS },
         { title: 'Hệ thống', items: NAV_ADMIN },
       ];
@@ -166,9 +165,8 @@ export function getSidebarConfig(role: UserRole): SidebarSection[] {
         { title: 'Tổng quan', items: NAV_MAIN },
         { title: 'BQMS Samsung', items: NAV_BQMS },
         { title: 'IMV iMarketVietnam', items: NAV_IMV },
-        { title: 'Mua hàng', items: NAV_PROCUREMENT },
+        { title: 'Khách hàng & Mua hàng', items: NAV_BUSINESS },
         { title: 'Tài chính', items: NAV_FINANCE },
-        { title: 'Khách hàng', items: NAV_CRM },
         { title: 'Phân tích', items: NAV_ANALYTICS },
       ];
 
@@ -209,7 +207,7 @@ export function getSidebarConfig(role: UserRole): SidebarSection[] {
             { key: 'documents', label: 'Quản lý tài liệu', href: '/documents/browser', icon: FolderOpen },
           ],
         },
-        { title: 'Khách hàng', items: NAV_CRM },
+        { title: 'Khách hàng & Mua hàng', items: NAV_BUSINESS },
         {
           title: 'Phân tích',
           items: [

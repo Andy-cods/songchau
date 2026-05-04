@@ -51,22 +51,34 @@ VPS_DEST = '/data/onedrive-staging'
 
 LOCAL_ROOT = os.environ.get('SC_ONEDRIVE_LOCAL', r'C:\Users\ASUS\OneDrive - SONG CHAU CO., LTD')
 
-# Sync mode A: explicit file allowlist (preferred — tight scope, no folder walks).
-# Used for the 4 BQMS Excel files that are the *only* source feeding bqms_rfq +
-# bqms_deliveries tables. Push interval can be aggressive (60s) since each
-# stat() call is O(1) and pushes are tiny (~3.5MB total).
+# Sync mode A: explicit file allowlist (preferred for tight-scope BQMS pipeline).
+# These 4 files feed bqms_rfq + bqms_deliveries tables and need fast (60s) sync.
 WATCHED_FILES = [
     'Puplic/BQMS/Thong ke hoi hang BQMS.xlsx',
     'Puplic/BQMS/Thong ke giao hang/Thong ke giao hang 2026.xlsx',
     'Puplic/BQMS/Thong ke giao hang/Thong ke giao hang 2025.xlsx',
     'Puplic/BQMS/Thong ke giao hang/Thong ke giao hang 2023-2024.xlsx',
 ]
-# Override via env: SC_WATCHED_FILES="path1\npath2\n..."
 if os.environ.get('SC_WATCHED_FILES'):
     WATCHED_FILES = [s.strip() for s in os.environ['SC_WATCHED_FILES'].splitlines() if s.strip()]
 
-# Sync mode B: folder walk (broader scope, slower). Only used if WATCHED_FILES is empty.
-WATCHED_FOLDERS: list[str] = []
+# Sync mode B: folder walk for the rest of OneDrive so the Documents browser
+# (/documents/browser) shows fresh files. Walks happen every interval too,
+# but since these dirs are large we apply size + extension filters and skip
+# the BQMS/RFQ subfolder (~56 GB of historical PDFs) which doesn't change daily.
+WATCHED_FOLDERS: list[str] = [
+    'Puplic/BQMS/Giao hàng',
+    'Puplic/BQMS/PO',
+    'Puplic/BQMS/TONG HOP BQMS',
+    'Puplic/BQMS/TỔNG HỢP FORM MẪU',
+    'Puplic/IMV',
+    'Puplic/000. MẪU PO',
+    'Puplic/AMA Quotation',
+    'Puplic/YÊU CẦU BÁO GIÁ',
+    'Attachments',
+]
+# Skip these subpaths even when inside a WATCHED_FOLDERS root.
+SKIP_SUBPATHS = {'Puplic/BQMS/RFQ'}
 # Add more by editing SC_WATCHED_FOLDERS env var (newline-separated)
 if os.environ.get('SC_WATCHED_FOLDERS'):
     WATCHED_FOLDERS = [s.strip() for s in os.environ['SC_WATCHED_FOLDERS'].splitlines() if s.strip()]
@@ -133,23 +145,23 @@ def should_skip(name: str, full: str) -> bool:
 def scan_local() -> dict[str, dict[str, Any]]:
     """Return rel_path → {size, mtime} for files we want to sync.
 
-    Mode A (preferred): WATCHED_FILES set → stat each file directly (O(N), tiny).
-    Mode B: WATCHED_FILES empty → walk WATCHED_FOLDERS (legacy bulk mode).
+    Combines two modes (both can be active simultaneously):
+      - WATCHED_FILES: explicit allowlist of single files (cheap, O(N))
+      - WATCHED_FOLDERS: recursive walk of broader directories
+    SKIP_SUBPATHS prunes specific roots (e.g. the 56 GB BQMS/RFQ archive).
     """
     out: dict[str, dict[str, Any]] = {}
 
-    if WATCHED_FILES:
-        for rel in WATCHED_FILES:
-            full = os.path.join(LOCAL_ROOT, rel.replace('/', os.sep))
-            if not os.path.exists(full):
-                log.debug('watched file missing: %s', rel)
-                continue
-            try:
-                st = os.stat(full)
-            except OSError:
-                continue
-            out[rel] = {'size': st.st_size, 'mtime': int(st.st_mtime)}
-        return out
+    for rel in WATCHED_FILES:
+        full = os.path.join(LOCAL_ROOT, rel.replace('/', os.sep))
+        if not os.path.exists(full):
+            log.debug('watched file missing: %s', rel)
+            continue
+        try:
+            st = os.stat(full)
+        except OSError:
+            continue
+        out[rel] = {'size': st.st_size, 'mtime': int(st.st_mtime)}
 
     for folder in WATCHED_FOLDERS:
         base = os.path.join(LOCAL_ROOT, folder.replace('/', os.sep))
@@ -157,7 +169,10 @@ def scan_local() -> dict[str, dict[str, Any]]:
             log.debug('skip missing %s', base)
             continue
         for dirpath, dirnames, filenames in os.walk(base):
-            # Skip junk dirs
+            rel_dir = os.path.relpath(dirpath, LOCAL_ROOT).replace(os.sep, '/')
+            if any(rel_dir == s or rel_dir.startswith(s + '/') for s in SKIP_SUBPATHS):
+                dirnames[:] = []
+                continue
             dirnames[:] = [d for d in dirnames if not d.startswith('.')]
             for fname in filenames:
                 full = os.path.join(dirpath, fname)
@@ -168,6 +183,8 @@ def scan_local() -> dict[str, dict[str, Any]]:
                 except OSError:
                     continue
                 rel = os.path.relpath(full, LOCAL_ROOT).replace(os.sep, '/')
+                if rel in out:
+                    continue  # already added via WATCHED_FILES
                 out[rel] = {
                     'size': st.st_size,
                     'mtime': int(st.st_mtime),
@@ -389,11 +406,13 @@ def watch(interval: int) -> None:
     log.info('local: %s', LOCAL_ROOT)
     log.info('remote: %s@%s:%s', VPS_USER, VPS_HOST, VPS_DEST)
     if WATCHED_FILES:
-        log.info('mode: file-list (%d files)', len(WATCHED_FILES))
+        log.info('files (allowlist, %d):', len(WATCHED_FILES))
         for f in WATCHED_FILES:
             log.info('  - %s', f)
-    else:
-        log.info('mode: folder-walk: %s', ', '.join(WATCHED_FOLDERS))
+    if WATCHED_FOLDERS:
+        log.info('folders (walk, %d): %s', len(WATCHED_FOLDERS), ', '.join(WATCHED_FOLDERS))
+        if SKIP_SUBPATHS:
+            log.info('  skip: %s', ', '.join(SKIP_SUBPATHS))
     while True:
         try:
             sync_once()
