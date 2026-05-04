@@ -42,10 +42,12 @@ GROUPS: dict[str, list[str]] = {
     'bqms_rfq': [
         'Puplic/BQMS/Thong ke hoi hang BQMS.xlsx',
     ],
+    # Per user 2026-05-04: only ingest deliveries from 2026 onward.
+    # Old 2023-2024 + 2025 files are kept on disk but no longer
+    # auto-imported. Historical data archived to
+    # bqms_deliveries_archive_pre2026.
     'bqms_deliveries': [
         'Puplic/BQMS/Thong ke giao hang/Thong ke giao hang 2026.xlsx',
-        'Puplic/BQMS/Thong ke giao hang/Thong ke giao hang 2025.xlsx',
-        'Puplic/BQMS/Thong ke giao hang/Thong ke giao hang 2023-2024.xlsx',
     ],
 }
 

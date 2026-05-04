@@ -496,6 +496,10 @@ async def import_bqms_rfq(conn, source: Path, dry_run: bool, verbose: bool) -> d
     # the file expects, dozens of cells get stored as future dates.
     # Those bad cells then poison fill-down for all rows below.
     max_anchor = date.today() + timedelta(days=30)
+    # Per user 2026-05-04: only ingest BQMS data from 2026 onward.
+    # Rows with inquiry_date < min_year_cutoff or NULL are skipped
+    # (NULL = fill-down failure, can't tell what year — safer to skip).
+    min_year_cutoff = date(2026, 1, 1)
 
     for idx, row in enumerate(rows):
         if _is_empty_row(row):
@@ -518,6 +522,11 @@ async def import_bqms_rfq(conn, source: Path, dry_run: bool, verbose: bool) -> d
         if cell_date is not None:
             last_date = cell_date
         inquiry_date = cell_date if cell_date is not None else last_date
+
+        # Year cutoff: only ingest 2026 onward. Skip pre-2026 + null-date rows.
+        if inquiry_date is None or inquiry_date < min_year_cutoff:
+            stats["skip"] += 1
+            continue
 
         # Parse purchase_price_rmb: strip "¥" prefix
         rmb_raw = row[7] if len(row) > 7 else None
@@ -553,11 +562,14 @@ async def import_bqms_rfq(conn, source: Path, dry_run: bool, verbose: bool) -> d
 
 
 async def import_bqms_deliveries(conn, source: Path, dry_run: bool, verbose: bool) -> dict:
-    """2. bqms_deliveries <-- Thong ke giao hang 2026/2025/2023-2024.xlsx"""
+    """2. bqms_deliveries <-- Thong ke giao hang 2026.xlsx (only)
+
+    Per user 2026-05-04: archive 2023-2024 + 2025 deliveries (~1,855 rows),
+    only ingest 2026 going forward. Old historical files removed from the
+    list; data is in bqms_deliveries_archive_pre2026 if needed.
+    """
     files_to_try = [
         ("Thong ke giao hang 2026.xlsx", None, 1),
-        ("Thong ke giao hang 2025.xlsx", None, 3),   # header at row 3, positional
-        ("Thong ke giao hang 2023-2024.xlsx", None, 1),
     ]
 
     sql = """

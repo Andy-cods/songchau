@@ -56,8 +56,10 @@ LOCAL_ROOT = os.environ.get('SC_ONEDRIVE_LOCAL', r'C:\Users\ASUS\OneDrive - SONG
 WATCHED_FILES = [
     'Puplic/BQMS/Thong ke hoi hang BQMS.xlsx',
     'Puplic/BQMS/Thong ke giao hang/Thong ke giao hang 2026.xlsx',
-    'Puplic/BQMS/Thong ke giao hang/Thong ke giao hang 2025.xlsx',
-    'Puplic/BQMS/Thong ke giao hang/Thong ke giao hang 2023-2024.xlsx',
+    # Disabled 2026-05-04 per user: only sync 2026 data going forward.
+    # Old files kept on local PC for staff reference, just not pushed to VPS.
+    # 'Puplic/BQMS/Thong ke giao hang/Thong ke giao hang 2025.xlsx',
+    # 'Puplic/BQMS/Thong ke giao hang/Thong ke giao hang 2023-2024.xlsx',
 ]
 if os.environ.get('SC_WATCHED_FILES'):
     WATCHED_FILES = [s.strip() for s in os.environ['SC_WATCHED_FILES'].splitlines() if s.strip()]
