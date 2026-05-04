@@ -28,7 +28,8 @@ import {
   CheckCircle,
 } from 'lucide-react';
 import { api } from '@/lib/api';
-import { SamsungSyncWidget } from '@/components/features/SamsungSyncWidget';
+// Disabled 2026-05-04 with Samsung portal scrape; uncomment when re-enabled.
+// import { SamsungSyncWidget } from '@/components/features/SamsungSyncWidget';
 import { SyncFreshnessChip } from '@/components/shared/sync-freshness-chip';
 import { cn, formatDate } from '@/lib/utils';
 
@@ -1483,8 +1484,10 @@ export default function BQMSPage() {
 
   return (
     <div className="flex flex-col gap-4 min-h-0 pb-8">
-      {/* ── Samsung Sync Widget */}
-      <SamsungSyncWidget />
+      {/* Samsung BQMS portal scrape disabled 2026-05-04. Excel auto-import
+          (bqms_excel_auto_import every 2min) is now the source of truth.
+          Re-enable widget when bqms_nightly_sync is reactivated. */}
+      {/* <SamsungSyncWidget /> */}
 
       {/* ── Page Header */}
       <div className="flex items-center justify-between">
