@@ -489,13 +489,20 @@ async def import_bqms_rfq(conn, source: Path, dry_run: bool, verbose: bool) -> d
 
     stats = _empty_stats()
     last_date = None  # forward-fill tracker for column A merged cells
-    # Reject anchor dates > today + 30d. Background: Excel auto-converts
-    # ambiguous text like "4/10" using the host locale. On EN-US Excel
-    # "4/10" becomes 2026-04-10 (Apr 10), but on VI-VN it becomes
-    # 2026-10-04 (Oct 4). When the user is on a different locale than
-    # the file expects, dozens of cells get stored as future dates.
-    # Those bad cells then poison fill-down for all rows below.
-    max_anchor = date.today() + timedelta(days=30)
+    # Date validation rules (Excel rows are chronological top->bottom):
+    #   - Future bound: today + 1 day. Anything further out is locale
+    #     mis-parse from cells like "4/10" or "2/6" (Vietnamese DD/MM
+    #     read as US MM/DD => October 4, June 2 in the future).
+    #   - Forward jump cap: 60 days. A cell that is genuinely valid for
+    #     a row sitting under one dated 2 months ago is implausible;
+    #     much more likely a bad anchor that would poison fill-down.
+    #   - Backward jump cap: 7 days. If a cell parses to a date 7+ days
+    #     behind the last good anchor, try swapping day/month (DD/MM
+    #     vs MM/DD typo). Only accept the swap if it lines up.
+    today_local = date.today()
+    future_bound = today_local + timedelta(days=1)
+    forward_cap = timedelta(days=60)
+    backward_cap = timedelta(days=7)
     # Per user 2026-05-04: only ingest BQMS data from 2026 onward.
     # Rows with inquiry_date < min_year_cutoff or NULL are skipped
     # (NULL = fill-down failure, can't tell what year — safer to skip).
@@ -516,9 +523,39 @@ async def import_bqms_rfq(conn, source: Path, dry_run: bool, verbose: bool) -> d
         # Excel merges date cells visually but stores the value only in
         # the first row of each group; openpyxl returns None for the rest.
         cell_date = parse_date(_get(row, 0))
-        if cell_date is not None and cell_date > max_anchor:
-            # Suspect future-dated cell -- skip as fill-down anchor.
-            cell_date = None
+
+        # Validate cell_date as a fill-down anchor candidate. Reject
+        # implausible values (future, backward jump, forward jump) and
+        # try the day/month swap interpretation when the data looks like
+        # a DD/MM vs MM/DD locale typo.
+        if cell_date is not None:
+            invalid = False
+
+            if cell_date > future_bound:
+                invalid = True
+
+            elif last_date is not None and cell_date < last_date - backward_cap:
+                # Backward regression -- try swap (e.g. "5/4" parsed as
+                # April 5 may have been intended as May 4).
+                invalid = True
+                try:
+                    swap = cell_date.replace(month=cell_date.day, day=cell_date.month)
+                    if (swap >= last_date - backward_cap
+                            and swap <= future_bound
+                            and swap <= last_date + forward_cap):
+                        cell_date = swap
+                        invalid = False
+                except ValueError:
+                    pass  # day > 12 -> not swappable
+
+            elif last_date is not None and cell_date > last_date + forward_cap:
+                # Implausible forward leap (e.g. "2/6" -> June 2 sitting
+                # under a Feb-dated anchor). Reject.
+                invalid = True
+
+            if invalid:
+                cell_date = None
+
         if cell_date is not None:
             last_date = cell_date
         inquiry_date = cell_date if cell_date is not None else last_date
