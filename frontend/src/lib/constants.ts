@@ -100,10 +100,11 @@ export interface SidebarSection {
 // ═══ NAV GROUPS (theo yêu cầu mới) ═══════════════════════════
 
 const NAV_MAIN: SidebarItem[] = [
-  { key: 'dashboard', label: 'Tổng quan', href: '/dashboard', icon: LayoutDashboard },
-  { key: 'daily-report', label: 'Báo cáo hàng ngày', href: '/reports/daily', icon: BarChart3 },
+  // /dashboard now renders the daily report (Tổng quan = báo cáo hàng ngày).
+  // Per user 2026-05-05: pushed to the top, no more standalone "Báo cáo hàng ngày" link.
+  { key: 'dashboard', label: 'Tổng quan', href: '/dashboard', icon: BarChart3 },
+  { key: 'dashboard-charts', label: 'KPI & Biểu đồ', href: '/dashboard/charts', icon: LayoutDashboard },
   { key: 'documents', label: 'Quản lý tài liệu', href: '/documents/browser', icon: FolderOpen },
-  // Ẩn: Kho hàng, Đơn mua hàng, Vận chuyển, Phê duyệt
 ];
 
 const NAV_BQMS: SidebarItem[] = [
