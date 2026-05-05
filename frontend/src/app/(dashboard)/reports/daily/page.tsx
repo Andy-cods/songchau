@@ -383,11 +383,11 @@ export default function DailyReportPage() {
                 <div>
                   <div className="flex items-center gap-2">
                     <TrendingUp className="h-4 w-4 text-slate-400" />
-                    <h2 className="font-semibold text-slate-900">Xu hướng doanh thu</h2>
-                    <span className="text-xs px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 font-medium">YoY</span>
+                    <h2 className="font-semibold text-slate-900">Xu hướng số mã yêu cầu</h2>
+                    <span className="text-xs px-2 py-0.5 rounded-full bg-sky-50 text-sky-700 font-medium">Theo báo cáo</span>
                   </div>
                   <p className="text-xs text-slate-500 mt-0.5">
-                    PO theo {trendPeriod === 'day' ? '30 ngày' : trendPeriod === 'week' ? '12 tuần' : '13 tháng'} · so sánh năm ngoái
+                    {trendPeriod === 'day' ? '30 ngày' : trendPeriod === 'week' ? '12 tuần' : '13 tháng'} · trích từ "Tổng số yêu cầu" trong báo cáo Excel
                     <span className="ml-1.5 text-sky-600 font-medium">· bấm cột để xem báo cáo ngày đó</span>
                   </p>
                 </div>
@@ -432,18 +432,19 @@ export default function DailyReportPage() {
                       />
                       <YAxis
                         tick={{ fontSize: 11, fill: '#64748b' }}
-                        width={56}
-                        tickFormatter={(v) => fmtVNDShort(v)}
+                        width={48}
+                        tickFormatter={(v) => `${v}`}
                         tickLine={false}
                         axisLine={false}
+                        allowDecimals={false}
                       />
                       <Tooltip
                         cursor={{ fill: '#f1f5f9' }}
-                        content={<TrendTooltip />}
+                        content={<TrendTooltipCount />}
                       />
                       <Bar
                         dataKey="amount"
-                        name="Năm nay"
+                        name="Số mã"
                         fill="url(#trendBar)"
                         radius={[8, 8, 0, 0]}
                         maxBarSize={40}
@@ -452,32 +453,22 @@ export default function DailyReportPage() {
                           if (data?.bucket) setReportDate(data.bucket);
                         }}
                       />
-                      <Line
-                        dataKey="amount_ly"
-                        name="Năm ngoái"
-                        stroke="#94a3b8"
-                        strokeWidth={2}
-                        strokeDasharray="5 5"
-                        dot={{ fill: '#fff', stroke: '#94a3b8', strokeWidth: 2, r: 3 }}
-                        activeDot={{ r: 5 }}
-                      />
                     </ComposedChart>
                   </ResponsiveContainer>
                 )}
               </div>
               <div className="px-5 py-3 border-t border-slate-100 bg-slate-50/50 grid grid-cols-3 gap-4 text-xs">
-                <TrendStat label="Tổng kỳ" value={fmtVNDShort(trend.reduce((s, t) => s + t.amount, 0))} />
-                <TrendStat label="Cao nhất" value={fmtVNDShort(trend.reduce((m, t) => Math.max(m, t.amount), 0))} />
                 <TrendStat
-                  label="So với năm ngoái"
-                  value={(() => {
-                    const cur = trend.reduce((s, t) => s + t.amount, 0);
-                    const ly = trend.reduce((s, t) => s + t.amount_ly, 0);
-                    if (!ly) return '—';
-                    const d = ((cur - ly) / ly) * 100;
-                    return fmtPct(d);
-                  })()}
-                  positive
+                  label="Tổng số mã trong kỳ"
+                  value={`${trend.reduce((s, t) => s + (Number(t.amount) || 0), 0)} mã`}
+                />
+                <TrendStat
+                  label="Ngày cao nhất"
+                  value={`${trend.reduce((m, t) => Math.max(m, Number(t.amount) || 0), 0)} mã`}
+                />
+                <TrendStat
+                  label="Đã báo giá (Tổng)"
+                  value={`${trend.reduce((s, t) => s + (Number(t.po_count) || 0), 0)} mã`}
                 />
               </div>
             </div>
@@ -721,6 +712,30 @@ function TrendTooltip({ active, payload, label }: any) {
             {fmtPct(delta)} YoY
           </div>
         )}
+      </div>
+    </div>
+  );
+}
+
+function TrendTooltipCount({ active, payload, label }: any) {
+  if (!active || !payload?.length) return null;
+  const total = payload.find((p: any) => p.dataKey === 'amount')?.value ?? 0;
+  const quoted = payload[0]?.payload?.po_count ?? 0;
+  return (
+    <div className="bg-slate-900 text-white rounded-lg shadow-xl px-3 py-2.5 text-xs border border-slate-700 min-w-[170px]">
+      <div className="font-semibold text-slate-200 mb-1.5">{fmtDate(label)}</div>
+      <div className="space-y-1">
+        <div className="flex items-center justify-between gap-3">
+          <span className="text-sky-300">● Tổng yêu cầu</span>
+          <span className="font-mono tabular-nums">{total} mã</span>
+        </div>
+        <div className="flex items-center justify-between gap-3">
+          <span className="text-emerald-300">● Đã báo giá</span>
+          <span className="font-mono tabular-nums">{quoted} mã</span>
+        </div>
+      </div>
+      <div className="mt-2 pt-1.5 border-t border-slate-700 text-[10px] text-slate-400 text-center">
+        Bấm để chốt ngày này
       </div>
     </div>
   );

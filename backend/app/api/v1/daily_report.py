@@ -73,18 +73,43 @@ async def morning_report(
 
     today = report_date or date.today()
 
-    # Historical report from Excel "Báo cáo" column. Pick the longest
-    # report blob whose inquiry_date matches -- staff usually writes one
-    # multi-line summary on the first row of each day.
+    # Historical report from Excel "Báo cáo" column. Match by the date
+    # the staff typed INSIDE the blob ("Báo cáo DD/MM/YYYY") rather than
+    # the row's inquiry_date column, which can carry locale parse errors.
+    import re as _re
+    target_dm = f"{today.day}/{today.month}/{today.year}"
+    target_dm_padded = f"{today.day:02d}/{today.month:02d}/{today.year}"
     historical_text = await conn.fetchval(
         """
         SELECT report FROM bqms_rfq
-        WHERE inquiry_date = $1 AND report IS NOT NULL AND LENGTH(report) > 50
+        WHERE report IS NOT NULL
+          AND LENGTH(report) > 50
+          AND (report ILIKE $1 OR report ILIKE $2)
         ORDER BY LENGTH(report) DESC
         LIMIT 1
         """,
-        today,
+        f"Báo cáo {target_dm}%",
+        f"Báo cáo {target_dm_padded}%",
     )
+
+    # Parse the canonical counts directly from the staff-typed blob.
+    # When a historical blob is present the numbers Thang sees in the
+    # morning card should match exactly what staff wrote.
+    parsed_total = parsed_tm = parsed_gc = parsed_quoted = None
+    if historical_text:
+        def _grab(pattern: str) -> int | None:
+            m = _re.search(pattern, historical_text, _re.IGNORECASE)
+            if not m:
+                return None
+            try:
+                return int(m.group(1))
+            except (ValueError, IndexError):
+                return None
+
+        parsed_total = _grab(r"T[ổô]ng s[ốô] y[êe]u c[âầ]u[:\s]*(\d+)")
+        parsed_tm = _grab(r"h[àa]ng\s+th[ưuơ]+ng\s+m[ạa]i[:\s]*(\d+)")
+        parsed_gc = _grab(r"h[àa]ng\s+gia\s+c[ôo]ng[:\s]*(\d+)")
+        parsed_quoted = _grab(r"SL\s+b[áa]o\s+gi[áa][^:]*:\s*(\d+)")
 
     # 1. Tổng số yêu cầu (RFQ received today)
     requests_row = await conn.fetchrow(
@@ -173,21 +198,29 @@ async def morning_report(
     lines.append("*TM: Thương mại")
     text_version = "\n".join(lines)
 
+    # Prefer parsed values from staff blob when available (canonical for
+    # historical dates where SQL counts may diverge due to date misalignment).
+    final_total = parsed_total if parsed_total is not None else requests_row["total"]
+    final_tm = parsed_tm if parsed_tm is not None else requests_row["tm"]
+    final_gc = parsed_gc if parsed_gc is not None else requests_row["gc"]
+    final_quoted = parsed_quoted if parsed_quoted is not None else total_quoted
+
     return {
         "report_date": today.isoformat(),
         "requests": {
-            "total": requests_row["total"],
-            "tm": requests_row["tm"],
-            "gc": requests_row["gc"],
-            "unclassified": requests_row["unclassified"],
+            "total": final_total,
+            "tm": final_tm,
+            "gc": final_gc,
+            "unclassified": requests_row["unclassified"] if parsed_total is None else 0,
         },
         "quoted_today": {
-            "total": total_quoted,
+            "total": final_quoted,
             "breakdown": breakdown,
         },
         "text_version": text_version,
         "historical_text": historical_text,
         "has_historical": historical_text is not None,
+        "from_blob": parsed_total is not None,
     }
 
 
@@ -289,7 +322,7 @@ async def revenue_summary(
 
 
 @router.get("/trend")
-async def revenue_trend(
+async def request_trend(
     period: str = Query("day", pattern="^(day|week|month)$"),
     n: int = Query(30, ge=1, le=400),
     token_data: TokenData = Depends(
@@ -297,52 +330,87 @@ async def revenue_trend(
     ),
     conn: asyncpg.Connection = Depends(get_db),
 ) -> dict[str, Any]:
-    """Time-bucketed revenue + YoY overlay (365 days shifted)."""
+    """Time-bucketed request COUNT trend.
 
-    cutoff = await _get_cutoff(conn)
-    trunc = {"day": "day", "week": "week", "month": "month"}[period]
-    # Source: bqms_deliveries (Thong ke giao hang 2026.xlsx). Same reason
-    # as /revenue: bqms_samsung_po has amount=0 / unit_price=0 for active
-    # rows since the Samsung portal scrape was disabled.
-    amount_expr = "COALESCE(NULLIF(amount, 0), quantity * unit_price, 0)"
-
-    sql = f"""
-        SELECT
-          date_trunc('{trunc}', po_date)::date AS bucket,
-          COALESCE(SUM({amount_expr}), 0) AS amount,
-          COUNT(DISTINCT po_number) AS po_count
-        FROM bqms_deliveries
-        WHERE po_date >= $1
-          AND po_date >= CURRENT_DATE - ($2::int * INTERVAL '1 {trunc}')
-        GROUP BY bucket
-        ORDER BY bucket
+    Per user 2026-05-06: chart should show số lượng mã (request count)
+    not VND revenue. Source = parsed "Tổng số yêu cầu" from each daily
+    Báo cáo blob in bqms_rfq.report (= Excel col S). For dates without
+    a blob we fall back to COUNT(DISTINCT bqms_code) on bqms_rfq.
     """
-    rows = await conn.fetch(sql, cutoff, n)
+    import re as _re
 
-    # YoY series: same period shifted -365 days
-    sql_ly = f"""
-        SELECT
-          (date_trunc('{trunc}', po_date) + INTERVAL '365 days')::date AS bucket,
-          COALESCE(SUM({amount_expr}), 0) AS amount,
-          COUNT(DISTINCT po_number) AS po_count
-        FROM bqms_deliveries
-        WHERE po_date >= CURRENT_DATE - INTERVAL '365 days' - ($1::int * INTERVAL '1 {trunc}')
-          AND po_date <  CURRENT_DATE - INTERVAL '300 days'
-        GROUP BY date_trunc('{trunc}', po_date)
-        ORDER BY bucket
-    """
-    rows_ly = await conn.fetch(sql_ly, n)
-    ly_map = {r["bucket"]: float(r["amount"]) for r in rows_ly}
+    rows = await conn.fetch(
+        """
+        SELECT DISTINCT ON (LEFT(report, 30)) report
+        FROM bqms_rfq
+        WHERE report ILIKE 'báo cáo%'
+        ORDER BY LEFT(report, 30), LENGTH(report) DESC
+        """,
+    )
+    title_re = _re.compile(
+        r'^B[áa]o c[áa]o\s+(\d{1,2})[/\-.](\d{1,2})[/\-.](\d{4})',
+        _re.IGNORECASE,
+    )
+    total_re = _re.compile(r'T[ổô]ng s[ốô] y[êe]u c[âầ]u[:\s]*(\d+)', _re.IGNORECASE)
+    quoted_re = _re.compile(r'SL\s+b[áa]o\s+gi[áa][^:]*:\s*(\d+)', _re.IGNORECASE)
 
-    series = [
-        {
-            "bucket": r["bucket"].isoformat(),
-            "amount": float(r["amount"]),
-            "po_count": r["po_count"],
-            "amount_ly": ly_map.get(r["bucket"], 0.0),
+    blob_map: dict[date, dict[str, int]] = {}
+    for r in rows:
+        text = (r["report"] or "").strip()
+        if not text:
+            continue
+        first = text.split("\n", 1)[0]
+        m = title_re.match(first)
+        if not m:
+            continue
+        try:
+            d = date(int(m.group(3)), int(m.group(2)), int(m.group(1)))
+        except ValueError:
+            continue
+        total_m = total_re.search(text)
+        quoted_m = quoted_re.search(text)
+        blob_map[d] = {
+            "total": int(total_m.group(1)) if total_m else 0,
+            "quoted": int(quoted_m.group(1)) if quoted_m else 0,
         }
-        for r in rows
-    ]
+
+    # Bucket by period
+    if period == "day":
+        # Pick last n days where any blob exists, else fall through to
+        # CURRENT_DATE - n days so the chart still has axis labels.
+        end = max(blob_map.keys()) if blob_map else date.today()
+        start = end - timedelta(days=n - 1)
+        all_days = [start + timedelta(days=i) for i in range(n)]
+        series = [
+            {
+                "bucket": d.isoformat(),
+                "amount": blob_map.get(d, {}).get("total", 0),
+                "po_count": blob_map.get(d, {}).get("quoted", 0),
+                "amount_ly": 0,
+            }
+            for d in all_days
+        ]
+    else:
+        # week / month aggregation
+        agg: dict[date, dict[str, int]] = {}
+        for d, vals in blob_map.items():
+            if period == "week":
+                bucket = d - timedelta(days=d.weekday())
+            else:
+                bucket = d.replace(day=1)
+            slot = agg.setdefault(bucket, {"total": 0, "quoted": 0})
+            slot["total"] += vals["total"]
+            slot["quoted"] += vals["quoted"]
+        sorted_buckets = sorted(agg.keys())[-n:]
+        series = [
+            {
+                "bucket": b.isoformat(),
+                "amount": agg[b]["total"],
+                "po_count": agg[b]["quoted"],
+                "amount_ly": 0,
+            }
+            for b in sorted_buckets
+        ]
 
     return {"period": period, "n": n, "series": series}
 
