@@ -100,10 +100,10 @@ export interface SidebarSection {
 // ═══ NAV GROUPS (theo yêu cầu mới) ═══════════════════════════
 
 const NAV_MAIN: SidebarItem[] = [
-  // /dashboard now renders the daily report (Tổng quan = báo cáo hàng ngày).
-  // Per user 2026-05-05: pushed to the top, no more standalone "Báo cáo hàng ngày" link.
-  { key: 'dashboard', label: 'Tổng quan', href: '/dashboard', icon: BarChart3 },
-  { key: 'dashboard-charts', label: 'KPI & Biểu đồ', href: '/dashboard/charts', icon: LayoutDashboard },
+  // /dashboard now renders the daily report AND KPI charts combined on one
+  // scrollable page (per user 2026-05-05). No separate "Báo cáo hàng ngày"
+  // or "KPI & Biểu đồ" entries -- everything overview-related lives here.
+  { key: 'dashboard', label: 'Tổng quan', href: '/dashboard', icon: LayoutDashboard },
   { key: 'documents', label: 'Quản lý tài liệu', href: '/documents/browser', icon: FolderOpen },
 ];
 
