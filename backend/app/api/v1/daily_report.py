@@ -205,22 +205,22 @@ async def revenue_summary(
     cutoff = await _get_cutoff(conn)
 
     async def sum_po(d1: date, d2: date) -> dict[str, float | int]:
+        # Source: bqms_deliveries (= rows imported from "Thong ke giao hang
+        # 2026.xlsx"). bqms_samsung_po would be the right source if Samsung
+        # portal scrape were running, but the user disabled it 2026-05-04
+        # and the remaining stale rows have amount=0 / unit_price=0 / no
+        # rfq_id link. The deliveries table carries the canonical revenue
+        # per PO from staff Excel.
         row = await conn.fetchrow(
             """
             SELECT
               COALESCE(SUM(
-                COALESCE(NULLIF(p.amount,0),
-                  p.order_qty * COALESCE(
-                    r.quoted_price_bqms_v4, r.quoted_price_bqms_v3,
-                    r.quoted_price_bqms_v2, r.quoted_price_bqms_v1,
-                    r.quoted_price_ama, NULLIF(p.unit_price,0)
-                  ), 0)
+                COALESCE(NULLIF(amount, 0), quantity * unit_price, 0)
               ), 0) AS total_amount,
-              COUNT(*) AS po_count
-            FROM bqms_samsung_po p
-            LEFT JOIN bqms_rfq r ON r.id = p.rfq_id
-            WHERE p.po_date BETWEEN $1 AND $2
-              AND p.po_date >= $3
+              COUNT(DISTINCT po_number) AS po_count
+            FROM bqms_deliveries
+            WHERE po_date BETWEEN $1 AND $2
+              AND po_date >= $3
             """,
             d1, d2, cutoff,
         )
@@ -301,25 +301,19 @@ async def revenue_trend(
 
     cutoff = await _get_cutoff(conn)
     trunc = {"day": "day", "week": "week", "month": "month"}[period]
-    # effective amount = amount if non-zero, else order_qty * latest quoted price from rfq
-    amount_expr = (
-        "COALESCE(NULLIF(p.amount,0), "
-        "  p.order_qty * COALESCE("
-        "    r.quoted_price_bqms_v4, r.quoted_price_bqms_v3, "
-        "    r.quoted_price_bqms_v2, r.quoted_price_bqms_v1, "
-        "    r.quoted_price_ama, NULLIF(p.unit_price,0)"
-        "  ), 0)"
-    )
+    # Source: bqms_deliveries (Thong ke giao hang 2026.xlsx). Same reason
+    # as /revenue: bqms_samsung_po has amount=0 / unit_price=0 for active
+    # rows since the Samsung portal scrape was disabled.
+    amount_expr = "COALESCE(NULLIF(amount, 0), quantity * unit_price, 0)"
 
     sql = f"""
         SELECT
-          date_trunc('{trunc}', p.po_date)::date AS bucket,
+          date_trunc('{trunc}', po_date)::date AS bucket,
           COALESCE(SUM({amount_expr}), 0) AS amount,
-          COUNT(*) AS po_count
-        FROM bqms_samsung_po p
-        LEFT JOIN bqms_rfq r ON r.id = p.rfq_id
-        WHERE p.po_date >= $1
-          AND p.po_date >= CURRENT_DATE - ($2::int * INTERVAL '1 {trunc}')
+          COUNT(DISTINCT po_number) AS po_count
+        FROM bqms_deliveries
+        WHERE po_date >= $1
+          AND po_date >= CURRENT_DATE - ($2::int * INTERVAL '1 {trunc}')
         GROUP BY bucket
         ORDER BY bucket
     """
@@ -328,14 +322,13 @@ async def revenue_trend(
     # YoY series: same period shifted -365 days
     sql_ly = f"""
         SELECT
-          (date_trunc('{trunc}', p.po_date) + INTERVAL '365 days')::date AS bucket,
+          (date_trunc('{trunc}', po_date) + INTERVAL '365 days')::date AS bucket,
           COALESCE(SUM({amount_expr}), 0) AS amount,
-          COUNT(*) AS po_count
-        FROM bqms_samsung_po p
-        LEFT JOIN bqms_rfq r ON r.id = p.rfq_id
-        WHERE p.po_date >= CURRENT_DATE - INTERVAL '365 days' - ($1::int * INTERVAL '1 {trunc}')
-          AND p.po_date <  CURRENT_DATE - INTERVAL '300 days'
-        GROUP BY date_trunc('{trunc}', p.po_date)
+          COUNT(DISTINCT po_number) AS po_count
+        FROM bqms_deliveries
+        WHERE po_date >= CURRENT_DATE - INTERVAL '365 days' - ($1::int * INTERVAL '1 {trunc}')
+          AND po_date <  CURRENT_DATE - INTERVAL '300 days'
+        GROUP BY date_trunc('{trunc}', po_date)
         ORDER BY bucket
     """
     rows_ly = await conn.fetch(sql_ly, n)

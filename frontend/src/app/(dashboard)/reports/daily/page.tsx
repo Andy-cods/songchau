@@ -218,56 +218,6 @@ export default function DailyReportPage() {
       </motion.div>
 
       <div className="max-w-[1600px] mx-auto space-y-6 print:max-w-none">
-        {/* ─── DATE STRIP: clickable chips for every 2026 report ──── */}
-        {history && history.items.length > 0 ? (
-          <motion.div
-            initial={{ opacity: 0, y: -8 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="bg-white rounded-2xl border border-slate-200 shadow-sm p-3 print:hidden"
-          >
-            <div className="flex items-center gap-2 px-1 mb-2">
-              <CalendarIcon className="h-3.5 w-3.5 text-slate-400" />
-              <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-                Báo cáo {history.year} ({history.count} ngày)
-              </span>
-              <span className="text-[10px] text-slate-400">— bấm để xem dashboard ngày đó</span>
-            </div>
-            <div className="flex gap-1.5 overflow-x-auto pb-1 date-chip-scroll">
-              {history.items.map((item) => {
-                const isActive = reportDate === item.date;
-                const d = new Date(item.date);
-                const dayNum = String(d.getDate()).padStart(2, '0');
-                const monStr = String(d.getMonth() + 1).padStart(2, '0');
-                const dayName = ['CN', 'T2', 'T3', 'T4', 'T5', 'T6', 'T7'][d.getDay()];
-                return (
-                  <button
-                    key={item.date}
-                    onClick={() => setReportDate(item.date)}
-                    title={item.text.split('\n').slice(0, 4).join('\n')}
-                    className={cn(
-                      'flex-shrink-0 px-2.5 py-1.5 rounded-lg border text-center transition leading-tight min-w-[58px]',
-                      isActive
-                        ? 'bg-gradient-to-br from-sky-500 to-indigo-600 text-white border-transparent shadow-sm shadow-sky-500/30'
-                        : 'bg-white text-slate-700 border-slate-200 hover:border-sky-300 hover:bg-sky-50/40',
-                    )}
-                  >
-                    <div className={cn(
-                      'text-[9px] uppercase font-bold tracking-wider',
-                      isActive ? 'text-sky-100' : 'text-slate-400',
-                    )}>{dayName}</div>
-                    <div className="text-[14px] font-bold">{dayNum}/{monStr}</div>
-                  </button>
-                );
-              })}
-            </div>
-            <style jsx>{`
-              .date-chip-scroll::-webkit-scrollbar { height: 4px; }
-              .date-chip-scroll::-webkit-scrollbar-track { background: transparent; }
-              .date-chip-scroll::-webkit-scrollbar-thumb { background: rgb(203 213 225); border-radius: 999px; }
-            `}</style>
-          </motion.div>
-        ) : null}
-
         {/* ─── HERO KPI STRIP ───────────────────────────────────── */}
         <motion.section
           initial="hidden"
@@ -438,6 +388,7 @@ export default function DailyReportPage() {
                   </div>
                   <p className="text-xs text-slate-500 mt-0.5">
                     PO theo {trendPeriod === 'day' ? '30 ngày' : trendPeriod === 'week' ? '12 tuần' : '13 tháng'} · so sánh năm ngoái
+                    <span className="ml-1.5 text-sky-600 font-medium">· bấm cột để xem báo cáo ngày đó</span>
                   </p>
                 </div>
                 <div className="inline-flex rounded-lg bg-slate-100 p-1 text-xs font-medium">
@@ -490,7 +441,17 @@ export default function DailyReportPage() {
                         cursor={{ fill: '#f1f5f9' }}
                         content={<TrendTooltip />}
                       />
-                      <Bar dataKey="amount" name="Năm nay" fill="url(#trendBar)" radius={[8, 8, 0, 0]} maxBarSize={40} />
+                      <Bar
+                        dataKey="amount"
+                        name="Năm nay"
+                        fill="url(#trendBar)"
+                        radius={[8, 8, 0, 0]}
+                        maxBarSize={40}
+                        cursor="pointer"
+                        onClick={(data: any) => {
+                          if (data?.bucket) setReportDate(data.bucket);
+                        }}
+                      />
                       <Line
                         dataKey="amount_ly"
                         name="Năm ngoái"
