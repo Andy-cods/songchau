@@ -60,6 +60,9 @@ type TrendPoint = { bucket: string; amount: number; po_count: number; amount_ly:
 type TopCode = { bqms_code: string; total: number; cells: Array<{ date: string; amount: number }> };
 type TopCodesPayload = { start: string; days: number; codes: string[]; matrix: TopCode[] };
 
+type ReportHistoryItem = { date: string; text: string };
+type ReportHistory = { year: number; count: number; items: ReportHistoryItem[] };
+
 // ─── Formatters ────────────────────────────────────────────────
 
 const fmtVND = (v: number) => {
@@ -93,6 +96,8 @@ export default function DailyReportPage() {
   const [revenue, setRevenue] = useState<RevenueSummary | null>(null);
   const [trend, setTrend] = useState<TrendPoint[]>([]);
   const [topCodes, setTopCodes] = useState<TopCodesPayload | null>(null);
+  const [history, setHistory] = useState<ReportHistory | null>(null);
+  const [historyExpanded, setHistoryExpanded] = useState<Record<string, boolean>>({});
   const [trendPeriod, setTrendPeriod] = useState<'day' | 'week' | 'month'>('day');
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -103,16 +108,18 @@ export default function DailyReportPage() {
     setRefreshing(true);
     try {
       const n = trendPeriod === 'day' ? 30 : trendPeriod === 'week' ? 12 : 13;
-      const [m, r, t, tc] = await Promise.all([
+      const [m, r, t, tc, hist] = await Promise.all([
         api.get<MorningReport>(`/api/v1/daily-report/morning?report_date=${reportDate}`),
         api.get<RevenueSummary>(`/api/v1/daily-report/revenue?report_date=${reportDate}`),
         api.get<{ series: TrendPoint[] }>(`/api/v1/daily-report/trend?period=${trendPeriod}&n=${n}`),
         api.get<TopCodesPayload>(`/api/v1/daily-report/top-codes?days=21&limit=12`),
+        api.get<ReportHistory>('/api/v1/daily-report/history?year=2026'),
       ]);
       setMorning(m);
       setRevenue(r);
       setTrend(t.series || []);
       setTopCodes(tc);
+      setHistory(hist);
       setLastUpdated(new Date());
     } catch (err) {
       console.error('daily-report load failed', err);
@@ -548,6 +555,76 @@ export default function DailyReportPage() {
             <ActivityFeed />
           </motion.section>
         </div>
+
+        {/* ── Lịch sử báo cáo 2026 ─────────────────────────────── */}
+        {history && history.items.length > 0 ? (
+          <motion.section
+            initial={{ opacity: 0, y: 16 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.4 }}
+            className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden print:hidden"
+          >
+            <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between flex-wrap gap-3">
+              <div>
+                <div className="flex items-center gap-2">
+                  <FileText className="h-4 w-4 text-slate-400" />
+                  <h2 className="font-semibold text-slate-900">Lịch sử báo cáo {history.year}</h2>
+                  <span className="text-xs px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 font-medium">
+                    {history.count} ngày
+                  </span>
+                </div>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Toàn bộ báo cáo do nhân viên ghi tay trong cột "Báo cáo" file Excel "Thống kê hỏi hàng BQMS"
+                </p>
+              </div>
+            </div>
+
+            <div className="divide-y divide-slate-100 max-h-[640px] overflow-y-auto">
+              {history.items.map((item) => {
+                const expanded = !!historyExpanded[item.date];
+                const dateObj = new Date(item.date);
+                const dStr = `${String(dateObj.getDate()).padStart(2, '0')}/${String(dateObj.getMonth() + 1).padStart(2, '0')}/${dateObj.getFullYear()}`;
+                const dayName = ['CN', 'T2', 'T3', 'T4', 'T5', 'T6', 'T7'][dateObj.getDay()];
+                return (
+                  <div key={item.date} className="px-5 py-3 hover:bg-slate-50/40 transition">
+                    <button
+                      onClick={() =>
+                        setHistoryExpanded((prev) => ({ ...prev, [item.date]: !prev[item.date] }))
+                      }
+                      className="w-full flex items-center justify-between gap-3 text-left"
+                    >
+                      <div className="flex items-center gap-3 min-w-0">
+                        <div className="flex-shrink-0 w-14 h-12 rounded-lg bg-gradient-to-br from-slate-100 to-slate-200 flex flex-col items-center justify-center">
+                          <span className="text-[10px] uppercase font-bold text-slate-500 leading-none">{dayName}</span>
+                          <span className="text-[15px] font-bold text-slate-800 leading-none mt-0.5">
+                            {String(dateObj.getDate()).padStart(2, '0')}
+                          </span>
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <div className="text-sm font-semibold text-slate-900">{dStr}</div>
+                          <div className="text-xs text-slate-500 truncate">
+                            {item.text.split('\n').slice(1, 3).map((l) => l.trim()).filter(Boolean).join(' · ')}
+                          </div>
+                        </div>
+                      </div>
+                      <ChevronRight
+                        className={cn(
+                          'h-4 w-4 text-slate-400 flex-shrink-0 transition-transform',
+                          expanded && 'rotate-90',
+                        )}
+                      />
+                    </button>
+                    {expanded ? (
+                      <pre className="mt-3 ml-[68px] whitespace-pre-wrap text-xs text-slate-700 font-mono leading-relaxed bg-amber-50/40 border border-amber-200 rounded-lg p-3">
+                        {item.text}
+                      </pre>
+                    ) : null}
+                  </div>
+                );
+              })}
+            </div>
+          </motion.section>
+        ) : null}
 
         {/* Footer hint */}
         <div className="text-center text-xs text-slate-400 pt-4 print:hidden">

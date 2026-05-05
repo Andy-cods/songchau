@@ -432,6 +432,66 @@ async def top_codes_heatmap(
     return {"start": start.isoformat(), "days": days, "codes": codes, "matrix": matrix}
 
 
+@router.get("/history")
+async def report_history(
+    year: int = Query(2026, ge=2020, le=2100),
+    token_data: TokenData = Depends(
+        require_role("staff", "manager", "admin", "accountant", "procurement")
+    ),
+    conn: asyncpg.Connection = Depends(get_db),
+) -> dict[str, Any]:
+    """List ALL staff-written daily reports from bqms_rfq.report (col S of
+    Thong ke hoi hang BQMS.xlsx) for a given year, parsed from the blob's
+    own header line "Báo cáo DD/MM/YYYY".
+
+    The first line of each blob is the canonical staff-typed date in
+    Vietnamese DD/MM order, which is more reliable than inquiry_date
+    (cell A) — the latter sometimes carries Excel locale parse errors.
+    """
+    import re
+
+    rows = await conn.fetch(
+        """
+        SELECT DISTINCT ON (LEFT(report, 30)) report
+        FROM bqms_rfq
+        WHERE report ILIKE 'báo cáo%'
+        ORDER BY LEFT(report, 30), LENGTH(report) DESC
+        """,
+    )
+
+    pattern = re.compile(
+        r'^B[áa]o c[áa]o\s+(\d{1,2})[/\-.](\d{1,2})[/\-.](\d{4})',
+        re.IGNORECASE,
+    )
+
+    items: list[dict[str, Any]] = []
+    for r in rows:
+        text = (r["report"] or "").strip()
+        if not text:
+            continue
+        first = text.split("\n", 1)[0].strip()
+        m = pattern.match(first)
+        if not m:
+            continue
+        day, month, parsed_year = int(m.group(1)), int(m.group(2)), int(m.group(3))
+        if parsed_year != year:
+            continue
+        try:
+            d = date(parsed_year, month, day)
+        except ValueError:
+            continue  # invalid date (e.g., Feb 30)
+        items.append({"date": d.isoformat(), "text": text})
+
+    # Newest first
+    items.sort(key=lambda x: x["date"], reverse=True)
+
+    return {
+        "year": year,
+        "count": len(items),
+        "items": items,
+    }
+
+
 @router.post("/log-quote")
 async def log_quote_action(
     entry: QuoteLogEntry,
