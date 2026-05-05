@@ -97,7 +97,6 @@ export default function DailyReportPage() {
   const [trend, setTrend] = useState<TrendPoint[]>([]);
   const [topCodes, setTopCodes] = useState<TopCodesPayload | null>(null);
   const [history, setHistory] = useState<ReportHistory | null>(null);
-  const [historyExpanded, setHistoryExpanded] = useState<Record<string, boolean>>({});
   const [trendPeriod, setTrendPeriod] = useState<'day' | 'week' | 'month'>('day');
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -219,6 +218,56 @@ export default function DailyReportPage() {
       </motion.div>
 
       <div className="max-w-[1600px] mx-auto space-y-6 print:max-w-none">
+        {/* ─── DATE STRIP: clickable chips for every 2026 report ──── */}
+        {history && history.items.length > 0 ? (
+          <motion.div
+            initial={{ opacity: 0, y: -8 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="bg-white rounded-2xl border border-slate-200 shadow-sm p-3 print:hidden"
+          >
+            <div className="flex items-center gap-2 px-1 mb-2">
+              <CalendarIcon className="h-3.5 w-3.5 text-slate-400" />
+              <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                Báo cáo {history.year} ({history.count} ngày)
+              </span>
+              <span className="text-[10px] text-slate-400">— bấm để xem dashboard ngày đó</span>
+            </div>
+            <div className="flex gap-1.5 overflow-x-auto pb-1 date-chip-scroll">
+              {history.items.map((item) => {
+                const isActive = reportDate === item.date;
+                const d = new Date(item.date);
+                const dayNum = String(d.getDate()).padStart(2, '0');
+                const monStr = String(d.getMonth() + 1).padStart(2, '0');
+                const dayName = ['CN', 'T2', 'T3', 'T4', 'T5', 'T6', 'T7'][d.getDay()];
+                return (
+                  <button
+                    key={item.date}
+                    onClick={() => setReportDate(item.date)}
+                    title={item.text.split('\n').slice(0, 4).join('\n')}
+                    className={cn(
+                      'flex-shrink-0 px-2.5 py-1.5 rounded-lg border text-center transition leading-tight min-w-[58px]',
+                      isActive
+                        ? 'bg-gradient-to-br from-sky-500 to-indigo-600 text-white border-transparent shadow-sm shadow-sky-500/30'
+                        : 'bg-white text-slate-700 border-slate-200 hover:border-sky-300 hover:bg-sky-50/40',
+                    )}
+                  >
+                    <div className={cn(
+                      'text-[9px] uppercase font-bold tracking-wider',
+                      isActive ? 'text-sky-100' : 'text-slate-400',
+                    )}>{dayName}</div>
+                    <div className="text-[14px] font-bold">{dayNum}/{monStr}</div>
+                  </button>
+                );
+              })}
+            </div>
+            <style jsx>{`
+              .date-chip-scroll::-webkit-scrollbar { height: 4px; }
+              .date-chip-scroll::-webkit-scrollbar-track { background: transparent; }
+              .date-chip-scroll::-webkit-scrollbar-thumb { background: rgb(203 213 225); border-radius: 999px; }
+            `}</style>
+          </motion.div>
+        ) : null}
+
         {/* ─── HERO KPI STRIP ───────────────────────────────────── */}
         <motion.section
           initial="hidden"
@@ -555,76 +604,6 @@ export default function DailyReportPage() {
             <ActivityFeed />
           </motion.section>
         </div>
-
-        {/* ── Lịch sử báo cáo 2026 ─────────────────────────────── */}
-        {history && history.items.length > 0 ? (
-          <motion.section
-            initial={{ opacity: 0, y: 16 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.4 }}
-            className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden print:hidden"
-          >
-            <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between flex-wrap gap-3">
-              <div>
-                <div className="flex items-center gap-2">
-                  <FileText className="h-4 w-4 text-slate-400" />
-                  <h2 className="font-semibold text-slate-900">Lịch sử báo cáo {history.year}</h2>
-                  <span className="text-xs px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 font-medium">
-                    {history.count} ngày
-                  </span>
-                </div>
-                <p className="text-xs text-slate-500 mt-0.5">
-                  Toàn bộ báo cáo do nhân viên ghi tay trong cột "Báo cáo" file Excel "Thống kê hỏi hàng BQMS"
-                </p>
-              </div>
-            </div>
-
-            <div className="divide-y divide-slate-100 max-h-[640px] overflow-y-auto">
-              {history.items.map((item) => {
-                const expanded = !!historyExpanded[item.date];
-                const dateObj = new Date(item.date);
-                const dStr = `${String(dateObj.getDate()).padStart(2, '0')}/${String(dateObj.getMonth() + 1).padStart(2, '0')}/${dateObj.getFullYear()}`;
-                const dayName = ['CN', 'T2', 'T3', 'T4', 'T5', 'T6', 'T7'][dateObj.getDay()];
-                return (
-                  <div key={item.date} className="px-5 py-3 hover:bg-slate-50/40 transition">
-                    <button
-                      onClick={() =>
-                        setHistoryExpanded((prev) => ({ ...prev, [item.date]: !prev[item.date] }))
-                      }
-                      className="w-full flex items-center justify-between gap-3 text-left"
-                    >
-                      <div className="flex items-center gap-3 min-w-0">
-                        <div className="flex-shrink-0 w-14 h-12 rounded-lg bg-gradient-to-br from-slate-100 to-slate-200 flex flex-col items-center justify-center">
-                          <span className="text-[10px] uppercase font-bold text-slate-500 leading-none">{dayName}</span>
-                          <span className="text-[15px] font-bold text-slate-800 leading-none mt-0.5">
-                            {String(dateObj.getDate()).padStart(2, '0')}
-                          </span>
-                        </div>
-                        <div className="min-w-0 flex-1">
-                          <div className="text-sm font-semibold text-slate-900">{dStr}</div>
-                          <div className="text-xs text-slate-500 truncate">
-                            {item.text.split('\n').slice(1, 3).map((l) => l.trim()).filter(Boolean).join(' · ')}
-                          </div>
-                        </div>
-                      </div>
-                      <ChevronRight
-                        className={cn(
-                          'h-4 w-4 text-slate-400 flex-shrink-0 transition-transform',
-                          expanded && 'rotate-90',
-                        )}
-                      />
-                    </button>
-                    {expanded ? (
-                      <pre className="mt-3 ml-[68px] whitespace-pre-wrap text-xs text-slate-700 font-mono leading-relaxed bg-amber-50/40 border border-amber-200 rounded-lg p-3">
-                        {item.text}
-                      </pre>
-                    ) : null}
-                  </div>
-                );
-              })}
-            </div>
-          </motion.section>
-        ) : null}
 
         {/* Footer hint */}
         <div className="text-center text-xs text-slate-400 pt-4 print:hidden">
