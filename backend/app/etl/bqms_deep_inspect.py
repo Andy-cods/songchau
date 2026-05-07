@@ -178,19 +178,21 @@ async def deep_inspect_bqms(
             try:
                 confirm_fn_src = await page.evaluate("""() => {
                     const all = [];
+                    const wanted = /(^confirm|^poConfirm|^vendor|^updatePo|insertPo|savePo|saveAccept|^callAjax)/i;
                     for (const k of Object.keys(window)) {
                         try {
                             const v = window[k];
                             if (typeof v === 'function') {
                                 const s = v.toString();
-                                if (/confirm/i.test(k) || /Confirm/.test(s) ||
-                                    /selectPoAcceptList|poConfirm|insertPo/i.test(s)) {
-                                    all.push({ name: k, source: s.substring(0, 600) });
+                                // Either name matches, or source mentions our endpoints
+                                if (wanted.test(k) ||
+                                    /selectPoAcceptList|poConfirm|insertPo|saveAccept|updatePoStatus|callAjax\\(.*Confirm/i.test(s)) {
+                                    all.push({ name: k, source: s.substring(0, 4000) });
                                 }
                             }
                         } catch(e){}
                     }
-                    return all.slice(0, 30);
+                    return all.slice(0, 50);
                 }""")
                 result["confirm_functions"] = confirm_fn_src
             except Exception as exc:
