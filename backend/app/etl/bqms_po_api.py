@@ -127,10 +127,14 @@ async def fetch_all_pos(
         date_from = date_from or df
         date_to = date_to or dt
 
+    # Samsung rejects an empty srchStatusCode with "Please Contact Administrator".
+    # Default to BOTH confirmed + not-confirmed so we get every PO in the window.
+    effective_status = list(status_codes) if status_codes else ["N", "Y"]
+
     body = {
         "srchStDate": _yyyymmdd(date_from),
         "srchEdDate": _yyyymmdd(date_to),
-        "srchStatusCode": status_codes or [],
+        "srchStatusCode": effective_status,
         "srchPoNo": po_no,
         "srchCompanySelect": company_code,
         "mroPageVO": {
@@ -155,15 +159,13 @@ async def fetch_all_pos(
         r.raise_for_status()
         payload = r.json()
 
-    # Response shape: {"page1_result": {"totalCnt": "...", "data": [...]}}
+    # Response shape (verified 2026-05-07):
+    #   { "page1_result": {"totalCnt":"20","pageIndex":1,...}, "poList": [...] }
+    # Data lives at top-level "poList" — pagination metadata at "page1_result".
+    rows = payload.get("poList") or []
     result_block = payload.get("page1_result") or {}
-    rows = result_block.get("data") or []
     if not isinstance(rows, list):
-        # Some BQMS endpoints wrap data inside another key — best-effort dig
-        for k, v in (result_block or {}).items():
-            if isinstance(v, list) and v and isinstance(v[0], dict):
-                rows = v
-                break
+        rows = []
 
     total = result_block.get("totalCnt", "?")
     logger.info("BQMS fetch_all_pos: got %d rows (totalCnt=%s)", len(rows), total)
@@ -182,7 +184,7 @@ async def fetch_all_pos(
                 body["mroPageVO"]["pageInfos"][0]["pageIndex"] = page
                 r = await client.post(url, json=body)
                 r.raise_for_status()
-                more = (r.json().get("page1_result") or {}).get("data") or []
+                more = r.json().get("poList") or []
                 if not more:
                     break
                 rows.extend(more)
