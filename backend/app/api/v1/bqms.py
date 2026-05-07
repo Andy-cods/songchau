@@ -1353,3 +1353,92 @@ async def list_contacts(
     else:
         rows = await conn.fetch("SELECT * FROM bqms_contacts ORDER BY full_name")
     return {"data": [dict(r) for r in rows], "total": len(rows)}
+
+
+# ---------------------------------------------------------------------------
+# Direct PO API — /bqms/po/* (sitemap-derived endpoints, item 1+2)
+#
+# Plan: BQMS_SITEMAP/BQMS_SITEMAP.md §2.2 / §2.3
+# ---------------------------------------------------------------------------
+
+from pydantic import BaseModel as _BaseModel, Field as _Field
+
+
+class _POInfoItem(_BaseModel):
+    poNo: str
+    poSeq: str
+    poStatus: str = "PO2"
+    secureKey: str
+
+
+class _ConfirmRequest(_BaseModel):
+    pos: list[_POInfoItem] = _Field(..., min_length=1, max_length=200)
+
+
+@router.get("/po/all")
+async def fetch_all_pos_endpoint(
+    date_from: str = Query(..., description="YYYYMMDD or YYYY-MM-DD"),
+    date_to: str = Query(..., description="YYYYMMDD or YYYY-MM-DD"),
+    status: str = Query("", description="'Y'=confirmed, 'N'=not, '' = both"),
+    company_code: str = Query("", description="C5H0 / C5H2 / ..."),
+    page_size: int = Query(99999, ge=10, le=99999),
+    token_data: TokenData = Depends(require_role("staff", "manager", "admin")),
+):
+    """Fetch ALL POs from Samsung BQMS for a date range (item 1).
+
+    Read-only — calls Samsung selectPOAcceptList.do directly. Logs in via
+    Playwright session, then issues a single httpx POST.
+    """
+    from app.etl.bqms_po_api import fetch_all_pos
+    statuses = [s for s in (status or "").split(",") if s.strip()] or None
+    pos = await fetch_all_pos(
+        date_from=date_from,
+        date_to=date_to,
+        status_codes=statuses,
+        company_code=company_code,
+        page_size=page_size,
+    )
+    return {
+        "data": {
+            "items": pos,
+            "total": len(pos),
+            "confirmed": sum(1 for p in pos if p.get("SP_CONFIRM_FLAG") == "Y"),
+            "not_confirmed": sum(1 for p in pos if p.get("SP_CONFIRM_FLAG") == "N"),
+        }
+    }
+
+
+@router.post("/po/confirm")
+async def confirm_pos_endpoint(
+    body: _ConfirmRequest,
+    token_data: TokenData = Depends(require_role("manager", "admin")),
+):
+    """Confirm a batch of POs on Samsung BQMS (item 2 — PRODUCTION WRITE).
+
+    Manager / admin only. Each PO must include the latest secureKey from a
+    fresh /po/all fetch — Samsung rejects stale tokens.
+    """
+    from app.etl.bqms_po_api import confirm_pos
+    payload = [p.model_dump() for p in body.pos]
+    try:
+        result = await confirm_pos(payload)
+    except Exception as exc:
+        logger.exception("BQMS confirm_pos failed")
+        raise HTTPException(status_code=502, detail=f"BQMS confirm error: {exc}")
+    return {"data": result, "message": f"Đã gửi confirm cho {len(payload)} PO"}
+
+
+@router.post("/po/cancel-confirm")
+async def cancel_confirm_pos_endpoint(
+    body: _ConfirmRequest,
+    token_data: TokenData = Depends(require_role("admin")),
+):
+    """Cancel previously-confirmed POs (admin recovery — undoes /po/confirm)."""
+    from app.etl.bqms_po_api import cancel_confirm_pos
+    payload = [p.model_dump() for p in body.pos]
+    try:
+        result = await cancel_confirm_pos(payload)
+    except Exception as exc:
+        logger.exception("BQMS cancel_confirm_pos failed")
+        raise HTTPException(status_code=502, detail=f"BQMS cancel-confirm error: {exc}")
+    return {"data": result, "message": f"Đã hủy confirm cho {len(payload)} PO"}
