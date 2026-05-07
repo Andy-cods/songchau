@@ -55,7 +55,19 @@ _psql_file backend/migrations/quotations_onedrive.sql
 
 echo ""
 echo "=========================================="
-echo "Step 2/6: Verify M365 env vars"
+echo "Step 2/6: (Re)start containers"
+echo "=========================================="
+# Some installs have services stopped — `up -d` is idempotent and
+# starts them even if they were never up.
+docker compose up -d backend worker frontend 2>/dev/null \
+  || docker compose restart backend worker frontend
+
+echo "Waiting 15s for backend to come up..."
+sleep 15
+
+echo ""
+echo "=========================================="
+echo "Step 3/6: Verify M365 env vars (non-fatal)"
 echo "=========================================="
 docker compose exec -T "$BACKEND_CONTAINER" sh -c '
     for v in M365_TENANT_ID M365_CLIENT_ID M365_CLIENT_SECRET M365_DRIVE_ID; do
@@ -65,16 +77,7 @@ docker compose exec -T "$BACKEND_CONTAINER" sh -c '
             echo "OK: $v = $(printenv $v | head -c 8)... (truncated)"
         fi
     done
-'
-
-echo ""
-echo "=========================================="
-echo "Step 3/6: Restart containers"
-echo "=========================================="
-docker compose restart backend worker frontend
-
-echo "Waiting 15s for backend to come up..."
-sleep 15
+' || echo "WARN: env-var check failed; continuing."
 
 echo ""
 echo "=========================================="
