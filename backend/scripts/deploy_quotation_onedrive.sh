@@ -92,20 +92,28 @@ _psql_file backend/migrations/quotations_onedrive.sql
 
 echo ""
 echo "=========================================="
-echo "Step 2/6: (Re)start containers"
+echo "Step 2/6: Rebuild + (re)start containers"
 echo "=========================================="
-# Some installs have services stopped — `up -d` is idempotent and
-# starts them even if they were never up.
 _services_to_restart="$BACKEND_CONTAINER"
 [ -n "$WORKER_CONTAINER" ]   && _services_to_restart="$_services_to_restart $WORKER_CONTAINER"
 [ -n "$FRONTEND_CONTAINER" ] && _services_to_restart="$_services_to_restart $FRONTEND_CONTAINER"
+
+# Rebuild image to pick up new Python files (employee_kpi.py, leave.py,
+# attendance.py, quotation_onedrive.py, etc.) and frontend bundle.
+echo "Building images: $_services_to_restart"
+# shellcheck disable=SC2086
+if [ "${SKIP_BUILD:-0}" = "1" ]; then
+    echo "(skipped — SKIP_BUILD=1)"
+else
+    docker compose build $_services_to_restart 2>&1 | tail -20
+fi
+
 echo "Bringing up: $_services_to_restart"
 # shellcheck disable=SC2086
-docker compose up -d $_services_to_restart 2>/dev/null \
-  || docker compose restart $_services_to_restart
+docker compose up -d $_services_to_restart
 
-echo "Waiting 15s for backend to come up..."
-sleep 15
+echo "Waiting 20s for backend to come up..."
+sleep 20
 
 echo ""
 echo "=========================================="
