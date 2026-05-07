@@ -218,46 +218,7 @@ export default function DailyReportPage() {
       </motion.div>
 
       <div className="max-w-[1600px] mx-auto space-y-6 print:max-w-none">
-        {/* ─── HERO KPI STRIP ───────────────────────────────────── */}
-        <motion.section
-          initial="hidden"
-          animate="visible"
-          variants={{ visible: { transition: { staggerChildren: 0.07 } } }}
-          className="grid grid-cols-2 lg:grid-cols-4 gap-4"
-        >
-          <KpiCard
-            label="Hôm nay"
-            value={fmtVND(revenue?.po_revenue.today.amount || 0)}
-            badge={`${revenue?.po_revenue.today.count || 0} PO`}
-            delta={revenue?.po_revenue.delta_yoy_today_pct}
-            deltaLabel="vs cùng ngày năm ngoái"
-            accent="sky"
-            loading={loading}
-          />
-          <KpiCard
-            label="Tuần này"
-            value={fmtVND(revenue?.po_revenue.week.amount || 0)}
-            badge={`${revenue?.po_revenue.week.count || 0} PO`}
-            accent="emerald"
-            loading={loading}
-          />
-          <KpiCard
-            label="Tháng này (MTD)"
-            value={fmtVND(revenue?.po_revenue.month.amount || 0)}
-            badge={`${revenue?.po_revenue.month.count || 0} PO`}
-            delta={revenue?.po_revenue.delta_yoy_mtd_pct}
-            deltaLabel="YoY MTD"
-            accent="amber"
-            loading={loading}
-          />
-          <KpiCard
-            label="Giao hàng tuần"
-            value={fmtVND(revenue?.delivery_revenue.week.amount_vnd || 0)}
-            badge={`${revenue?.delivery_revenue.week.count || 0} lô`}
-            accent="violet"
-            loading={loading}
-          />
-        </motion.section>
+        {/* ─── HERO KPI STRIP — tạm ẩn theo yêu cầu ─────────────── */}
 
         {/* ─── MAIN GRID ────────────────────────────────────────── */}
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
@@ -391,21 +352,33 @@ export default function DailyReportPage() {
                     <span className="ml-1.5 text-sky-600 font-medium">· bấm cột để xem báo cáo ngày đó</span>
                   </p>
                 </div>
-                <div className="inline-flex rounded-lg bg-slate-100 p-1 text-xs font-medium">
-                  {(['day', 'week', 'month'] as const).map((p) => (
-                    <button
-                      key={p}
-                      onClick={() => setTrendPeriod(p)}
-                      className={cn(
-                        'px-3 py-1.5 rounded-md transition-all',
-                        trendPeriod === p
-                          ? 'bg-white text-slate-900 shadow-sm'
-                          : 'text-slate-500 hover:text-slate-700',
-                      )}
-                    >
-                      {p === 'day' ? 'Ngày' : p === 'week' ? 'Tuần' : 'Tháng'}
-                    </button>
-                  ))}
+                <div className="flex items-center gap-3 flex-wrap">
+                  <div className="flex items-center gap-3 text-[11px] text-slate-500">
+                    <span className="inline-flex items-center gap-1.5">
+                      <span className="h-2.5 w-2.5 rounded-sm bg-gradient-to-b from-sky-500 to-indigo-500" />
+                      Tổng yêu cầu
+                    </span>
+                    <span className="inline-flex items-center gap-1.5">
+                      <span className="h-[2px] w-4 rounded bg-emerald-500" />
+                      Đã báo giá
+                    </span>
+                  </div>
+                  <div className="inline-flex rounded-lg bg-slate-100 p-1 text-xs font-medium">
+                    {(['day', 'week', 'month'] as const).map((p) => (
+                      <button
+                        key={p}
+                        onClick={() => setTrendPeriod(p)}
+                        className={cn(
+                          'px-3 py-1.5 rounded-md transition-all',
+                          trendPeriod === p
+                            ? 'bg-white text-slate-900 shadow-sm'
+                            : 'text-slate-500 hover:text-slate-700',
+                        )}
+                      >
+                        {p === 'day' ? 'Ngày' : p === 'week' ? 'Tuần' : 'Tháng'}
+                      </button>
+                    ))}
+                  </div>
                 </div>
               </div>
               <div className="flex-1 p-4 min-h-[340px]">
@@ -444,7 +417,7 @@ export default function DailyReportPage() {
                       />
                       <Bar
                         dataKey="amount"
-                        name="Số mã"
+                        name="Tổng yêu cầu"
                         fill="url(#trendBar)"
                         radius={[8, 8, 0, 0]}
                         maxBarSize={40}
@@ -452,6 +425,16 @@ export default function DailyReportPage() {
                         onClick={(data: any) => {
                           if (data?.bucket) setReportDate(data.bucket);
                         }}
+                      />
+                      <Line
+                        type="monotone"
+                        dataKey="po_count"
+                        name="Đã báo giá"
+                        stroke="#10b981"
+                        strokeWidth={2.5}
+                        dot={{ r: 3, fill: '#10b981', stroke: '#fff', strokeWidth: 2 }}
+                        activeDot={{ r: 5, fill: '#10b981', stroke: '#fff', strokeWidth: 2 }}
+                        isAnimationActive={false}
                       />
                     </ComposedChart>
                   </ResponsiveContainer>
