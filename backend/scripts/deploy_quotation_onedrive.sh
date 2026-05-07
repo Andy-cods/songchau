@@ -18,15 +18,40 @@ set -euo pipefail
 
 PROJECT_DIR="${PROJECT_DIR:-/opt/songchau-erp}"
 BACKEND_CONTAINER="${BACKEND_CONTAINER:-backend}"
-DB_URL="${DATABASE_URL:?Set DATABASE_URL e.g. postgresql://user:pass@host:5432/db}"
+PG_CONTAINER="${PG_CONTAINER:-postgres}"
+PG_USER="${PG_USER:-scadmin}"
+PG_DB="${PG_DB:-songchau_erp}"
+DB_URL="${DATABASE_URL:-}"
 
 cd "$PROJECT_DIR"
+
+# psql wrapper — prefers host psql if installed, else routes through the
+# postgres container via `docker compose exec`. Falls back gracefully when
+# DB_URL is not set (DB resolved by container env).
+_psql_file() {
+    local sql_file="$1"
+    if command -v psql >/dev/null 2>&1 && [ -n "$DB_URL" ]; then
+        psql "$DB_URL" -v ON_ERROR_STOP=1 -f "$sql_file"
+    else
+        docker compose exec -T "$PG_CONTAINER" \
+            psql -U "$PG_USER" -d "$PG_DB" -v ON_ERROR_STOP=1 < "$sql_file"
+    fi
+}
+
+_psql_inline() {
+    if command -v psql >/dev/null 2>&1 && [ -n "$DB_URL" ]; then
+        psql "$DB_URL" -v ON_ERROR_STOP=1
+    else
+        docker compose exec -T "$PG_CONTAINER" \
+            psql -U "$PG_USER" -d "$PG_DB" -v ON_ERROR_STOP=1
+    fi
+}
 
 echo "=========================================="
 echo "Step 1/6: Apply migrations"
 echo "=========================================="
-psql "$DB_URL" -v ON_ERROR_STOP=1 -f backend/migrations/quotations_soft_delete.sql
-psql "$DB_URL" -v ON_ERROR_STOP=1 -f backend/migrations/quotations_onedrive.sql
+_psql_file backend/migrations/quotations_soft_delete.sql
+_psql_file backend/migrations/quotations_onedrive.sql
 
 echo ""
 echo "=========================================="
@@ -87,7 +112,7 @@ echo "Step 6/6: Cleanup test data"
 echo "=========================================="
 # The test suite already runs test_99_cleanup which hard-deletes anything with
 # rfq_no ILIKE 'TEST-E2E-%'. Belt-and-braces sweep at SQL level too.
-psql "$DB_URL" -v ON_ERROR_STOP=1 <<EOF
+_psql_inline <<EOF
 DELETE FROM quotations
 WHERE rfq_no ILIKE 'TEST-E2E-%'
    OR rfq_no ILIKE 'PATCHED-RFQ%';
