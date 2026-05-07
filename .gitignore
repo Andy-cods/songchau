@@ -12,3 +12,6 @@ data/backups/
 # Claude Code local-only
 .claude/settings.local.json
 .claude/cache/
+
+# Next.js build artifacts
+frontend/tsconfig.tsbuildinfo

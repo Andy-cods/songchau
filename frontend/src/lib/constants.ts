@@ -39,6 +39,8 @@ import {
   Scan,
   CalendarDays,
   Globe,
+  CalendarOff,
+  Award,
   type LucideIcon,
 } from 'lucide-react';
 import type { UserRole, POStatus, DeliveryStatus, WorkflowStatus } from '@/types/models';
@@ -145,6 +147,16 @@ const NAV_ADMIN: SidebarItem[] = [
   { key: 'settings', label: 'Cài đặt', href: '/settings', icon: Settings },
 ];
 
+// M41 — Nhân sự (HR): nghỉ phép + đi muộn cho mọi role.
+const NAV_HR: SidebarItem[] = [
+  { key: 'hr', label: 'Nghỉ phép & Chuyên cần', href: '/hr', icon: CalendarOff },
+];
+
+// M40 — Năng suất nhân viên: chỉ manager / admin xem được.
+const NAV_HR_PERFORMANCE: SidebarItem[] = [
+  { key: 'hr-performance', label: 'Năng suất nhân viên', href: '/hr/performance', icon: Award },
+];
+
 // ═══ SIDEBAR CONFIG PER ROLE ═══════════════════════════════════
 
 export function getSidebarConfig(role: UserRole): SidebarSection[] {
@@ -157,6 +169,7 @@ export function getSidebarConfig(role: UserRole): SidebarSection[] {
         { title: 'Khách hàng & Mua hàng', items: NAV_BUSINESS },
         { title: 'Tài chính', items: NAV_FINANCE },
         { title: 'Phân tích', items: NAV_ANALYTICS },
+        { title: 'Nhân sự', items: [...NAV_HR, ...NAV_HR_PERFORMANCE] },
         { title: 'Hệ thống', items: NAV_ADMIN },
       ];
 
@@ -169,6 +182,7 @@ export function getSidebarConfig(role: UserRole): SidebarSection[] {
         { title: 'Khách hàng & Mua hàng', items: NAV_BUSINESS },
         { title: 'Tài chính', items: NAV_FINANCE },
         { title: 'Phân tích', items: NAV_ANALYTICS },
+        { title: 'Nhân sự', items: [...NAV_HR, ...NAV_HR_PERFORMANCE] },
       ];
 
     case 'accountant':
@@ -181,6 +195,7 @@ export function getSidebarConfig(role: UserRole): SidebarSection[] {
           ],
         },
         { title: 'Tài chính', items: NAV_FINANCE },
+        { title: 'Nhân sự', items: NAV_HR },
       ];
 
     case 'warehouse':
@@ -194,6 +209,7 @@ export function getSidebarConfig(role: UserRole): SidebarSection[] {
             { key: 'documents', label: 'Quản lý tài liệu', href: '/documents/browser', icon: FolderOpen },
           ],
         },
+        { title: 'Nhân sự', items: NAV_HR },
       ];
 
     case 'sales':
@@ -216,6 +232,7 @@ export function getSidebarConfig(role: UserRole): SidebarSection[] {
             { key: 'price-trends', label: 'Xu hướng giá', href: '/analytics/price-trends', icon: TrendingUp },
           ],
         },
+        { title: 'Nhân sự', items: NAV_HR },
       ];
 
     case 'viewer':

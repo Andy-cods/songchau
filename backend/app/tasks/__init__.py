@@ -25,3 +25,4 @@ from app.tasks import file_index_crawler # noqa: F401 — registers file_index_c
 from app.tasks import local_filesystem_index  # noqa: F401 — registers local_filesystem_index (mỗi 15 phút)
 from app.tasks import imv_sync           # noqa: F401 — registers imv_nightly_sync
 from app.tasks import bqms_excel_auto_import  # noqa: F401 — registers bqms_excel_auto_import (mỗi 2 phút)
+from app.tasks import kpi_aggregator     # noqa: F401 — M40, registers aggregate_monthly_kpi (cron 02:00 ICT day-1)

@@ -197,3 +197,15 @@ v1_router.include_router(price_lookup_router, prefix="/price-lookup", tags=["pri
 from app.api.v1.imv import router as imv_router
 
 v1_router.include_router(imv_router, prefix="/imv", tags=["imv"])
+
+# ── M40 — Employee Productivity (KPI tháng) ──
+from app.api.v1.employee_kpi import router as employee_kpi_router
+
+v1_router.include_router(employee_kpi_router, prefix="/employee-kpi", tags=["employee-kpi"])
+
+# ── M41 — HR: Leave & Attendance ──
+from app.api.v1.leave import router as leave_router
+from app.api.v1.attendance import router as attendance_router
+
+v1_router.include_router(leave_router, prefix="/leave", tags=["leave"])
+v1_router.include_router(attendance_router, prefix="/attendance", tags=["attendance"])

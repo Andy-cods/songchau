@@ -443,6 +443,9 @@ def fill_cam_ket(
                 xl_img = _pil_image_to_xl(images_map[bqms_code])
                 if xl_img:
                     ws.add_image(xl_img, f"{get_column_letter(COL_N)}{start_row}")
+            # NOTE: rows 2-3 of each 3-row block may carry stale sample text
+            # ("FINGER RF" etc.) from the template. Fix at template level
+            # rather than guessing here. See plans/bqms-bugs.md.
 
         date_row = 31 + extra_rows
         _safe_set_cell(ws, date_row, COL_L, f"Ngày {now.day} Tháng {now.month} năm {now.year}")
@@ -583,6 +586,20 @@ def fill_quotation(
         TEMPLATE_ROW = 17
         last_data_row = DATA_START
 
+        # Bug fix 2026-05-07: clear any pre-existing "Grand Total" rows in the
+        # template body so we don't end up with two totals (one stale = sample
+        # data 360,000,000 from the template, one fresh from the SUM formula).
+        # Scan rows DATA_START+1 .. DATA_START+30 for a cell whose value
+        # contains "Grand Total" (case-insensitive) and wipe its row.
+        _stale_total_rows: list[int] = []
+        for r in range(DATA_START + 1, DATA_START + 30):
+            v = ws.cell(row=r, column=COL_A).value
+            if isinstance(v, str) and "grand total" in v.lower():
+                _stale_total_rows.append(r)
+        for r in sorted(_stale_total_rows, reverse=True):
+            # Clear values + remove the row entirely
+            ws.delete_rows(r, 1)
+
         for i, product in enumerate(products):
             if i == 0:
                 row = DATA_START
@@ -607,6 +624,14 @@ def fill_quotation(
                 xl_img = _pil_image_to_xl(images_map[bqms_code])
                 if xl_img:
                     ws.add_image(xl_img, f"{get_column_letter(COL_E)}{row}")
+
+            # Bug fix 2026-05-07: ensure row height accommodates wrapped
+            # bqms+spec text so it doesn't visually overlap the next row in
+            # the rendered PDF. Heuristic: ~15px per line, min 30, max 90.
+            spec_len = len(str(product.get("spec", "")))
+            estimated_lines = 1 + (spec_len // 35)  # column C ≈ 35 chars wide
+            ws.row_dimensions[row].height = max(30, min(90, estimated_lines * 18))
+
             last_data_row = row
 
         total_row = last_data_row + 1
@@ -876,20 +901,58 @@ async def run_autofill_job(
         except Exception as exc:
             result["errors"].append(f"Quotation PDF conversion failed: {exc}")
 
-        # 6. Update DB
+        # 6. Sync to OneDrive (best-effort; failures don't fail the whole job).
+        # Per Thang 2026-05-07: store under /Bao_Gia_BQMS/RFQ {year}/THANG {month}/
+        onedrive_folder_id: str | None = None
+        onedrive_url: str | None = None
+        onedrive_share_url: str | None = None
+        onedrive_error: str | None = None
+        try:
+            from app.services.quotation_onedrive import sync_quotation_to_onedrive
+            od_result = await sync_quotation_to_onedrive(
+                rfq_no=rfq_no,
+                local_files=files,
+                year=now.year,
+                month=now.month,
+                create_share_links=True,
+            )
+            onedrive_folder_id = od_result.get("folder_id")
+            onedrive_url = od_result.get("primary_url")
+            onedrive_share_url = od_result.get("primary_share")
+            if od_result.get("errors"):
+                onedrive_error = "; ".join(od_result["errors"])[:500]
+                result["errors"].extend([f"OneDrive: {e}" for e in od_result["errors"]])
+            # Enrich files list with OneDrive URLs so the API response carries them
+            url_by_path = {it["path"]: it for it in od_result.get("items", [])}
+            for f in files:
+                if f["path"] in url_by_path:
+                    od_item = url_by_path[f["path"]]
+                    f["onedrive_url"] = od_item.get("web_url")
+                    f["onedrive_share_url"] = od_item.get("share_url")
+                    f["onedrive_item_id"] = od_item.get("item_id")
+        except Exception as exc:
+            logger.warning("OneDrive sync skipped (will retry via /sync-onedrive): %s", exc)
+            onedrive_error = str(exc)[:500]
+
+        # 7. Update DB
         output_xlsx = next((f["path"] for f in files if "xlsx" in f["type"]), None)
         output_pdf = next((f["path"] for f in files if "pdf" in f["type"]), None)
 
         await conn.execute(
             """
             UPDATE quotations
-            SET status = 'completed',
-                items = $2::jsonb,
-                output_xlsx = $3,
-                output_pdf = $4,
-                filled_items = $5,
-                total_items = $6,
-                updated_at = NOW()
+            SET status              = 'completed',
+                items               = $2::jsonb,
+                output_xlsx         = $3,
+                output_pdf          = $4,
+                filled_items        = $5,
+                total_items         = $6,
+                onedrive_folder_id  = $7,
+                onedrive_url        = $8,
+                onedrive_share_url  = $9,
+                onedrive_synced_at  = CASE WHEN $10::text IS NULL THEN NOW() ELSE NULL END,
+                onedrive_sync_error = $10,
+                updated_at          = NOW()
             WHERE id = $1
             """,
             quotation_id,
@@ -898,6 +961,10 @@ async def run_autofill_job(
             output_pdf,
             len([i for i in items if i.get("suggested_price")]),
             len(items),
+            onedrive_folder_id,
+            onedrive_url,
+            onedrive_share_url,
+            onedrive_error,
         )
 
         result["success"] = True
@@ -905,6 +972,8 @@ async def run_autofill_job(
         result["rfq_no"] = rfq_no
         result["total_items"] = len(items)
         result["filled_items"] = len([i for i in items if i.get("suggested_price")])
+        result["onedrive_url"] = onedrive_url
+        result["onedrive_share_url"] = onedrive_share_url
 
     except Exception as exc:
         logger.exception("Auto-fill job failed for quotation %d", quotation_id)

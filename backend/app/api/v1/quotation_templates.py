@@ -357,21 +357,43 @@ async def list_quotations(
     page: int = Query(1, ge=1),
     limit: int = Query(20, ge=1, le=100),
     status: str | None = None,
+    rfq_no: str | None = Query(None, description="Tìm theo RFQ number (LIKE)"),
+    created_by: str | None = Query(None, description="UUID nhân viên"),
+    date_from: str | None = Query(None, description="ISO date"),
+    date_to: str | None = Query(None, description="ISO date"),
+    include_deleted: bool = Query(False, description="Admin-only: hiển thị cả báo giá đã xóa"),
     token_data: TokenData = Depends(require_role("admin", "manager", "staff", "sales")),
     conn: asyncpg.Connection = Depends(get_db),
 ):
-    """List generated quotations with pagination."""
+    """List generated quotations with pagination and filters."""
     offset = (page - 1) * limit
-    conditions = []
+    conditions: list[str] = []
     params: list[Any] = []
 
+    # Soft-delete filter (default = exclude). Only admin can include deleted.
+    if not (include_deleted and token_data.role == "admin"):
+        conditions.append("q.deleted_at IS NULL")
+
     if status:
-        conditions.append(f"status = ${len(params) + 1}")
+        conditions.append(f"q.status = ${len(params) + 1}")
         params.append(status)
+    if rfq_no:
+        conditions.append(f"q.rfq_no ILIKE ${len(params) + 1}")
+        params.append(f"%{rfq_no}%")
+    if created_by:
+        conditions.append(f"q.created_by = ${len(params) + 1}::uuid")
+        params.append(created_by)
+    if date_from:
+        conditions.append(f"q.created_at >= ${len(params) + 1}::timestamptz")
+        params.append(date_from)
+    if date_to:
+        conditions.append(f"q.created_at < (${len(params) + 1}::date + INTERVAL '1 day')::timestamptz")
+        params.append(date_to)
 
     where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
 
-    total = await conn.fetchval(f"SELECT COUNT(*) FROM quotations {where}", *params)
+    # COUNT must reference table alias `q` since `where` clauses use it.
+    total = await conn.fetchval(f"SELECT COUNT(*) FROM quotations q {where}", *params)
 
     params.extend([limit, offset])
     rows = await conn.fetch(
@@ -409,12 +431,417 @@ async def get_quotation(
         FROM quotations q
         LEFT JOIN users u ON u.id = q.created_by
         WHERE q.id = $1
+          AND q.deleted_at IS NULL
         """,
         quotation_id,
     )
     if not row:
         raise HTTPException(404, "Báo giá không tồn tại")
     return {"data": dict(row)}
+
+
+# ─── Edit + Regenerate ───────────────────────────────────────
+
+class QuotationPatch(BaseModel):
+    """Edit an existing quotation; if `regenerate=true` (default when items
+    changed) the underlying Excel + PDF files are recreated from the new items."""
+    items: list[dict[str, Any]] | None = None
+    rfq_no: str | None = None
+    flow_type: str | None = None  # 'tm' | 'gc'
+    template_id: int | None = None
+    regenerate: bool = True
+
+
+@router.patch("/history/{quotation_id}")
+async def patch_quotation(
+    quotation_id: int,
+    body: QuotationPatch,
+    token_data: TokenData = Depends(require_role("admin", "manager", "staff", "sales")),
+    conn: asyncpg.Connection = Depends(get_db),
+):
+    """Edit a quotation. If items changed, regenerate Excel + PDF files."""
+    row = await conn.fetchrow(
+        "SELECT * FROM quotations WHERE id = $1 AND deleted_at IS NULL",
+        quotation_id,
+    )
+    if not row:
+        raise HTTPException(404, "Báo giá không tồn tại")
+
+    # Owner / admin / manager can edit
+    is_owner = str(row["created_by"]) == token_data.user_id
+    if not (is_owner or token_data.role in ("admin", "manager")):
+        raise HTTPException(403, "Bạn chỉ sửa được báo giá của chính mình.")
+
+    # Apply scalar updates
+    new_rfq = body.rfq_no or row["rfq_no"]
+    new_template_id = body.template_id if body.template_id is not None else row["template_id"]
+    new_items = body.items if body.items is not None else json.loads(row["items"]) if isinstance(row["items"], str) else (row["items"] or [])
+
+    await conn.execute(
+        """
+        UPDATE quotations
+        SET rfq_no      = $1,
+            items       = $2::jsonb,
+            template_id = $3,
+            total_items = $4,
+            updated_at  = NOW()
+        WHERE id = $5
+        """,
+        new_rfq,
+        json.dumps(new_items, default=str, ensure_ascii=False),
+        new_template_id,
+        len(new_items),
+        quotation_id,
+    )
+
+    # If items changed (or caller forced regenerate=true), rebuild files.
+    must_regen = body.regenerate and (body.items is not None or body.rfq_no is not None or body.template_id is not None)
+    if must_regen:
+        cam_ket_tpl = await conn.fetchval(
+            "SELECT file_path FROM quotation_templates WHERE template_type = 'cam_ket' AND is_default = true LIMIT 1"
+        )
+        commercial_tpl = await conn.fetchval(
+            "SELECT file_path FROM quotation_templates WHERE template_type = 'commercial' AND is_default = true LIMIT 1"
+        )
+        if new_template_id:
+            tpl = await conn.fetchrow(
+                "SELECT file_path, template_type FROM quotation_templates WHERE id = $1", new_template_id
+            )
+            if tpl:
+                if tpl["template_type"] == "cam_ket":
+                    cam_ket_tpl = tpl["file_path"]
+                else:
+                    commercial_tpl = tpl["file_path"]
+
+        from app.services.tools.autofill_service import run_autofill_job
+        result = await run_autofill_job(
+            conn=conn,
+            quotation_id=quotation_id,
+            items=new_items,
+            cam_ket_template=cam_ket_tpl,
+            commercial_template=commercial_tpl,
+            flow_type=body.flow_type or "tm",
+        )
+        return {
+            "data": {
+                "id": quotation_id,
+                "regenerated": True,
+                "files": result.get("files", []),
+                "errors": result.get("errors", []),
+            },
+            "message": "Đã cập nhật và tạo lại báo giá.",
+        }
+
+    return {
+        "data": {"id": quotation_id, "regenerated": False},
+        "message": "Đã cập nhật báo giá (không tạo lại file).",
+    }
+
+
+@router.delete("/history/{quotation_id}")
+async def delete_quotation(
+    quotation_id: int,
+    hard: bool = Query(False, description="Admin-only: xóa hẳn record + file"),
+    token_data: TokenData = Depends(require_role("admin", "manager", "staff", "sales")),
+    conn: asyncpg.Connection = Depends(get_db),
+):
+    """Soft-delete (default) hoặc hard-delete (admin) báo giá.
+
+    Soft-delete: chỉ set `deleted_at`, file vẫn còn trên disk để khôi phục.
+    Hard-delete: xóa record + xóa toàn bộ folder file_path output.
+    """
+    row = await conn.fetchrow(
+        "SELECT * FROM quotations WHERE id = $1",
+        quotation_id,
+    )
+    if not row:
+        raise HTTPException(404, "Báo giá không tồn tại")
+
+    is_owner = str(row["created_by"]) == token_data.user_id
+    is_admin = token_data.role == "admin"
+    if not (is_owner or is_admin):
+        raise HTTPException(403, "Chỉ người tạo hoặc admin mới được xóa.")
+
+    if hard:
+        if not is_admin:
+            raise HTTPException(403, "Hard delete chỉ admin được thực hiện.")
+        # Remove on-disk folder
+        import os
+        import shutil
+        if row["output_pdf"]:
+            out_dir = os.path.dirname(row["output_pdf"])
+            if out_dir.startswith("/data/files/") and os.path.isdir(out_dir):
+                try:
+                    shutil.rmtree(out_dir)
+                except Exception:
+                    pass
+        await conn.execute("DELETE FROM quotations WHERE id = $1", quotation_id)
+        return {"data": {"id": quotation_id, "hard_deleted": True}, "message": "Đã xóa hẳn báo giá + file."}
+
+    # Soft-delete
+    if row["deleted_at"]:
+        return {"data": {"id": quotation_id, "already_deleted": True}, "message": "Báo giá đã được xóa trước đó."}
+    await conn.execute(
+        "UPDATE quotations SET deleted_at = NOW(), updated_at = NOW() WHERE id = $1",
+        quotation_id,
+    )
+    return {"data": {"id": quotation_id, "soft_deleted": True}, "message": "Đã xóa báo giá (có thể khôi phục)."}
+
+
+# ─── OneDrive Integration (M-quotation P2) ───────────────────
+
+@router.post("/history/{quotation_id}/sync-onedrive")
+async def sync_quotation_onedrive(
+    quotation_id: int,
+    token_data: TokenData = Depends(require_role("admin", "manager", "staff", "sales")),
+    conn: asyncpg.Connection = Depends(get_db),
+):
+    """Re-upload quotation files to OneDrive (manual sync).
+
+    Useful when the auto-sync during generation failed (OneDrive auth down,
+    network issue, etc.). Reuses the existing local files at output_pdf's
+    parent directory.
+    """
+    row = await conn.fetchrow(
+        """
+        SELECT id, rfq_no, output_pdf, output_xlsx, created_at, deleted_at
+        FROM quotations WHERE id = $1
+        """,
+        quotation_id,
+    )
+    if not row:
+        raise HTTPException(404, "Báo giá không tồn tại")
+    if row["deleted_at"]:
+        raise HTTPException(409, "Báo giá đã bị xóa, không sync được.")
+    if not row["output_pdf"] and not row["output_xlsx"]:
+        raise HTTPException(400, "Báo giá chưa sinh file local nào để sync.")
+
+    # Collect all generated files in the output dir
+    import os
+    out_dir = os.path.dirname(row["output_pdf"] or row["output_xlsx"])
+    if not os.path.isdir(out_dir):
+        raise HTTPException(404, f"Thư mục file local không tồn tại: {out_dir}")
+
+    local_files: list[dict[str, str]] = []
+    for fname in os.listdir(out_dir):
+        full = os.path.join(out_dir, fname)
+        if not os.path.isfile(full) or fname.startswith("~$"):
+            continue
+        ftype = "unknown"
+        low = fname.lower()
+        if "cam_ket" in low and low.endswith(".pdf"):
+            ftype = "cam_ket_pdf"
+        elif "cam_ket" in low and low.endswith((".xlsx", ".xlsm")):
+            ftype = "cam_ket_xlsx"
+        elif "quotation" in low and low.endswith(".pdf"):
+            ftype = "quotation_pdf"
+        elif "quotation" in low and low.endswith((".xlsx", ".xlsm")):
+            ftype = "quotation_xlsx"
+        elif low.endswith(".pdf"):
+            ftype = "other_pdf"
+        elif low.endswith((".xlsx", ".xlsm")):
+            ftype = "other_xlsx"
+        else:
+            continue
+        local_files.append({"type": ftype, "path": full})
+
+    if not local_files:
+        raise HTTPException(400, "Không tìm thấy file Excel/PDF trong thư mục local.")
+
+    from app.services.quotation_onedrive import sync_quotation_to_onedrive
+    created_at = row["created_at"]
+    od = await sync_quotation_to_onedrive(
+        rfq_no=row["rfq_no"],
+        local_files=local_files,
+        year=created_at.year,
+        month=created_at.month,
+        create_share_links=True,
+    )
+
+    if od.get("errors") and not od.get("primary_url"):
+        await conn.execute(
+            "UPDATE quotations SET onedrive_sync_error = $1, updated_at = NOW() WHERE id = $2",
+            "; ".join(od["errors"])[:500],
+            quotation_id,
+        )
+        raise HTTPException(502, {
+            "error": "ONEDRIVE_SYNC_FAILED",
+            "details": od["errors"],
+        })
+
+    await conn.execute(
+        """
+        UPDATE quotations
+        SET onedrive_folder_id  = $1,
+            onedrive_url        = $2,
+            onedrive_share_url  = $3,
+            onedrive_synced_at  = NOW(),
+            onedrive_sync_error = NULL,
+            updated_at          = NOW()
+        WHERE id = $4
+        """,
+        od.get("folder_id"),
+        od.get("primary_url"),
+        od.get("primary_share"),
+        quotation_id,
+    )
+
+    return {
+        "data": {
+            "quotation_id": quotation_id,
+            "folder_path": od.get("folder_path"),
+            "folder_id": od.get("folder_id"),
+            "primary_url": od.get("primary_url"),
+            "primary_share": od.get("primary_share"),
+            "items": od.get("items", []),
+            "errors": od.get("errors", []),
+        },
+        "message": "Đã đồng bộ báo giá lên OneDrive.",
+    }
+
+
+@router.get("/history/{quotation_id}/onedrive-link")
+async def get_quotation_onedrive_link(
+    quotation_id: int,
+    token_data: TokenData = Depends(require_role("admin", "manager", "staff", "sales")),
+    conn: asyncpg.Connection = Depends(get_db),
+):
+    """Return cached OneDrive web URL + share URL for a quotation.
+
+    Frontend uses `web_url` to open Office Online in a new tab; `share_url`
+    can be copied + sent to the customer.
+    """
+    row = await conn.fetchrow(
+        """
+        SELECT id, onedrive_url, onedrive_share_url, onedrive_folder_id,
+               onedrive_synced_at, onedrive_sync_error
+        FROM quotations WHERE id = $1 AND deleted_at IS NULL
+        """,
+        quotation_id,
+    )
+    if not row:
+        raise HTTPException(404, "Báo giá không tồn tại")
+
+    return {
+        "data": {
+            "web_url": row["onedrive_url"],
+            "share_url": row["onedrive_share_url"],
+            "folder_id": row["onedrive_folder_id"],
+            "synced_at": row["onedrive_synced_at"].isoformat() if row["onedrive_synced_at"] else None,
+            "sync_error": row["onedrive_sync_error"],
+            "is_synced": bool(row["onedrive_url"]),
+        }
+    }
+
+
+@router.post("/history/{quotation_id}/share")
+async def create_quotation_share_link(
+    quotation_id: int,
+    scope: str = Query("anonymous", description="anonymous | organization"),
+    link_type: str = Query("view", description="view | edit"),
+    token_data: TokenData = Depends(require_role("admin", "manager", "staff", "sales")),
+    conn: asyncpg.Connection = Depends(get_db),
+):
+    """Create / replace the M365 share link for the QUOTATION PDF.
+
+    Per Thang 2026-05-07: scope='anonymous' (anyone with link) is allowed.
+    """
+    if scope not in ("anonymous", "organization"):
+        raise HTTPException(400, "scope phải là 'anonymous' hoặc 'organization'")
+    if link_type not in ("view", "edit"):
+        raise HTTPException(400, "link_type phải là 'view' hoặc 'edit'")
+
+    row = await conn.fetchrow(
+        """
+        SELECT q.id, q.onedrive_folder_id, q.deleted_at
+        FROM quotations q
+        WHERE q.id = $1
+        """,
+        quotation_id,
+    )
+    if not row:
+        raise HTTPException(404, "Báo giá không tồn tại")
+    if row["deleted_at"]:
+        raise HTTPException(409, "Báo giá đã bị xóa.")
+
+    # We share the QUOTATION PDF preferentially; need its item id.
+    # Caller should sync first if folder_id is empty.
+    folder_id = row["onedrive_folder_id"]
+    if not folder_id:
+        raise HTTPException(409, "Báo giá chưa sync OneDrive. Hãy gọi /sync-onedrive trước.")
+
+    # Look up the QUOTATION PDF item id by walking folder children.
+    from app.etl.onedrive_client import OneDriveClient
+    from app.services.quotation_onedrive import get_or_create_share_link
+    target_item_id: str | None = None
+    try:
+        async with OneDriveClient() as client:
+            inner = client._ensure_client()  # noqa: SLF001
+            headers = await client._auth_headers()  # noqa: SLF001
+            resp = await inner.get(
+                f"{client.GRAPH_URL}/drives/{client._drive_id}/items/{folder_id}/children",  # noqa: SLF001
+                headers=headers,
+            )
+            resp.raise_for_status()
+            children = resp.json().get("value", [])
+            # Prefer QUOTATION PDF, then any PDF, then any xlsx
+            for ch in children:
+                n = ch.get("name", "").lower()
+                if n.endswith(".pdf") and "quotation" in n:
+                    target_item_id = ch.get("id"); break
+            if not target_item_id:
+                for ch in children:
+                    if ch.get("name", "").lower().endswith(".pdf"):
+                        target_item_id = ch.get("id"); break
+            if not target_item_id and children:
+                target_item_id = children[0].get("id")
+    except Exception as exc:
+        raise HTTPException(502, f"Không lấy được danh sách file OneDrive: {exc}")
+
+    if not target_item_id:
+        raise HTTPException(404, "Không có file nào trong folder OneDrive để share.")
+
+    url, err = await get_or_create_share_link(target_item_id, scope=scope, link_type=link_type)
+    if not url:
+        raise HTTPException(502, f"Tạo share link thất bại: {err}")
+
+    # Persist if scope=anonymous + view (the common case)
+    if scope == "anonymous" and link_type == "view":
+        await conn.execute(
+            "UPDATE quotations SET onedrive_share_url = $1, updated_at = NOW() WHERE id = $2",
+            url, quotation_id,
+        )
+
+    return {
+        "data": {
+            "quotation_id": quotation_id,
+            "share_url": url,
+            "scope": scope,
+            "link_type": link_type,
+        },
+        "message": "Đã tạo share link.",
+    }
+
+
+@router.post("/history/{quotation_id}/restore")
+async def restore_quotation(
+    quotation_id: int,
+    token_data: TokenData = Depends(require_role("admin", "manager")),
+    conn: asyncpg.Connection = Depends(get_db),
+):
+    """Restore a soft-deleted quotation (admin/manager)."""
+    row = await conn.fetchrow(
+        "SELECT id, deleted_at FROM quotations WHERE id = $1", quotation_id
+    )
+    if not row:
+        raise HTTPException(404, "Báo giá không tồn tại")
+    if not row["deleted_at"]:
+        return {"data": {"id": quotation_id, "restored": False}, "message": "Báo giá chưa bị xóa."}
+    await conn.execute(
+        "UPDATE quotations SET deleted_at = NULL, updated_at = NOW() WHERE id = $1",
+        quotation_id,
+    )
+    return {"data": {"id": quotation_id, "restored": True}, "message": "Đã khôi phục báo giá."}
 
 
 # ─── Public File Sharing (for Google/MS Office Online Viewer) ──
