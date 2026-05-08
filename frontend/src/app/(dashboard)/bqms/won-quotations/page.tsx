@@ -100,35 +100,63 @@ export default function WonQuotationsPage() {
 
   const totalPages = Math.max(1, Math.ceil(total / 100));
 
+  // Stats banner counts
+  const filledCount = items.filter(i => i.hs_code).length;
+  const missingCount = items.filter(i => !i.hs_code).length;
+
   return (
-    <div className="space-y-4">
-      {/* Header */}
-      <div className="flex items-center justify-between flex-wrap gap-3">
-        <div className="flex items-center gap-3">
-          <div className="h-10 w-10 rounded-xl bg-gradient-to-br from-emerald-500 to-teal-600 shadow-md shadow-emerald-500/25 flex items-center justify-center">
-            <Trophy className="h-5 w-5 text-white" />
+    <div className="space-y-5">
+      {/* Hero header with gradient */}
+      <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-emerald-500 via-emerald-600 to-teal-700 text-white p-5 shadow-lg shadow-emerald-500/20">
+        <div className="absolute -top-12 -right-12 h-40 w-40 rounded-full bg-white/10 blur-2xl" />
+        <div className="absolute -bottom-8 -left-8 h-28 w-28 rounded-full bg-teal-300/20 blur-2xl" />
+        <div className="relative flex items-center justify-between flex-wrap gap-3">
+          <div className="flex items-center gap-3.5">
+            <div className="h-12 w-12 rounded-xl bg-white/15 backdrop-blur ring-1 ring-white/20 flex items-center justify-center shadow-sm">
+              <Trophy className="h-6 w-6 text-white" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <h1 className="text-xl font-bold tracking-tight">BQMS — Trúng BG</h1>
+                <span className="text-[10px] uppercase tracking-[0.14em] font-semibold px-2 py-0.5 rounded-full bg-white/15 ring-1 ring-white/20">
+                  Sheet TRUNG BG
+                </span>
+              </div>
+              <p className="text-xs text-white/80 mt-1">
+                Auto-sync từ Excel · cron */2 phút · sửa HS Code & Mô tả không bị ghi đè
+              </p>
+            </div>
           </div>
-          <div>
-            <h1 className="text-xl font-bold text-slate-900">BQMS — Trúng BG</h1>
-            <p className="text-xs text-slate-500">
-              Dữ liệu từ sheet "TRUNG BG" file Excel "Thống kê hỏi hàng BQMS" · {total.toLocaleString('vi-VN')} bản ghi
-            </p>
+          <button
+            onClick={fetchData}
+            disabled={loading}
+            className="inline-flex items-center gap-1.5 rounded-lg bg-white/15 backdrop-blur ring-1 ring-white/20 px-3 py-2 text-sm font-medium text-white hover:bg-white/25 transition disabled:opacity-50"
+          >
+            <RefreshCw className={cn('h-3.5 w-3.5', loading && 'animate-spin')} />
+            Làm mới
+          </button>
+        </div>
+        {/* Stats strip */}
+        <div className="mt-5 grid grid-cols-3 gap-3">
+          <div className="rounded-xl bg-white/10 backdrop-blur ring-1 ring-white/15 px-4 py-2.5">
+            <div className="text-[10px] uppercase tracking-wider text-white/70 font-semibold">Tổng bản ghi</div>
+            <div className="text-2xl font-bold tabular-nums leading-tight">{total.toLocaleString('vi-VN')}</div>
+          </div>
+          <div className="rounded-xl bg-emerald-300/20 ring-1 ring-emerald-200/30 px-4 py-2.5">
+            <div className="text-[10px] uppercase tracking-wider text-white/70 font-semibold">Có HS Code</div>
+            <div className="text-2xl font-bold tabular-nums leading-tight">{filledCount.toLocaleString('vi-VN')}</div>
+          </div>
+          <div className="rounded-xl bg-amber-400/20 ring-1 ring-amber-200/30 px-4 py-2.5">
+            <div className="text-[10px] uppercase tracking-wider text-white/70 font-semibold">Chưa có HS</div>
+            <div className="text-2xl font-bold tabular-nums leading-tight">{missingCount.toLocaleString('vi-VN')}</div>
           </div>
         </div>
-        <button
-          onClick={fetchData}
-          disabled={loading}
-          className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50 transition disabled:opacity-50"
-        >
-          <RefreshCw className={cn('h-3.5 w-3.5', loading && 'animate-spin')} />
-          Làm mới
-        </button>
       </div>
 
       {/* Filters */}
-      <div className="bg-white border border-slate-200 rounded-2xl p-3 flex items-center gap-3 flex-wrap">
+      <div className="bg-white border border-slate-200 rounded-2xl p-3 flex items-center gap-3 flex-wrap shadow-sm">
         <div className="flex-1 min-w-[260px] relative">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+          <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
           <input
             value={search}
             onChange={(e) => {
@@ -136,10 +164,10 @@ export default function WonQuotationsPage() {
               setPage(1);
             }}
             placeholder="Tìm HS code, BQMS code, RFQ No, NCC, mô tả..."
-            className="w-full pl-9 pr-3 py-2 rounded-lg border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-500"
+            className="w-full pl-10 pr-3 py-2.5 rounded-xl border border-slate-200 bg-slate-50/40 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-500 focus:bg-white transition"
           />
         </div>
-        <div className="inline-flex rounded-lg bg-slate-100 p-1 text-xs font-medium">
+        <div className="inline-flex rounded-xl bg-slate-100 p-1 text-xs font-medium">
           {(['all', 'filled', 'missing'] as const).map((v) => (
             <button
               key={v}
@@ -148,7 +176,7 @@ export default function WonQuotationsPage() {
                 setPage(1);
               }}
               className={cn(
-                'px-3 py-1.5 rounded-md transition-all flex items-center gap-1.5',
+                'px-3.5 py-1.5 rounded-lg transition-all flex items-center gap-1.5',
                 hasHs === v ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-600 hover:text-slate-900',
               )}
             >

@@ -89,6 +89,8 @@ const COLUMNS: ColDef[] = [
   { key: 'delivery_status', header: 'Trạng thái', dbCol: 'delivery_status', width: 120, group: 'C', defaultVisible: true, format: 'status' },
   { key: 'delivery_date', header: 'Ngày GH', dbCol: 'delivery_date', width: 90, group: 'C', defaultVisible: true, format: 'date' },
   { key: 'actual_delivered_qty', header: 'SL giao TT', dbCol: 'actual_delivered_qty', width: 90, group: 'C', defaultVisible: true, align: 'right', format: 'number' },
+  // Pending = quantity - actual_delivered_qty (computed client-side; dbCol='_pending' is a sentinel handled in CellRenderer)
+  { key: 'pending_qty', header: 'Pending', dbCol: '_pending', width: 80, group: 'C', defaultVisible: true, align: 'right', format: 'number' },
   { key: 'recipient_name', header: 'Người nhận', dbCol: 'recipient_name', width: 140, group: 'C', defaultVisible: true },
   { key: 'shipping_no', header: 'Shipping No', dbCol: 'shipping_no', width: 120, group: 'C', defaultVisible: false },
   { key: 'delivery_method', header: 'PT giao hàng', dbCol: 'delivery_method', width: 110, group: 'C', defaultVisible: false },
@@ -179,6 +181,11 @@ export default function BQMSDeliveriesPage() {
   // Multi-select for "Thống kê xuất xứ"
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [originSummary, setOriginSummary] = useState<{ bqms_code: string; country_origin: string }[] | null>(null);
+  // Hide đã giao / hoàn tất rows for cleaner active view
+  const [hideCompleted, setHideCompleted] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return false;
+    return localStorage.getItem('hide_completed_deliveries') === 'true';
+  });
 
   useEffect(() => { setVisibleCols(getVisibleCols()); }, []);
 
@@ -225,9 +232,15 @@ export default function BQMSDeliveriesPage() {
   const deliveries: DeliveryRecord[] = raw?.data ?? [];
   const total: number = raw?.total ?? 0;
 
-  // Client-side search filter
+  // Client-side search filter + hideCompleted toggle
   const filtered = useMemo(() => {
     let rows = deliveries;
+    if (hideCompleted) {
+      rows = rows.filter(d => {
+        const s = (d.delivery_status_normalized || d.delivery_status || '').toLowerCase();
+        return s !== 'da_giao' && s !== 'delivered' && s !== 'hoan_tat' && s !== 'completed';
+      });
+    }
     if (searchQuery) {
       const q = searchQuery.toLowerCase();
       rows = rows.filter(d =>
@@ -254,7 +267,23 @@ export default function BQMSDeliveriesPage() {
       }
     }
     return rows;
-  }, [deliveries, searchQuery, sortCol, sortDir]);
+  }, [deliveries, searchQuery, sortCol, sortDir, hideCompleted]);
+
+  // Detect duplicate po_number / bqms_code in current page so the cell
+  // can be tinted. Computed off the SAME `filtered` array so duplicates
+  // hidden by filters don't stay highlighted.
+  const dupKeys = useMemo(() => {
+    const poCount = new Map<string, number>();
+    const bqmsCount = new Map<string, number>();
+    for (const d of filtered) {
+      if (d.po_number) poCount.set(d.po_number, (poCount.get(d.po_number) || 0) + 1);
+      if (d.bqms_code) bqmsCount.set(d.bqms_code, (bqmsCount.get(d.bqms_code) || 0) + 1);
+    }
+    return {
+      po: new Set(Array.from(poCount.entries()).filter(([, n]) => n > 1).map(([k]) => k)),
+      bqms: new Set(Array.from(bqmsCount.entries()).filter(([, n]) => n > 1).map(([k]) => k)),
+    };
+  }, [filtered]);
 
   const activeCols = useMemo(() => COLUMNS.filter(c => visibleCols.includes(c.key)), [visibleCols]);
 
@@ -369,6 +398,23 @@ export default function BQMSDeliveriesPage() {
                     />
                   )}
                 </div>
+                <button
+                  onClick={() => {
+                    const next = !hideCompleted;
+                    setHideCompleted(next);
+                    localStorage.setItem('hide_completed_deliveries', String(next));
+                  }}
+                  className={cn(
+                    'inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors',
+                    hideCompleted
+                      ? 'border-emerald-300 bg-emerald-50 text-emerald-700'
+                      : 'border-slate-200 text-slate-600 hover:bg-slate-50',
+                  )}
+                  title="Ẩn các đơn đã giao / hoàn tất khỏi danh sách (vẫn lưu trong DB)"
+                >
+                  {hideCompleted ? <CheckCircle2 className="h-3.5 w-3.5" /> : <Package className="h-3.5 w-3.5" />}
+                  {hideCompleted ? 'Đang ẩn đã giao' : 'Ẩn đã giao'}
+                </button>
                 <button
                   onClick={() => setShowCreateForm(true)}
                   className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-brand-600 text-white hover:bg-brand-700 transition-colors"
@@ -530,18 +576,25 @@ export default function BQMSDeliveriesPage() {
                             <td className="px-3 py-2.5 text-xs text-slate-400 font-mono sticky left-8 bg-white z-10">
                               {rowNum}
                             </td>
-                            {activeCols.map(col => (
+                            {activeCols.map(col => {
+                              const isPoDup = col.key === 'po_number' && d.po_number && dupKeys.po.has(d.po_number);
+                              const isBqmsDup = col.key === 'bqms_code' && d.bqms_code && dupKeys.bqms.has(d.bqms_code);
+                              return (
                               <td
                                 key={col.key}
                                 className={cn(
                                   'px-3 py-2.5',
                                   col.align === 'right' ? 'text-right' : 'text-left',
-                                  (col.key === 'po_number' || col.key === 'bqms_code') && 'sticky bg-white z-10',
+                                  (col.key === 'po_number' || col.key === 'bqms_code') && 'sticky z-10',
+                                  (col.key === 'po_number' || col.key === 'bqms_code') && !isPoDup && !isBqmsDup && 'bg-white',
                                   col.key === 'po_number' && 'left-10',
                                   col.key === 'bqms_code' && 'left-[calc(2.5rem+120px)]',
                                   col.key === 'actual_delivered_qty' && qtyMismatch && 'bg-amber-50',
+                                  // Duplicate highlight: amber tint + border
+                                  (isPoDup || isBqmsDup) && 'bg-amber-100/80 ring-1 ring-amber-300 ring-inset',
                                 )}
                                 style={{ minWidth: col.width }}
+                                title={isPoDup ? `PO ${d.po_number} xuất hiện nhiều lần` : isBqmsDup ? `BQMS ${d.bqms_code} xuất hiện nhiều lần` : undefined}
                               >
                                 <CellRenderer col={col} record={d} status={status} statusCfg={statusCfg}
                                   onUpdate={() => {
@@ -550,7 +603,8 @@ export default function BQMSDeliveriesPage() {
                                   }}
                                 />
                               </td>
-                            ))}
+                              );
+                            })}
                           </tr>
                         );
                       })}
@@ -562,7 +616,10 @@ export default function BQMSDeliveriesPage() {
 
             {/* Footer pagination */}
             <div className="mt-3 flex items-center justify-between text-sm text-slate-500">
-              <span>Hiển thị {filtered.length} / {total.toLocaleString('vi-VN')} đơn giao hàng</span>
+              <span>
+                Hiển thị {filtered.length} / {total.toLocaleString('vi-VN')} đơn giao hàng
+                {hideCompleted ? <span className="ml-2 text-emerald-600">· đã ẩn các đơn hoàn tất</span> : null}
+              </span>
               {total > 50 && (
                 <div className="flex items-center gap-2">
                   <button disabled={page === 1} onClick={() => setPage(p => Math.max(1, p - 1))}
@@ -750,6 +807,25 @@ function CellRenderer({ col, record, status, statusCfg, onUpdate }: {
 }) {
   const [editing, setEditing] = useState(false);
   const [editVal, setEditVal] = useState('');
+
+  // Pending = quantity - actual_delivered_qty (sentinel _pending dbCol)
+  if (col.dbCol === '_pending') {
+    const qty = Number(record.quantity ?? 0);
+    const actual = Number(record.actual_delivered_qty ?? 0);
+    const pending = qty - actual;
+    if (pending === 0 && actual > 0) {
+      return <span className="text-emerald-600 font-medium tabular-nums">0</span>;
+    }
+    if (pending < 0) {
+      return <span className="text-amber-600 font-medium tabular-nums" title="Giao quá đơn">{pending}</span>;
+    }
+    return (
+      <span className={cn('tabular-nums font-medium', pending > 0 && 'text-rose-600')}>
+        {pending.toLocaleString('vi-VN')}
+      </span>
+    );
+  }
+
   const value = (record as any)[col.dbCol];
 
   const editable = INLINE_EDITABLE[col.key];
@@ -948,67 +1024,155 @@ function DetailPanel({ delivery, onClose, onChanged }: {
   const statusSteps = ['pending', 'in_transit', 'delivered', 'completed'];
   const currentStepIdx = statusSteps.indexOf(status);
 
+  // Pending = qty - actual delivered
+  const qty = Number(delivery.quantity ?? 0);
+  const actual = Number(delivery.actual_delivered_qty ?? 0);
+  const pending = qty - actual;
+  const pendingPct = qty > 0 ? Math.round((actual / qty) * 100) : 0;
+
+  // Hero gradient picks color from status
+  const heroGradient =
+    status === 'da_giao' || status === 'delivered' || status === 'hoan_tat' || status === 'completed'
+      ? 'from-emerald-500 via-emerald-600 to-teal-700'
+      : status === 'dang_giao' || status === 'in_transit'
+        ? 'from-sky-500 via-blue-600 to-indigo-700'
+        : 'from-slate-700 via-slate-800 to-slate-900';
+
   return (
-    <div className="bg-white rounded-lg shadow-sm border border-slate-200 overflow-hidden sticky top-4 max-h-[calc(100vh-6rem)] overflow-y-auto">
-      <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100 bg-slate-50">
-        <div className="flex items-center gap-2">
-          <Package className="h-4 w-4 text-brand-500" />
-          <span className="text-sm font-semibold text-slate-700">Chi tiết giao hàng</span>
+    <div className="bg-white rounded-2xl shadow-lg shadow-slate-900/5 border border-slate-200 overflow-hidden sticky top-4 max-h-[calc(100vh-6rem)] overflow-y-auto">
+      {/* Hero header */}
+      <div className={cn('relative px-5 pt-4 pb-5 bg-gradient-to-br text-white', heroGradient)}>
+        <button
+          onClick={onClose}
+          className="absolute top-3 right-3 p-1.5 rounded-lg hover:bg-white/15 transition"
+          title="Đóng"
+        >
+          <X className="h-4 w-4" />
+        </button>
+
+        <div className="flex items-center gap-2 text-[10px] uppercase tracking-[0.18em] text-white/70 font-semibold mb-2">
+          <Truck className="h-3 w-3" />
+          Chi tiết giao hàng
         </div>
-        <button onClick={onClose} className="text-slate-400 hover:text-slate-600"><X className="h-4 w-4" /></button>
+
+        <div className="font-mono text-[11px] text-white/80">PO #{delivery.po_number || '—'}</div>
+        <div className="font-mono text-lg font-bold leading-tight tracking-tight mt-0.5 break-words">
+          {delivery.bqms_code || 'Không có BQMS code'}
+        </div>
+
+        {/* Status badge */}
+        <div className="mt-3 flex items-center gap-2">
+          <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-white/15 backdrop-blur text-[11px] font-semibold ring-1 ring-white/20">
+            <span className="h-1.5 w-1.5 rounded-full bg-white/90 animate-pulse" />
+            {statusCfg?.label || status || 'Chưa rõ'}
+          </div>
+          {delivery.country_origin ? (
+            <div className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-white/10 text-[10px] font-medium ring-1 ring-white/15">
+              🌐 {delivery.country_origin}
+            </div>
+          ) : null}
+        </div>
+
+        {/* Progress bar */}
+        <div className="mt-4">
+          <div className="flex justify-between items-baseline mb-1.5">
+            <span className="text-[10px] uppercase tracking-wider text-white/70 font-semibold">Tiến độ giao</span>
+            <span className="text-xs font-bold tabular-nums">{pendingPct}%</span>
+          </div>
+          <div className="h-1.5 rounded-full bg-white/15 overflow-hidden">
+            <div
+              className="h-full bg-white rounded-full transition-all duration-500"
+              style={{ width: `${Math.min(100, Math.max(0, pendingPct))}%` }}
+            />
+          </div>
+        </div>
       </div>
 
-      <div className="p-4 space-y-4">
-        {/* Status progress bar */}
+      {/* KPI mini cards: SL / SL giao TT / Pending */}
+      <div className="grid grid-cols-3 gap-px bg-slate-100">
+        <KpiMini label="Số lượng" value={qty.toLocaleString('vi-VN')} unit={delivery.unit || ''} accent="slate" />
+        <KpiMini
+          label="Đã giao"
+          value={actual.toLocaleString('vi-VN')}
+          unit={delivery.unit || ''}
+          accent="emerald"
+        />
+        <KpiMini
+          label="Pending"
+          value={pending.toLocaleString('vi-VN')}
+          unit={delivery.unit || ''}
+          accent={pending === 0 && actual > 0 ? 'emerald' : pending > 0 ? 'rose' : 'amber'}
+        />
+      </div>
+
+      <div className="p-5 space-y-5">
+        {/* Status timeline */}
         <div>
-          <p className="text-xs text-slate-400 uppercase font-mono tracking-wider mb-2">Trạng thái</p>
-          <div className="flex items-center gap-1 mb-2">
-            {statusSteps.map((step, i) => (
-              <div key={step} className="flex items-center gap-1 flex-1">
-                <div className={cn(
-                  'h-2 flex-1 rounded-full transition-colors',
-                  i <= currentStepIdx ? 'bg-brand-500' : 'bg-slate-200'
-                )} />
-              </div>
-            ))}
+          <div className="text-[10px] uppercase tracking-wider text-slate-400 font-bold mb-3">
+            Lịch sử trạng thái
           </div>
-          <div className="flex justify-between text-[10px] text-slate-400">
-            <span>Chưa giao</span>
-            <span>Đang giao</span>
-            <span>Đã giao</span>
-            <span>Hoàn tất</span>
-          </div>
-          <div className="mt-2">
-            {statusCfg ? (
-              <StatusBadge label={statusCfg.label} variant={statusCfg.variant} pulse={statusCfg.pulse} />
-            ) : (
-              <span className="text-sm text-slate-500">{status}</span>
-            )}
+          <div className="space-y-2">
+            {[
+              { key: 'pending', label: 'Chưa giao' },
+              { key: 'in_transit', label: 'Đang giao' },
+              { key: 'delivered', label: 'Đã giao' },
+              { key: 'completed', label: 'Hoàn tất' },
+            ].map((step, i) => {
+              const reached = i <= currentStepIdx;
+              const current = i === currentStepIdx;
+              return (
+                <div key={step.key} className="flex items-center gap-3">
+                  <div
+                    className={cn(
+                      'h-6 w-6 rounded-full flex items-center justify-center flex-shrink-0 ring-2',
+                      reached ? 'bg-brand-500 text-white ring-brand-200' : 'bg-slate-100 text-slate-300 ring-slate-100',
+                      current && 'ring-4 ring-brand-200',
+                    )}
+                  >
+                    {reached ? <Check className="h-3 w-3" /> : <span className="text-[10px] font-bold">{i + 1}</span>}
+                  </div>
+                  <div className={cn('flex-1 text-sm', reached ? 'text-slate-900 font-medium' : 'text-slate-400')}>
+                    {step.label}
+                  </div>
+                </div>
+              );
+            })}
           </div>
         </div>
 
-        {/* PO Info */}
-        <DetailSection title="Thông tin PO">
-          <DetailRow label="Số PO" value={delivery.po_number} mono />
+        {/* Section: Sản phẩm */}
+        <DetailSectionCard icon={<Package className="h-3.5 w-3.5" />} title="Sản phẩm">
+          <DetailRow label="BQMS Code" value={delivery.bqms_code} mono />
+          {delivery.specification ? (
+            <div className="pt-1">
+              <span className="text-[10px] text-slate-400 uppercase tracking-wider font-semibold">Spec</span>
+              <p className="text-sm text-slate-700 mt-1 whitespace-pre-wrap break-words leading-relaxed">
+                {delivery.specification}
+              </p>
+            </div>
+          ) : null}
+          <DetailRow
+            label="Đơn giá"
+            value={delivery.unit_price != null ? fmtNum(Number(delivery.unit_price)) : null}
+            mono
+          />
+          <DetailRow
+            label="Thành tiền"
+            value={delivery.amount != null ? formatCurrency(Number(delivery.amount)) : null}
+            mono
+          />
+        </DetailSectionCard>
+
+        {/* Section: PO */}
+        <DetailSectionCard icon={<FileText className="h-3.5 w-3.5" />} title="Thông tin PO">
           <DetailRow label="Ngày PO" value={formatDate(delivery.po_date)} />
           <DetailRow label="Số QT" value={delivery.quotation_no} mono />
           <DetailRow label="Shipping No" value={delivery.shipping_no} mono />
-        </DetailSection>
+          <DetailRow label="SEV/T" value={delivery.sev_type} />
+        </DetailSectionCard>
 
-        {/* Product */}
-        <DetailSection title="Sản phẩm">
-          <DetailRow label="BQMS Code" value={delivery.bqms_code} mono />
-          <div>
-            <span className="text-xs text-slate-400">Spec</span>
-            <p className="text-sm text-slate-700 mt-0.5 whitespace-pre-wrap break-words">{delivery.specification ?? '—'}</p>
-          </div>
-          <DetailRow label="Số lượng" value={delivery.quantity != null ? `${fmtNum(delivery.quantity)} ${delivery.unit ?? ''}` : null} />
-          <DetailRow label="Đơn giá" value={delivery.unit_price != null ? fmtNum(Number(delivery.unit_price)) : null} />
-          <DetailRow label="Thành tiền" value={delivery.amount != null ? formatCurrency(Number(delivery.amount)) : null} />
-        </DetailSection>
-
-        {/* Delivery */}
-        <DetailSection title="Giao hàng">
+        {/* Section: Giao hàng */}
+        <DetailSectionCard icon={<Truck className="h-3.5 w-3.5" />} title="Giao hàng">
           <EditableRow label="Ngày GH" field="delivery_date" value={formatDate(delivery.delivery_date)}
             rawValue={delivery.delivery_date?.split('T')[0] ?? ''} editField={editField} editValue={editValue}
             saving={saving} onStartEdit={startEdit} onSave={handleSaveField} onSetValue={setEditValue} type="date" />
@@ -1019,49 +1183,88 @@ function DetailPanel({ delivery, onClose, onChanged }: {
           <EditableRow label="PT giao hàng" field="delivery_method" value={delivery.delivery_method ?? '—'}
             rawValue={delivery.delivery_method ?? ''} editField={editField} editValue={editValue}
             saving={saving} onStartEdit={startEdit} onSave={handleSaveField} onSetValue={setEditValue} />
-          <EditableRow label="Xuất x��" field="country_origin" value={delivery.country_origin ?? '—'}
+          <EditableRow label="Xuất xứ" field="country_origin" value={delivery.country_origin ?? '—'}
             rawValue={delivery.country_origin ?? ''} editField={editField} editValue={editValue}
             saving={saving} onStartEdit={startEdit} onSave={handleSaveField} onSetValue={setEditValue} />
-          <DetailRow label="Tổng GT đã giao" value={delivery.total_delivered_value_vnd != null ? formatCurrency(Number(delivery.total_delivered_value_vnd)) : null} />
-          {delivery.delivery_info && (
-            <div>
-              <span className="text-xs text-slate-400">TT giao hàng</span>
-              <p className="text-sm text-slate-700 mt-0.5 whitespace-pre-wrap break-words">{delivery.delivery_info}</p>
+          <DetailRow
+            label="Tổng GT đã giao"
+            value={delivery.total_delivered_value_vnd != null ? formatCurrency(Number(delivery.total_delivered_value_vnd)) : null}
+            mono
+          />
+          {delivery.delivery_info ? (
+            <div className="pt-1">
+              <span className="text-[10px] text-slate-400 uppercase tracking-wider font-semibold">Thông tin giao hàng</span>
+              <p className="text-sm text-slate-700 mt-1 whitespace-pre-wrap break-words leading-relaxed">
+                {delivery.delivery_info}
+              </p>
             </div>
-          )}
-        </DetailSection>
+          ) : null}
+        </DetailSectionCard>
 
-        {/* Contact */}
-        <DetailSection title="Liên hệ">
+        {/* Section: Liên hệ */}
+        <DetailSectionCard icon={<Search className="h-3.5 w-3.5" />} title="Liên hệ">
           <EditableRow label="Người nhận" field="recipient_name" value={delivery.recipient_name ?? '—'}
             rawValue={delivery.recipient_name ?? ''} editField={editField} editValue={editValue}
             saving={saving} onStartEdit={startEdit} onSave={handleSaveField} onSetValue={setEditValue} />
-          {delivery.receiving_warehouse && (
-            <div>
-              <span className="text-xs text-slate-400">Kho nhận</span>
-              <p className="text-sm text-slate-600 mt-0.5 whitespace-pre-wrap break-words">{delivery.receiving_warehouse}</p>
+          {delivery.receiving_warehouse ? (
+            <div className="pt-1">
+              <span className="text-[10px] text-slate-400 uppercase tracking-wider font-semibold">Kho nhận</span>
+              <p className="text-sm text-slate-700 mt-1 whitespace-pre-wrap break-words leading-relaxed">
+                {delivery.receiving_warehouse}
+              </p>
             </div>
-          )}
+          ) : null}
           <DetailRow label="Mail PUR" value={delivery.buyer_email} />
-          <DetailRow label="SĐT PUR" value={delivery.buyer_phone} />
-          <DetailRow label="SEV/T" value={delivery.sev_type} />
-        </DetailSection>
+          <DetailRow label="SĐT PUR" value={delivery.buyer_phone} mono />
+        </DetailSectionCard>
 
         {/* Notes */}
-        {delivery.notes && (
-          <DetailSection title="Ghi chú">
-            <p className="text-sm text-slate-600 whitespace-pre-wrap">{delivery.notes}</p>
-          </DetailSection>
-        )}
+        {delivery.notes ? (
+          <DetailSectionCard icon={<Pencil className="h-3.5 w-3.5" />} title="Ghi chú">
+            <p className="text-sm text-slate-700 whitespace-pre-wrap leading-relaxed">{delivery.notes}</p>
+          </DetailSectionCard>
+        ) : null}
 
-        {/* Error message */}
-        {saveError && (
-          <div className="text-xs text-red-600 bg-red-50 rounded-lg px-3 py-2">{saveError}</div>
-        )}
+        {saveError ? (
+          <div className="text-xs text-rose-600 bg-rose-50 border border-rose-200 rounded-lg px-3 py-2.5 flex items-start gap-2">
+            <span className="mt-0.5 h-1.5 w-1.5 rounded-full bg-rose-500 flex-shrink-0" />
+            <span>{saveError}</span>
+          </div>
+        ) : null}
 
         {/* Status change */}
         <StatusChangeButtons deliveryId={delivery.id} currentStatus={status} onChanged={onChanged} />
       </div>
+    </div>
+  );
+}
+
+function KpiMini({ label, value, unit, accent }: { label: string; value: string; unit?: string; accent: 'slate' | 'emerald' | 'rose' | 'amber' }) {
+  const styles = {
+    slate: 'bg-white text-slate-900',
+    emerald: 'bg-emerald-50 text-emerald-700',
+    rose: 'bg-rose-50 text-rose-700',
+    amber: 'bg-amber-50 text-amber-700',
+  } as const;
+  return (
+    <div className={cn('p-3 text-center', styles[accent])}>
+      <div className="text-[9px] uppercase tracking-[0.12em] font-bold opacity-70">{label}</div>
+      <div className="mt-1 font-bold tabular-nums leading-tight">
+        <span className="text-xl">{value}</span>
+        {unit ? <span className="text-[10px] ml-1 opacity-70">{unit}</span> : null}
+      </div>
+    </div>
+  );
+}
+
+function DetailSectionCard({ icon, title, children }: { icon: React.ReactNode; title: string; children: React.ReactNode }) {
+  return (
+    <div className="rounded-xl border border-slate-200 bg-slate-50/40 overflow-hidden">
+      <div className="px-3.5 py-2 border-b border-slate-200 bg-white flex items-center gap-2">
+        <span className="text-slate-400">{icon}</span>
+        <span className="text-[10px] uppercase tracking-[0.14em] font-bold text-slate-600">{title}</span>
+      </div>
+      <div className="px-3.5 py-3 space-y-2.5">{children}</div>
     </div>
   );
 }
