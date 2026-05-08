@@ -631,6 +631,9 @@ async def import_bqms_deliveries(conn, source: Path, dry_run: bool, verbose: boo
                 delivery_date = COALESCE(EXCLUDED.delivery_date, bqms_deliveries.delivery_date),
                 actual_delivered_qty = COALESCE(EXCLUDED.actual_delivered_qty, bqms_deliveries.actual_delivered_qty),
                 total_delivered_value_vnd = COALESCE(EXCLUDED.total_delivered_value_vnd, bqms_deliveries.total_delivered_value_vnd),
+                -- country_origin (col U): user can edit via UI, so we only
+                -- fill from Excel when the DB cell is currently empty.
+                country_origin = COALESCE(NULLIF(bqms_deliveries.country_origin, ''), EXCLUDED.country_origin),
                 source_hash = EXCLUDED.source_hash,
                 synced_at = NOW(),
                 updated_at = NOW()

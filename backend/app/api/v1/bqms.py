@@ -1245,6 +1245,7 @@ async def update_delivery(
         "unit_price", "delivery_status", "delivery_date", "shipping_no",
         "sev_type", "buyer_email", "recipient_name", "delivery_method",
         "notes", "actual_delivered_at", "actual_delivered_qty", "delivery_info",
+        "country_origin",  # user-editable per request 2026-05-08
     }
 
     sets = []
@@ -1571,3 +1572,46 @@ async def update_won_quotation(
         raise HTTPException(404, f"Won quotation id={won_id} không tồn tại")
 
     return {"data": dict(row), "message": "Cập nhật thành công"}
+
+
+# ---------------------------------------------------------------------------
+# Origin summary (multi-select rows -> 2-col table BQMS code | Xuất xứ)
+# ---------------------------------------------------------------------------
+
+class _OriginSummaryRequest(BaseModel):
+    ids: list[int]
+
+
+@router.post("/deliveries/origin-summary")
+async def deliveries_origin_summary(
+    body: _OriginSummaryRequest,
+    token_data: TokenData = Depends(require_role("admin", "manager", "staff", "sales")),
+    conn: asyncpg.Connection = Depends(get_db),
+):
+    """For a list of delivery row IDs, return [{bqms_code, country_origin}].
+    Used by the "Thống kê xuất xứ" multi-select feature in the deliveries
+    table — output mirrors the form Thang sketched (BQMS code | Xuất xứ).
+    Sorted by bqms_code for stable ordering.
+    """
+    if not body.ids:
+        return {"data": {"items": [], "total": 0}}
+    if len(body.ids) > 1000:
+        raise HTTPException(400, "Tối đa 1000 dòng/lần thống kê")
+
+    rows = await conn.fetch(
+        """
+        SELECT DISTINCT bqms_code, country_origin
+        FROM bqms_deliveries
+        WHERE id = ANY($1::bigint[])
+          AND bqms_code IS NOT NULL
+          AND bqms_code <> ''
+        ORDER BY bqms_code
+        """,
+        body.ids,
+    )
+
+    items = [
+        {"bqms_code": r["bqms_code"], "country_origin": r["country_origin"] or ""}
+        for r in rows
+    ]
+    return {"data": {"items": items, "total": len(items)}}

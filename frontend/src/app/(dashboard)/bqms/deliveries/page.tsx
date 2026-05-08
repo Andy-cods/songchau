@@ -6,6 +6,7 @@ import {
   Truck, Search, X, Package, Plus, Save, Loader2,
   CheckCircle2, Clock, DollarSign, Download,
   ChevronDown, Columns3, Pencil, ArrowUpDown,
+  FileText, Copy, Check,
 } from 'lucide-react';
 import { api } from '@/lib/api';
 import { cn, formatDate, formatCurrency } from '@/lib/utils';
@@ -91,7 +92,7 @@ const COLUMNS: ColDef[] = [
   { key: 'recipient_name', header: 'Người nhận', dbCol: 'recipient_name', width: 140, group: 'C', defaultVisible: true },
   { key: 'shipping_no', header: 'Shipping No', dbCol: 'shipping_no', width: 120, group: 'C', defaultVisible: false },
   { key: 'delivery_method', header: 'PT giao hàng', dbCol: 'delivery_method', width: 110, group: 'C', defaultVisible: false },
-  { key: 'country_origin', header: 'Xuất xứ', dbCol: 'country_origin', width: 90, group: 'C', defaultVisible: false },
+  { key: 'country_origin', header: 'Xuất xứ', dbCol: 'country_origin', width: 110, group: 'C', defaultVisible: true },
   { key: 'total_delivered_value_vnd', header: 'Tổng GT đã giao', dbCol: 'total_delivered_value_vnd', width: 140, group: 'C', defaultVisible: false, align: 'right', format: 'currency' },
   { key: 'po_date', header: 'Ngày PO', dbCol: 'po_date', width: 90, group: 'D', defaultVisible: false, format: 'date' },
   { key: 'quotation_no', header: 'Số QT', dbCol: 'quotation_no', width: 120, group: 'D', defaultVisible: false },
@@ -175,6 +176,9 @@ export default function BQMSDeliveriesPage() {
   const [showColPicker, setShowColPicker] = useState(false);
   const [sortCol, setSortCol] = useState<string | null>(null);
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
+  // Multi-select for "Thống kê xuất xứ"
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+  const [originSummary, setOriginSummary] = useState<{ bqms_code: string; country_origin: string }[] | null>(null);
 
   useEffect(() => { setVisibleCols(getVisibleCols()); }, []);
 
@@ -325,6 +329,24 @@ export default function BQMSDeliveriesPage() {
 
             {activeTab === 'deliveries' && (
               <>
+                {selectedIds.size > 0 ? (
+                  <button
+                    onClick={async () => {
+                      try {
+                        const r = await api.post<{ data: { items: { bqms_code: string; country_origin: string }[] } }>(
+                          '/api/v1/bqms/deliveries/origin-summary',
+                          { ids: Array.from(selectedIds) }
+                        );
+                        setOriginSummary(r.data.items);
+                      } catch (e) {
+                        alert('Không thể thống kê xuất xứ');
+                      }
+                    }}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-emerald-600 text-white hover:bg-emerald-700 transition-colors"
+                  >
+                    <FileText className="h-3.5 w-3.5" /> Thống kê xuất xứ ({selectedIds.size})
+                  </button>
+                ) : null}
                 <button
                   onClick={handleExport}
                   disabled={exporting}
@@ -430,7 +452,22 @@ export default function BQMSDeliveriesPage() {
                   <table className="w-full">
                     <thead>
                       <tr className="border-b border-slate-100 bg-slate-50/80">
-                        <th className="text-xs font-mono uppercase tracking-wider text-slate-400 px-3 py-2.5 text-left w-10 sticky left-0 bg-slate-50/80 z-10">#</th>
+                        <th className="px-2 py-2.5 w-8 sticky left-0 bg-slate-50/80 z-10">
+                          <input
+                            type="checkbox"
+                            checked={filtered.length > 0 && filtered.every(d => d.id != null && selectedIds.has(d.id))}
+                            onChange={(e) => {
+                              if (e.target.checked) {
+                                setSelectedIds(new Set(filtered.map(d => d.id).filter((x): x is number => x != null)));
+                              } else {
+                                setSelectedIds(new Set());
+                              }
+                            }}
+                            className="h-3.5 w-3.5 rounded border-slate-300 text-brand-600 focus:ring-brand-500"
+                            title="Chọn tất cả"
+                          />
+                        </th>
+                        <th className="text-xs font-mono uppercase tracking-wider text-slate-400 px-3 py-2.5 text-left w-10 sticky left-8 bg-slate-50/80 z-10">#</th>
                         {activeCols.map(col => (
                           <th
                             key={col.key}
@@ -471,7 +508,26 @@ export default function BQMSDeliveriesPage() {
                               isSelected && 'bg-brand-50 border-l-2 border-brand-500'
                             )}
                           >
-                            <td className="px-3 py-2.5 text-xs text-slate-400 font-mono sticky left-0 bg-white z-10">
+                            <td
+                              className="px-2 py-2.5 sticky left-0 bg-white z-10"
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              <input
+                                type="checkbox"
+                                checked={d.id != null && selectedIds.has(d.id)}
+                                onChange={(e) => {
+                                  if (d.id == null) return;
+                                  setSelectedIds(prev => {
+                                    const next = new Set(prev);
+                                    if (e.target.checked) next.add(d.id!);
+                                    else next.delete(d.id!);
+                                    return next;
+                                  });
+                                }}
+                                className="h-3.5 w-3.5 rounded border-slate-300 text-brand-600 focus:ring-brand-500"
+                              />
+                            </td>
+                            <td className="px-3 py-2.5 text-xs text-slate-400 font-mono sticky left-8 bg-white z-10">
                               {rowNum}
                             </td>
                             {activeCols.map(col => (
@@ -550,6 +606,92 @@ export default function BQMSDeliveriesPage() {
           }}
         />
       )}
+
+      {/* Origin summary modal */}
+      {originSummary && (
+        <OriginSummaryModal
+          items={originSummary}
+          onClose={() => setOriginSummary(null)}
+        />
+      )}
+    </div>
+  );
+}
+
+// ─── Origin Summary Modal ───────────────────────────────────────
+
+function OriginSummaryModal({
+  items,
+  onClose,
+}: {
+  items: { bqms_code: string; country_origin: string }[];
+  onClose: () => void;
+}) {
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = async () => {
+    const text = items.map(i => `${i.bqms_code}\t${i.country_origin}`).join('\n');
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1800);
+    } catch {}
+  };
+
+  const filled = items.filter(i => i.country_origin).length;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4" onClick={onClose}>
+      <div
+        className="bg-white rounded-2xl shadow-2xl max-w-md w-full max-h-[80vh] flex flex-col"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="px-5 py-4 border-b border-slate-200 flex items-center justify-between">
+          <div>
+            <h2 className="font-semibold text-slate-900">Thống kê xuất xứ</h2>
+            <p className="text-xs text-slate-500 mt-0.5">
+              {items.length} mã · {filled} có xuất xứ · {items.length - filled} chưa có
+            </p>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <button
+              onClick={handleCopy}
+              className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium border border-slate-200 hover:bg-slate-50"
+            >
+              {copied ? <Check className="h-3.5 w-3.5 text-emerald-600" /> : <Copy className="h-3.5 w-3.5" />}
+              {copied ? 'Đã copy' : 'Copy'}
+            </button>
+            <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-slate-100">
+              <X className="h-4 w-4 text-slate-500" />
+            </button>
+          </div>
+        </div>
+
+        <div className="flex-1 overflow-y-auto">
+          <table className="w-full text-sm">
+            <thead className="sticky top-0 bg-slate-100 border-b border-slate-200">
+              <tr>
+                <th className="px-3 py-2 text-left text-xs font-semibold text-slate-700 uppercase tracking-wider">
+                  BQMS code
+                </th>
+                <th className="px-3 py-2 text-left text-xs font-semibold text-slate-700 uppercase tracking-wider">
+                  Xuất xứ
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {items.map((row, i) => (
+                <tr key={i} className="border-b border-slate-100">
+                  <td className="px-3 py-2 font-mono text-slate-700">{row.bqms_code}</td>
+                  <td className={cn('px-3 py-2', !row.country_origin && 'text-slate-400 italic')}>
+                    {row.country_origin || '— chưa có —'}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
     </div>
   );
 }
