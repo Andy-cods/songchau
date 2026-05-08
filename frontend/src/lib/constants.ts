@@ -111,6 +111,7 @@ const NAV_MAIN: SidebarItem[] = [
 
 const NAV_BQMS: SidebarItem[] = [
   { key: 'bqms', label: 'BQMS', href: '/bqms', icon: ClipboardList },
+  { key: 'bqms-won', label: 'Trúng BG', href: '/bqms/won-quotations', icon: Trophy },
   { key: 'giao-hang', label: 'Giao hàng', href: '/bqms/deliveries', icon: Truck },
   // Tra cứu giá XNK đã chuyển sang nhóm "Phân tích" (NAV_ANALYTICS)
   // Tra cứu giá nội bộ đã tích hợp vào thanh tìm kiếm (Ctrl+K) — không cần mục riêng

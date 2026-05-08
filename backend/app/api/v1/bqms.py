@@ -1442,3 +1442,132 @@ async def cancel_confirm_pos_endpoint(
         logger.exception("BQMS cancel_confirm_pos failed")
         raise HTTPException(status_code=502, detail=f"BQMS cancel-confirm error: {exc}")
     return {"data": result, "message": f"Đã hủy confirm cho {len(payload)} PO"}
+
+
+
+# ---------------------------------------------------------------------------
+# Won quotations (sheet TRUNG BG of Thong ke hoi hang BQMS.xlsx)
+# ---------------------------------------------------------------------------
+
+from pydantic import BaseModel
+
+
+class _WonQuotationPatch(BaseModel):
+    hs_code: str | None = None
+    goods_description: str | None = None
+
+
+@router.get("/won-quotations")
+async def list_won_quotations(
+    search: str | None = Query(None, description="Tìm theo HS code, BQMS code, RFQ No, NCC, mô tả"),
+    has_hs: str | None = Query(None, description="filled | missing | all"),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(100, ge=10, le=500),
+    token_data: TokenData = Depends(require_role("admin", "manager", "staff", "sales")),
+    conn: asyncpg.Connection = Depends(get_db),
+):
+    """List won quotations from sheet TRUNG BG.
+
+    Filters:
+    - search: matched against rfq_number, bqms_code, hs_code, supplier_name,
+      specification, description, goods_description (case-insensitive substring).
+    - has_hs: 'filled' = has HS code; 'missing' = NULL or empty.
+    """
+    conds = ["1=1"]
+    params: list[Any] = []
+    idx = 1
+
+    if search:
+        like = f"%{search.strip()}%"
+        conds.append(
+            f"(rfq_number ILIKE ${idx} OR bqms_code ILIKE ${idx} OR hs_code ILIKE ${idx} "
+            f"OR supplier_name ILIKE ${idx} OR specification ILIKE ${idx} "
+            f"OR description ILIKE ${idx} OR goods_description ILIKE ${idx})"
+        )
+        params.append(like)
+        idx += 1
+
+    if has_hs == "filled":
+        conds.append("hs_code IS NOT NULL AND hs_code <> ''")
+    elif has_hs == "missing":
+        conds.append("(hs_code IS NULL OR hs_code = '')")
+
+    where = " AND ".join(conds)
+    total = await conn.fetchval(
+        f"SELECT COUNT(*) FROM bqms_won_quotations WHERE {where}", *params
+    )
+
+    offset = (page - 1) * page_size
+    params_paged = params + [page_size, offset]
+    rows = await conn.fetch(
+        f"""
+        SELECT id, rfq_number, bqms_code, person_in_charge_name,
+               description, specification, quantity, unit,
+               po_price, po_deadline, supplier_name,
+               hs_code, goods_description, customs_char_count, notes,
+               synced_at, created_at
+        FROM bqms_won_quotations
+        WHERE {where}
+        ORDER BY synced_at DESC NULLS LAST, id DESC
+        LIMIT ${idx} OFFSET ${idx + 1}
+        """,
+        *params_paged,
+    )
+
+    def _ser(r: asyncpg.Record) -> dict:
+        d = dict(r)
+        for k, v in d.items():
+            if isinstance(v, (date, datetime)):
+                d[k] = v.isoformat()
+            elif hasattr(v, "__float__") and not isinstance(v, (int, bool)):
+                try:
+                    d[k] = float(v)
+                except Exception:
+                    pass
+        return d
+
+    return {
+        "data": {
+            "items": [_ser(r) for r in rows],
+            "total": int(total or 0),
+            "page": page,
+            "page_size": page_size,
+        }
+    }
+
+
+@router.patch("/won-quotations/{won_id}")
+async def update_won_quotation(
+    won_id: int,
+    body: _WonQuotationPatch,
+    token_data: TokenData = Depends(require_role("admin", "manager", "staff", "sales")),
+    conn: asyncpg.Connection = Depends(get_db),
+):
+    """Edit hs_code and/or goods_description for a won quotation row.
+
+    Only these two fields are user-editable; everything else syncs from
+    Excel TRUNG BG sheet via the auto-importer.
+    """
+    sets = []
+    params: list[Any] = []
+    idx = 1
+
+    if body.hs_code is not None:
+        sets.append(f"hs_code = ${idx}")
+        params.append(body.hs_code.strip() or None)
+        idx += 1
+    if body.goods_description is not None:
+        sets.append(f"goods_description = ${idx}")
+        params.append(body.goods_description.strip() or None)
+        idx += 1
+
+    if not sets:
+        raise HTTPException(400, "Chưa có trường nào để cập nhật")
+
+    params.append(won_id)
+    sql = f"UPDATE bqms_won_quotations SET {', '.join(sets)} WHERE id = ${idx} RETURNING id, hs_code, goods_description"
+    row = await conn.fetchrow(sql, *params)
+    if not row:
+        raise HTTPException(404, f"Won quotation id={won_id} không tồn tại")
+
+    return {"data": dict(row), "message": "Cập nhật thành công"}

@@ -1595,7 +1595,24 @@ async def import_exchange_rates(conn, source: Path, dry_run: bool, verbose: bool
 
 
 async def import_bqms_won_quotations(conn, source: Path, dry_run: bool, verbose: bool) -> dict:
-    """14. bqms_won_quotations <-- Thong ke hoi hang BQMS.xlsx, sheet TRUNG BG"""
+    """14. bqms_won_quotations <-- Thong ke hoi hang BQMS.xlsx, sheet TRUNG BG
+
+    Column mapping verified 2026-05-08 against the live header row:
+      row[ 0] A 'Người phụ trách'      -> person_in_charge_name
+      row[ 1] B 'RFQ No.'              -> rfq_number
+      row[ 2] C 'BQMS code'            -> bqms_code
+      row[ 3] D 'Description'          -> description
+      row[ 4] E 'Spec'                 -> specification
+      row[ 5] F 'Số lượng dự kiến'     -> quantity
+      row[ 6] G 'Unit'                 -> unit
+      row[ 7] H 'giá PO'               -> po_price
+      row[ 8] I 'hạn PO'               -> po_deadline
+      row[ 9] J 'Ghi chú'              -> notes
+      row[10] K 'NCC'                  -> supplier_name
+      row[11] L 'HS code'              -> hs_code
+      row[12] M 'Miêu tả hàng hóa'     -> goods_description
+      row[13] N 'SL kí tự khai hàng'   -> customs_char_count
+    """
     fp = find_file(source, "Thong ke hoi hang BQMS.xlsx")
     if not fp:
         logger.warning("  File not found: Thong ke hoi hang BQMS.xlsx")
@@ -1607,20 +1624,28 @@ async def import_bqms_won_quotations(conn, source: Path, dry_run: bool, verbose:
     sql = """
         INSERT INTO bqms_won_quotations (
             person_in_charge_name, rfq_number, bqms_code,
-            specification, quantity,
+            description, specification, quantity, unit,
             po_price, po_deadline, notes,
-            supplier_name, hs_code, goods_description,
+            supplier_name, hs_code, goods_description, customs_char_count,
             source_hash, synced_at
         ) VALUES (
-            $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, NOW()
+            $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, NOW()
         )
         ON CONFLICT (rfq_number, bqms_code)
             DO UPDATE SET
+                description = COALESCE(EXCLUDED.description, bqms_won_quotations.description),
+                specification = COALESCE(EXCLUDED.specification, bqms_won_quotations.specification),
+                quantity = COALESCE(EXCLUDED.quantity, bqms_won_quotations.quantity),
+                unit = COALESCE(EXCLUDED.unit, bqms_won_quotations.unit),
                 po_price = COALESCE(EXCLUDED.po_price, bqms_won_quotations.po_price),
                 po_deadline = COALESCE(EXCLUDED.po_deadline, bqms_won_quotations.po_deadline),
+                notes = COALESCE(EXCLUDED.notes, bqms_won_quotations.notes),
                 supplier_name = COALESCE(EXCLUDED.supplier_name, bqms_won_quotations.supplier_name),
-                hs_code = COALESCE(EXCLUDED.hs_code, bqms_won_quotations.hs_code),
-                goods_description = COALESCE(EXCLUDED.goods_description, bqms_won_quotations.goods_description),
+                -- HS code + goods_description are user-edited via UI; only set
+                -- when Excel has a value AND DB cell is currently null/empty.
+                hs_code = COALESCE(NULLIF(bqms_won_quotations.hs_code, ''), EXCLUDED.hs_code),
+                goods_description = COALESCE(NULLIF(bqms_won_quotations.goods_description, ''), EXCLUDED.goods_description),
+                customs_char_count = COALESCE(EXCLUDED.customs_char_count, bqms_won_quotations.customs_char_count),
                 source_hash = EXCLUDED.source_hash,
                 synced_at = NOW()
     """
@@ -1638,17 +1663,20 @@ async def import_bqms_won_quotations(conn, source: Path, dry_run: bool, verbose:
             continue
 
         params = [
-            safe_str(_get(row, 0)),             # person_in_charge_name (col 0)
-            rfq_number,                         # rfq_number (col 1)
-            bqms_code,                          # bqms_code (col 2)
-            safe_str(_get(row, 3)),             # specification (col 3)
-            parse_number(_get(row, 5)),         # quantity (col 5)
-            parse_number(_get(row, 10)),        # po_price (col 10)
-            parse_date(_get(row, 11)),          # po_deadline (col 11)
-            safe_str(_get(row, 12)),            # notes (col 12)
-            safe_str(_get(row, 13)),            # supplier_name (col 13)
-            safe_str(_get(row, 14)),            # hs_code (col 14)
-            safe_str(_get(row, 15)),            # goods_description (col 15)
+            safe_str(_get(row, 0)),             # person_in_charge_name (col A)
+            rfq_number,                         # rfq_number             (col B)
+            bqms_code,                          # bqms_code              (col C)
+            safe_str(_get(row, 3)),             # description            (col D)
+            safe_str(_get(row, 4)),             # specification          (col E)
+            parse_number(_get(row, 5)),         # quantity               (col F)
+            safe_str(_get(row, 6)),             # unit                   (col G)
+            parse_number(_get(row, 7)),         # po_price               (col H)
+            parse_date(_get(row, 8)),           # po_deadline            (col I)
+            safe_str(_get(row, 9)),             # notes                  (col J)
+            safe_str(_get(row, 10)),            # supplier_name          (col K)
+            safe_str(_get(row, 11)),            # hs_code                (col L)
+            safe_str(_get(row, 12)),            # goods_description      (col M)
+            int(parse_number(_get(row, 13)) or 0) if parse_number(_get(row, 13)) is not None else None,  # customs_char_count (col N)
             compute_source_hash(row),           # source_hash
         ]
 

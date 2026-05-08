@@ -49,6 +49,14 @@ GROUPS: dict[str, list[str]] = {
     'bqms_deliveries': [
         'Puplic/BQMS/Thong ke giao hang/Thong ke giao hang 2026.xlsx',
     ],
+    # Per user 2026-05-08: sheet "TRUNG BG" of the same hoi hang file
+    # tracks PO won (giá PO, hạn PO) + manually-filled HS code &
+    # goods_description. The frontend "Trúng" tab queries this table.
+    # File mtime triggers re-import; user edits to hs_code/
+    # goods_description are preserved (importer uses NULLIF guard).
+    'bqms_won_quotations': [
+        'Puplic/BQMS/Thong ke hoi hang BQMS.xlsx',
+    ],
 }
 
 
@@ -103,6 +111,19 @@ def _process_group(
     file_states: list[tuple[str, datetime, datetime | None]] = []
 
     with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        # Per-table last successful run from etl_sync_log. Avoids the bug
+        # where two groups share the same file but only the FIRST one
+        # imports because file_review_status is per-file (not per-table).
+        cur.execute(
+            """
+            SELECT MAX(completed_at) FROM etl_sync_log
+            WHERE sync_type = %s AND status = 'success'
+            """,
+            (f'auto_import_{table}',),
+        )
+        row = cur.fetchone()
+        last_table_run: datetime | None = row['max'] if row else None
+
         for rel in rel_files:
             full = STAGING_ROOT / rel
             if not full.exists():
@@ -111,19 +132,10 @@ def _process_group(
                 continue
 
             file_mtime = datetime.fromtimestamp(full.stat().st_mtime, tz=timezone.utc)
-
-            # file_review_status uses basename (matches existing manual-import rows)
             basename = full.name
-            cur.execute(
-                "SELECT reviewed_at FROM file_review_status WHERE file_path = %s",
-                (basename,),
-            )
-            row = cur.fetchone()
-            last_import: datetime | None = row['reviewed_at'] if row else None
+            file_states.append((basename, file_mtime, last_table_run))
 
-            file_states.append((basename, file_mtime, last_import))
-
-            if last_import is None or last_import < file_mtime:
+            if last_table_run is None or last_table_run < file_mtime:
                 needs_import = True
 
     if not file_states:
