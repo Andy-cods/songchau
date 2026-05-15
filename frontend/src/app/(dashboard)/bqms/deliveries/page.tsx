@@ -6,10 +6,16 @@ import {
   Truck, Search, X, Package, Plus, Save, Loader2,
   CheckCircle2, Clock, DollarSign, Download,
   ChevronDown, Columns3, Pencil, ArrowUpDown,
-  FileText, Copy, Check,
+  FileText, Copy, Check, BarChart3,
 } from 'lucide-react';
 import { api } from '@/lib/api';
+import { toast } from 'sonner';
+import { XCircle } from 'lucide-react';
 import { cn, formatDate, formatCurrency } from '@/lib/utils';
+// PR-1 (Thang 2026-05-13): DriverPicker + DriverManagementModal đã extract khỏi file này
+import { DriverPicker } from '@/components/bqms-drivers/DriverPicker';
+import { DriverManagementModal } from '@/components/bqms-drivers/DriverManagementModal';
+import { RevenueDashboardModal } from '@/components/bqms/RevenueDashboardModal';
 import { StatusBadge } from '@/components/shared/status-badge';
 import { SyncFreshnessChip } from '@/components/shared/sync-freshness-chip';
 import { DELIVERY_STATUS_CONFIG } from '@/lib/constants';
@@ -46,6 +52,12 @@ interface DeliveryRecord {
   created_at?: string;
   updated_at?: string;
   actual_delivered_at?: string;
+  // Phase G (Thang 2026-05-13): driver assignment + joined fields
+  driver_id?: number | null;
+  driver_name?: string | null;
+  driver_phone?: string | null;
+  driver_license_plate?: string | null;
+  driver_vehicle_type?: string | null;
 }
 
 interface KPIData {
@@ -92,6 +104,9 @@ const COLUMNS: ColDef[] = [
   // Pending = quantity - actual_delivered_qty (computed client-side; dbCol='_pending' is a sentinel handled in CellRenderer)
   { key: 'pending_qty', header: 'Pending', dbCol: '_pending', width: 80, group: 'C', defaultVisible: true, align: 'right', format: 'number' },
   { key: 'recipient_name', header: 'Người nhận', dbCol: 'recipient_name', width: 140, group: 'C', defaultVisible: true },
+  // Phase G (Thang 2026-05-13): Người giao hàng (driver) join từ bqms_contacts qua driver_id FK
+  { key: 'driver_name', header: 'Người giao', dbCol: 'driver_name', width: 140, group: 'C', defaultVisible: true },
+  { key: 'driver_license_plate', header: 'Biển số', dbCol: 'driver_license_plate', width: 100, group: 'C', defaultVisible: true },
   { key: 'shipping_no', header: 'Shipping No', dbCol: 'shipping_no', width: 120, group: 'C', defaultVisible: false },
   { key: 'delivery_method', header: 'PT giao hàng', dbCol: 'delivery_method', width: 110, group: 'C', defaultVisible: false },
   { key: 'country_origin', header: 'Xuất xứ', dbCol: 'country_origin', width: 110, group: 'C', defaultVisible: true },
@@ -166,7 +181,7 @@ function fmtVnd(v: number | null | undefined): string {
 
 export default function BQMSDeliveriesPage() {
   const queryClient = useQueryClient();
-  const [activeTab, setActiveTab] = useState<'deliveries' | 'contacts'>('deliveries');
+  const [activeTab, setActiveTab] = useState<'deliveries' | 'contacts' | 'mro'>('deliveries');
   const [statusFilter, setStatusFilter] = useState('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [month, setMonth] = useState('');
@@ -174,6 +189,8 @@ export default function BQMSDeliveriesPage() {
   const [page, setPage] = useState(1);
   const [selectedRow, setSelectedRow] = useState<DeliveryRecord | null>(null);
   const [showCreateForm, setShowCreateForm] = useState(false);
+  const [showDriverManager, setShowDriverManager] = useState(false);
+  const [showRevenueDashboard, setShowRevenueDashboard] = useState(false);
   const [visibleCols, setVisibleCols] = useState<string[]>(DEFAULT_VISIBLE);
   const [showColPicker, setShowColPicker] = useState(false);
   const [sortCol, setSortCol] = useState<string | null>(null);
@@ -336,27 +353,11 @@ export default function BQMSDeliveriesPage() {
             </div>
           </div>
           <div className="flex items-center gap-2">
-            {/* Tab switcher */}
-            <div className="flex bg-slate-100 rounded-lg p-0.5 mr-2">
-              <button
-                onClick={() => setActiveTab('deliveries')}
-                className={cn('px-3 py-1.5 rounded-md text-xs font-medium transition-colors',
-                  activeTab === 'deliveries' ? 'bg-white text-brand-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'
-                )}
-              >
-                Giao hàng
-              </button>
-              <button
-                onClick={() => setActiveTab('contacts')}
-                className={cn('px-3 py-1.5 rounded-md text-xs font-medium transition-colors',
-                  activeTab === 'contacts' ? 'bg-white text-brand-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'
-                )}
-              >
-                Danh bạ
-              </button>
-            </div>
-
-            {activeTab === 'deliveries' && (
+            {/* Per Thang 2026-05-13: Bỏ tab switcher (Giao hàng/Danh bạ/MRO P/O)
+                — merge tất cả vào view Giao hàng. Danh bạ + MRO PO tab content
+                vẫn tồn tại như component nhưng không expose qua UI. MRO PO
+                accessible qua /bqms/mro, Danh bạ embed inline trong từng row. */}
+            {true && (
               <>
                 {selectedIds.size > 0 ? (
                   <button
@@ -416,6 +417,20 @@ export default function BQMSDeliveriesPage() {
                   {hideCompleted ? 'Đang ẩn đã giao' : 'Ẩn đã giao'}
                 </button>
                 <button
+                  onClick={() => setShowRevenueDashboard(true)}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border border-violet-300 bg-violet-50 text-violet-700 hover:bg-violet-100 transition-colors"
+                  title="Dashboard doanh thu PO theo ngày / tháng / người giao / mã PO / BQMS"
+                >
+                  <BarChart3 className="h-3.5 w-3.5" /> Thống kê
+                </button>
+                <button
+                  onClick={() => setShowDriverManager(true)}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border border-amber-300 bg-amber-50 text-amber-700 hover:bg-amber-100 transition-colors"
+                  title="Quản lý người giao hàng (CCCD, biển số xe)"
+                >
+                  <Truck className="h-3.5 w-3.5" /> Người giao
+                </button>
+                <button
                   onClick={() => setShowCreateForm(true)}
                   className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-brand-600 text-white hover:bg-brand-700 transition-colors"
                 >
@@ -429,6 +444,8 @@ export default function BQMSDeliveriesPage() {
         {/* Contacts Tab */}
         {activeTab === 'contacts' ? (
           <ContactsTab />
+        ) : activeTab === 'mro' ? (
+          <MroTab />
         ) : (
           <>
             {/* KPI Cards */}
@@ -648,8 +665,24 @@ export default function BQMSDeliveriesPage() {
               queryClient.invalidateQueries({ queryKey: ['deliveries'] });
               queryClient.invalidateQueries({ queryKey: ['deliveries-kpi'] });
             }}
+            onOpenDriverManager={() => setShowDriverManager(true)}
           />
         </div>
+      )}
+
+      {/* Driver management modal — Phase G (Thang 2026-05-13) */}
+      {showDriverManager && (
+        <DriverManagementModal onClose={() => setShowDriverManager(false)} />
+      )}
+
+      {/* Revenue dashboard modal */}
+      {showRevenueDashboard && (
+        <RevenueDashboardModal
+          initialMonth={month}
+          initialYear={year}
+          initialStatus={statusFilter}
+          onClose={() => setShowRevenueDashboard(false)}
+        />
       )}
 
       {/* Create modal */}
@@ -987,8 +1020,9 @@ function ColumnPicker({ visibleCols, onToggle, onClose }: {
 
 // ─── Detail Panel ───────────────────────────────────────────────
 
-function DetailPanel({ delivery, onClose, onChanged }: {
+function DetailPanel({ delivery, onClose, onChanged, onOpenDriverManager }: {
   delivery: DeliveryRecord; onClose: () => void; onChanged: () => void;
+  onOpenDriverManager: () => void;
 }) {
   const status = normalizeStatus(delivery.delivery_status_normalized || delivery.delivery_status);
   const statusCfg = (DELIVERY_STATUS_CONFIG as any)[status];
@@ -1201,21 +1235,23 @@ function DetailPanel({ delivery, onClose, onChanged }: {
           ) : null}
         </DetailSectionCard>
 
-        {/* Section: Liên hệ */}
+        {/* Section: Người giao hàng (Driver picker) — Phase G */}
+        <DriverPicker delivery={delivery} onChanged={onChanged} onOpenManager={onOpenDriverManager} />
+
+        {/* Section: Liên hệ — Phase G (Thang 2026-05-13): tất cả editable */}
         <DetailSectionCard icon={<Search className="h-3.5 w-3.5" />} title="Liên hệ">
           <EditableRow label="Người nhận" field="recipient_name" value={delivery.recipient_name ?? '—'}
             rawValue={delivery.recipient_name ?? ''} editField={editField} editValue={editValue}
             saving={saving} onStartEdit={startEdit} onSave={handleSaveField} onSetValue={setEditValue} />
-          {delivery.receiving_warehouse ? (
-            <div className="pt-1">
-              <span className="text-[10px] text-slate-400 uppercase tracking-wider font-semibold">Kho nhận</span>
-              <p className="text-sm text-slate-700 mt-1 whitespace-pre-wrap break-words leading-relaxed">
-                {delivery.receiving_warehouse}
-              </p>
-            </div>
-          ) : null}
-          <DetailRow label="Mail PUR" value={delivery.buyer_email} />
-          <DetailRow label="SĐT PUR" value={delivery.buyer_phone} mono />
+          <EditableRow label="Kho nhận" field="receiving_warehouse" value={delivery.receiving_warehouse ?? '—'}
+            rawValue={delivery.receiving_warehouse ?? ''} editField={editField} editValue={editValue}
+            saving={saving} onStartEdit={startEdit} onSave={handleSaveField} onSetValue={setEditValue} />
+          <EditableRow label="Mail PUR" field="buyer_email" value={delivery.buyer_email ?? '—'}
+            rawValue={delivery.buyer_email ?? ''} editField={editField} editValue={editValue}
+            saving={saving} onStartEdit={startEdit} onSave={handleSaveField} onSetValue={setEditValue} type="email" />
+          <EditableRow label="SĐT PUR" field="buyer_phone" value={delivery.buyer_phone ?? '—'}
+            rawValue={delivery.buyer_phone ?? ''} editField={editField} editValue={editValue}
+            saving={saving} onStartEdit={startEdit} onSave={handleSaveField} onSetValue={setEditValue} />
         </DetailSectionCard>
 
         {/* Notes */}
@@ -1316,19 +1352,24 @@ function EditableRow({ label, field, value, rawValue, editField, editValue, savi
     );
   }
 
+  // Phase G (Thang 2026-05-13): click toàn dòng để edit + pencil luôn hiện
+  // (trước pencil ẩn cho tới khi hover → user không biết edit được).
   return (
-    <div className="flex justify-between gap-2 group">
+    <button
+      type="button"
+      onClick={() => onStartEdit(field, rawValue)}
+      className="w-full flex justify-between items-center gap-2 group rounded px-1.5 -mx-1.5 py-0.5 hover:bg-brand-50 transition-colors text-left"
+      title={`Click để chỉnh sửa ${label}`}
+    >
       <span className="text-xs text-slate-400 shrink-0">{label}</span>
-      <span className="flex items-center gap-1 text-sm text-slate-700">
+      <span className="flex items-center gap-1.5 text-sm text-slate-700">
         {value}
-        <button onClick={() => onStartEdit(field, rawValue)}
-          className="opacity-0 group-hover:opacity-100 text-slate-300 hover:text-brand-500 transition-opacity">
-          <Pencil className="h-3 w-3" />
-        </button>
+        <Pencil className="h-3 w-3 text-slate-300 group-hover:text-brand-500 transition-colors" />
       </span>
-    </div>
+    </button>
   );
 }
+
 
 // ─── Status Change Buttons ──────────────────────────────────────
 
@@ -1529,6 +1570,126 @@ function CreateDeliveryModal({ onClose, onCreated }: { onClose: () => void; onCr
             {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
             Tạo đơn
           </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── MRO Tab — list MRO P/O Receipt staging (module='po') ──────────────
+// Per Thang 2026-05-11: surface MRO scrape data here next to deliveries.
+
+function MroTab() {
+  const [search, setSearch] = useState('');
+  const [statusF, setStatusF] = useState<'all' | 'pending_review' | 'merged'>('all');
+
+  const { data: raw, isLoading, refetch } = useQuery({
+    queryKey: ['bqms-mro', search, statusF],
+    queryFn: () => {
+      const q = new URLSearchParams({ page: '1', page_size: '200' });
+      if (statusF !== 'all') q.set('status', statusF);
+      if (search.trim()) q.set('search', search.trim());
+      return api.get<{ data: { items: any[]; total: number } }>(
+        `/api/v1/bqms/staging/mro?${q.toString()}`,
+      );
+    },
+    staleTime: 60 * 1000,
+  });
+
+  const items = raw?.data?.items ?? [];
+  const total = raw?.data?.total ?? 0;
+
+  const fmtN = (n: any) => n == null || n === '' ? '—' :
+    new Intl.NumberFormat('vi-VN').format(Math.round(Number(n) || 0));
+  const fmtD = (s?: string) => {
+    if (!s) return '—';
+    if (/^\d{8}$/.test(s)) return `${s.slice(6,8)}/${s.slice(4,6)}/${s.slice(0,4)}`;
+    return s;
+  };
+
+  return (
+    <div className="space-y-3">
+      {/* Filter */}
+      <div className="bg-white border border-slate-200 rounded-lg p-3 flex items-center gap-3 flex-wrap">
+        <input
+          value={search} onChange={(e) => setSearch(e.target.value)}
+          placeholder="Tìm RFQ, Item code, spec..."
+          className="flex-1 min-w-[260px] px-3 py-2 rounded-lg border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500/30"
+        />
+        <div className="inline-flex rounded-lg bg-slate-100 p-0.5 text-xs font-medium">
+          {(['all', 'pending_review', 'merged'] as const).map(v => (
+            <button key={v} onClick={() => setStatusF(v)}
+              className={cn(
+                'px-3 py-1.5 rounded-md transition-all',
+                statusF === v ? 'bg-white shadow-sm text-brand-700' : 'text-slate-500',
+              )}>
+              {v === 'all' ? 'Tất cả' : v === 'pending_review' ? 'Chờ duyệt' : 'Đã merge'}
+            </button>
+          ))}
+        </div>
+        <button onClick={() => refetch()} disabled={isLoading}
+          className="inline-flex items-center gap-1.5 rounded-lg bg-brand-600 hover:bg-brand-700 px-3 py-2 text-sm font-medium text-white disabled:opacity-50">
+          <Loader2 className={cn('h-3.5 w-3.5', isLoading && 'animate-spin')} />
+          Refresh
+        </button>
+        <span className="text-xs text-slate-500">
+          <span className="font-semibold text-slate-700">{total}</span> đơn MRO
+        </span>
+      </div>
+
+      {/* Table */}
+      <div className="bg-white border border-slate-200 rounded-lg overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="min-w-full text-xs">
+            <thead className="bg-slate-100 text-slate-600 uppercase text-[10px] font-bold">
+              <tr>
+                <th className="px-2 py-2 text-left">Status</th>
+                <th className="px-2 py-2 text-left">PO No</th>
+                <th className="px-2 py-2 text-left">RFQ</th>
+                <th className="px-2 py-2 text-left">Item Code</th>
+                <th className="px-2 py-2 text-left">Spec</th>
+                <th className="px-2 py-2 text-left">Maker</th>
+                <th className="px-2 py-2 text-right">Qty</th>
+                <th className="px-2 py-2 text-right">Đơn giá</th>
+                <th className="px-2 py-2 text-right">Tổng</th>
+                <th className="px-2 py-2 text-left">Plant</th>
+                <th className="px-2 py-2 text-left">Receiver</th>
+                <th className="px-2 py-2 text-left">Delivery</th>
+                <th className="px-2 py-2 text-left">Address</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {isLoading && (
+                <tr><td colSpan={13} className="px-3 py-6 text-center text-slate-400">Đang tải...</td></tr>
+              )}
+              {!isLoading && items.length === 0 && (
+                <tr><td colSpan={13} className="px-3 py-6 text-center text-slate-400">Chưa có dữ liệu MRO. Chạy scraper để lấy.</td></tr>
+              )}
+              {items.map((it: any) => (
+                <tr key={it.id} className="hover:bg-brand-50/40">
+                  <td className="px-2 py-1.5">
+                    <span className={cn(
+                      'px-1.5 py-0.5 rounded-full text-[10px] font-bold',
+                      it.po_status === 'PO Approved' ? 'bg-emerald-100 text-emerald-700' :
+                      'bg-slate-100 text-slate-600',
+                    )}>{it.po_status || it.status}</span>
+                  </td>
+                  <td className="px-2 py-1.5 font-mono">{it.po_no || '—'}</td>
+                  <td className="px-2 py-1.5 font-mono text-emerald-700">{it.rfq_number || '—'}</td>
+                  <td className="px-2 py-1.5 font-mono">{it.item_code || '—'}</td>
+                  <td className="px-2 py-1.5 max-w-[260px] truncate" title={it.specification || ''}>{it.specification || '—'}</td>
+                  <td className="px-2 py-1.5 truncate max-w-[140px]" title={it.manufacturer || ''}>{it.manufacturer || '—'}</td>
+                  <td className="px-2 py-1.5 text-right font-mono">{fmtN(it.po_qty)}</td>
+                  <td className="px-2 py-1.5 text-right font-mono">{fmtN(it.buying_price)}</td>
+                  <td className="px-2 py-1.5 text-right font-mono font-semibold text-brand-700">{fmtN(it.buying_amount)}</td>
+                  <td className="px-2 py-1.5 truncate max-w-[140px]" title={it.plant || ''}>{it.plant || '—'}</td>
+                  <td className="px-2 py-1.5 truncate max-w-[140px]" title={it.receiver || ''}>{it.receiver || '—'}</td>
+                  <td className="px-2 py-1.5 whitespace-nowrap">{fmtD(it.req_delivery_date)}</td>
+                  <td className="px-2 py-1.5 truncate max-w-[200px] text-slate-500" title={it.delivery_address || ''}>{it.delivery_address || '—'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       </div>
     </div>
