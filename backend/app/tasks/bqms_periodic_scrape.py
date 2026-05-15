@@ -329,6 +329,22 @@ async def _run_all() -> dict[str, Any]:
             out["errors"].append(f"contract: {exc}")
             logger.warning("contract scrape failed: %s", exc)
 
+        # 2b. Bridge contract staging → bqms_won_quotations (Trúng BG)
+        # Per Thang 2026-05-15: replace Excel-based won_quotations import with
+        # Samsung scrape source. Runs even if 2. failed — picks up backlog.
+        try:
+            from app.services.bqms_won_quotations_sync import (
+                upsert_won_from_contract_staging,
+            )
+            ws = await upsert_won_from_contract_staging(pool)
+            out["won_inserted"] = ws.get("inserted", 0)
+            out["won_updated"] = ws.get("updated", 0)
+            out["won_skipped"] = ws.get("skipped", 0)
+            out["won_errors"] = ws.get("errors", 0)
+        except Exception as exc:
+            out["errors"].append(f"won_bridge: {exc}")
+            logger.warning("won_quotations bridge failed: %s", exc)
+
         # 3. MRO
         try:
             r = await scrape_mro_po(
@@ -338,6 +354,22 @@ async def _run_all() -> dict[str, Any]:
         except Exception as exc:
             out["errors"].append(f"mro: {exc}")
             logger.warning("mro scrape failed: %s", exc)
+
+        # 3b. Bridge po staging → bqms_deliveries (Giao hàng)
+        # Per Thang 2026-05-15: replace Excel-based deliveries import with
+        # Samsung MRO scrape source.
+        try:
+            from app.services.bqms_deliveries_sync import (
+                upsert_deliveries_from_po_staging,
+            )
+            ds = await upsert_deliveries_from_po_staging(pool)
+            out["delivery_inserted"] = ds.get("inserted", 0)
+            out["delivery_updated"] = ds.get("updated", 0)
+            out["delivery_skipped"] = ds.get("skipped", 0)
+            out["delivery_errors"] = ds.get("errors", 0)
+        except Exception as exc:
+            out["errors"].append(f"delivery_bridge: {exc}")
+            logger.warning("deliveries bridge failed: %s", exc)
 
         # 4. Selection Result (won/lost) — per Thang 2026-05-11:
         # scrape Selection Result page, auto-mark bqms_rfq.result='won'/'lost'
