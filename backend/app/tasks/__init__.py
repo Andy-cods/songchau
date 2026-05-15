@@ -26,3 +26,6 @@ from app.tasks import local_filesystem_index  # noqa: F401 — registers local_f
 from app.tasks import imv_sync           # noqa: F401 — registers imv_nightly_sync
 from app.tasks import bqms_excel_auto_import  # noqa: F401 — registers bqms_excel_auto_import (mỗi 2 phút)
 from app.tasks import kpi_aggregator     # noqa: F401 — M40, registers aggregate_monthly_kpi (cron 02:00 ICT day-1)
+from app.tasks import bqms_quote_batch   # noqa: F401 — registers bqms_quote_one_rfq (Option B background queue)
+from app.tasks import bqms_periodic_scrape  # noqa: F401 — registers bqms_periodic_scrape (mỗi 30 phút, bidding+contract+MRO)
+from app.tasks import bqms_auto_submit      # noqa: F401 — registers bqms_submit_quote (queue=bqms_push, concurrency=1)
