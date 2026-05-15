@@ -668,9 +668,15 @@ async def rfq_table(
 
     if search:
         like = f"%{search}%"
+        # Search bao gồm description từ staging.raw_json._detail.items
+        # (e.g. "CNC BRUSH", "BLADE") — bqms_rfq không có cột description
+        # nên cần subquery. Per Thang 2026-05-15.
         conditions.append(
             f"(rfq_number ILIKE ${idx} OR bqms_code ILIKE ${idx} "
-            f"OR specification ILIKE ${idx} OR maker ILIKE ${idx})"
+            f"OR specification ILIKE ${idx} OR maker ILIKE ${idx} "
+            f"OR EXISTS (SELECT 1 FROM bqms_vendor_portal_staging s "
+            f"  WHERE s.module='bidding' AND s.rfq_number = bqms_rfq.rfq_number "
+            f"  AND s.raw_json::text ILIKE ${idx}))"
         )
         params.append(like)
         idx += 1

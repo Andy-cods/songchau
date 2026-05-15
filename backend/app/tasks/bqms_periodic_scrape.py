@@ -37,6 +37,19 @@ logger = logging.getLogger(__name__)
 # Periodic task — every 30 min
 # ---------------------------------------------------------------------------
 
+# Sleep window: 20:00-05:00 ICT (Asia/Ho_Chi_Minh, UTC+7). When current
+# time in ICT falls within [20:00, 23:59] OR [00:00, 04:59], ALL bqms
+# scrape/heal tasks return early. Per Thang 2026-05-15 spec.
+# Container TZ may be UTC — we compute ICT explicitly.
+def _is_sleep_window(now_utc: datetime | None = None) -> bool:
+    """True if current ICT time is between 20:00 and 05:00 (sleep window)."""
+    if now_utc is None:
+        now_utc = datetime.now(timezone.utc)
+    # ICT = UTC + 7. Hour 0-23 in ICT.
+    ict_hour = (now_utc.hour + 7) % 24
+    return ict_hour >= 20 or ict_hour < 5
+
+
 def _is_periodic_enabled() -> bool:
     """Check `app_config.bqms_periodic_scrape_enabled` flag — runtime toggle."""
     try:
@@ -120,6 +133,8 @@ def bqms_smart_rescan(timestamp: int = 0) -> dict[str, Any]:
 
     Toggle: app_config.bqms_smart_rescan_enabled (default true).
     """
+    if _is_sleep_window():
+        return {"status": "sleep", "skipped": True}
     if not _smart_rescan_enabled():
         return {"status": "disabled", "skipped": True}
 
@@ -221,6 +236,9 @@ def bqms_periodic_scrape(timestamp: int = 0) -> dict[str, Any]:
     bqms_periodic_scrape_enabled flag (default OFF). UI button on /bqms
     can flip the flag. When OFF, the task is a no-op (returns immediately).
     """
+    if _is_sleep_window():
+        logger.info("bqms_periodic_scrape: SLEEP (ICT 20:00-05:00)")
+        return {"status": "sleep", "skipped": True}
     if not _is_periodic_enabled():
         logger.info("bqms_periodic_scrape: DISABLED via app_config flag")
         return {"status": "disabled", "skipped": True}
@@ -843,6 +861,8 @@ def bqms_smart_code_track(timestamp: int = 0) -> dict[str, Any]:
     Toggle: app_config.bqms_code_track_enabled (default true).
     Budget: 120s hard cap. Uses pg_advisory_lock to prevent concurrent runs.
     """
+    if _is_sleep_window():
+        return {"status": "sleep", "skipped": True}
     if not _code_track_enabled():
         return {"status": "disabled", "skipped": True}
 
