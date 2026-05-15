@@ -190,12 +190,18 @@ class BqmsQuotePusher:
                 await self._click_edit()
                 await _p(20, "Edit mode active")
 
-                per_item_pct = 55.0 / max(n_items, 1)
+                # Round 2/3/4: skip image upload + skip FREE_CHARGE/SUBMIT_GIVEUP
+                # per Thang 2026-05-15 spec. Only fill price + lead_time per item.
+                round_n = int(payload.get("round", 1))
+                per_item_pct = (55.0 if round_n == 1 else 25.0) / max(n_items, 1)
+                step_label = "upload ảnh" if round_n == 1 else "điền price + lead"
                 for idx, item in enumerate(payload["items"]):
                     base_pct = 20 + idx * per_item_pct
-                    await _p(int(base_pct), f"Item {idx+1}/{n_items} — {item.get('bqms_code', '?')}: upload ảnh")
-                    await self._fill_one_item(item)
-                    await _p(int(base_pct + per_item_pct), f"Item {idx+1}/{n_items}: xong (price + abandon + lead)")
+                    await _p(int(base_pct),
+                             f"Item {idx+1}/{n_items} — {item.get('bqms_code', '?')}: {step_label}")
+                    await self._fill_one_item(item, round_n=round_n)
+                    await _p(int(base_pct + per_item_pct),
+                             f"Item {idx+1}/{n_items}: xong")
 
                 await _p(76, "Điền Quote Valid Date")
                 await self._fill_quote_valid_date(payload["quote_valid_date"])
@@ -727,10 +733,13 @@ class BqmsQuotePusher:
 
     # ─── Step C: Fill 1 item ──────────────────────────────────
 
-    async def _fill_one_item(self, item: dict[str, Any]):
-        """Per row trong table Quotation amount: upload image → fill price/abandon/lead.
+    async def _fill_one_item(self, item: dict[str, Any], round_n: int = 1):
+        """Per row trong table Quotation amount.
 
-        Use _scope() (edit frame). Take screenshot khi fail để debug.
+        Round 1: upload image → fill price/lead → set FREE_CHARGE='N' (+SUBMIT_GIVEUP if Y).
+        Round 2/3/4: SKIP image upload (Samsung reuses V1 image) + SKIP FREE_CHARGE +
+                     SKIP SUBMIT_GIVEUP (preserve Samsung default per Thang 2026-05-15).
+                     ONLY fill price + lead_time.
         """
         code = item["bqms_code"]
         scope = self._scope()
@@ -792,8 +801,14 @@ class BqmsQuotePusher:
         # Locate row via Playwright now that em verify nó tồn tại
         row = scope.locator(f'tr:has(td:has-text("{code}"))').first
 
-        # ── C2. Upload image (mandatory first) ──
-        await self._upload_item_image(row, code, item["image_path"])
+        # ── C2. Upload image (round 1 ONLY) ──
+        if round_n == 1:
+            await self._upload_item_image(row, code, item["image_path"])
+        else:
+            logger.info(
+                "Skip image upload for %s (round=%d, Samsung reuses V1 image)",
+                code, round_n,
+            )
 
         # ── C3+C5. Set price + lead_time DIRECTLY into dhtmlxGrid model ──
         # CRITICAL discovery (Thang 2026-05-15): Samsung's saveDcu() reads from
@@ -870,9 +885,15 @@ class BqmsQuotePusher:
                 };
                 out.sets.price = setCell(priceColId, args.price);
                 out.sets.lead = setCell('LEAD_TIME', args.lead);
-                out.sets.free_charge = setCell('FREE_CHARGE', 'N');
-                if (args.abandonment === 'Y') {
-                    out.sets.giveup = setCell('SUBMIT_GIVEUP', 'Y');
+                // Round 1 only: set FREE_CHARGE='N' and SUBMIT_GIVEUP='Y' if abandoned.
+                // Round 2-4: preserve Samsung's stored values (anh không động vào).
+                if (args.round_n === 1) {
+                    out.sets.free_charge = setCell('FREE_CHARGE', 'N');
+                    if (args.abandonment === 'Y') {
+                        out.sets.giveup = setCell('SUBMIT_GIVEUP', 'Y');
+                    }
+                } else {
+                    out.skipped_for_round = ['FREE_CHARGE', 'SUBMIT_GIVEUP'];
                 }
                 return out;
             }""",
@@ -881,6 +902,7 @@ class BqmsQuotePusher:
                 "price": int(item["quotation_price"]),
                 "lead": int(item.get("lead_time_days", 30)),
                 "abandonment": item.get("abandonment", "N"),
+                "round_n": round_n,
             },
         )
         logger.info("Grid model set for %s: %s", code, grid_result)
@@ -1742,7 +1764,9 @@ class BqmsQuotePusher:
                     len(payload.get("items", [])),
                 )
                 reapply = await scope.evaluate(
-                    """(items) => {
+                    """(args) => {
+                        const items = args.items || [];
+                        const round_n = args.round_n || 1;
                         const g = itemGridBox;
                         if (!g) return {err: 'no grid'};
                         const out = [];
@@ -1771,9 +1795,12 @@ class BqmsQuotePusher:
                             try {
                                 g.setCellValueById(priceColId, rowId, item.quotation_price);
                                 g.setCellValueById('LEAD_TIME', rowId, item.lead_time_days || 30);
-                                g.setCellValueById('FREE_CHARGE', rowId, 'N');
-                                if ((item.abandonment || 'N') === 'Y') {
-                                    g.setCellValueById('SUBMIT_GIVEUP', rowId, 'Y');
+                                // Round 2-4: KHÔNG động FREE_CHARGE + SUBMIT_GIVEUP
+                                if (round_n === 1) {
+                                    g.setCellValueById('FREE_CHARGE', rowId, 'N');
+                                    if ((item.abandonment || 'N') === 'Y') {
+                                        g.setCellValueById('SUBMIT_GIVEUP', rowId, 'Y');
+                                    }
                                 }
                                 out.push({
                                     code: item.bqms_code, rid: rowId,
@@ -1786,7 +1813,10 @@ class BqmsQuotePusher:
                         }
                         return out;
                     }""",
-                    payload.get("items", []),
+                    {
+                        "items": payload.get("items", []),
+                        "round_n": int(payload.get("round", 1)),
+                    },
                 )
                 logger.info("Re-apply result: %s", reapply)
 

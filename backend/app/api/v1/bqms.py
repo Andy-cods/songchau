@@ -24,6 +24,38 @@ from app.core.security import TokenData
 from app.services.bqms_service import BQMSService
 
 logger = logging.getLogger(__name__)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# BQMS user-edit guard (Thang 2026-05-15): when `bqms_user_edit_disabled` flag
+# is true in app_config, ALL endpoints that mutate BQMS data return 403.
+# Use as a single-line guard at top of each edit endpoint:
+#     await _assert_bqms_edit_enabled(conn)
+# Read-only endpoints are NOT affected.
+# ─────────────────────────────────────────────────────────────────────────────
+
+_BQMS_EDIT_DISABLED_MSG = (
+    "BQMS user editing is currently disabled. Data is sourced from Samsung "
+    "scrape only. Toggle app_config.bqms_user_edit_disabled=false to re-enable."
+)
+
+
+async def _assert_bqms_edit_enabled(conn: asyncpg.Connection) -> None:
+    """Raise 403 nếu BQMS user-edit bị tắt qua app_config flag."""
+    try:
+        val = await conn.fetchval(
+            "SELECT value FROM app_config WHERE key='bqms_user_edit_disabled'"
+        )
+    except Exception:
+        return  # If app_config table or row missing, allow (fail-open)
+    # jsonb value can be Python bool/str/dict — normalize to bool
+    disabled = False
+    if isinstance(val, bool):
+        disabled = val
+    elif isinstance(val, str):
+        disabled = val.strip().strip('"').lower() in ("true", "1", "yes")
+    if disabled:
+        raise HTTPException(status_code=403, detail=_BQMS_EDIT_DISABLED_MSG)
 router = APIRouter()
 
 # Shared service instance
@@ -5152,24 +5184,55 @@ async def get_push_preview(
     if not items_db:
         raise HTTPException(400, "Không có item nào")
 
+    # Fetch REAL description per bqms_code from staging.raw_json._detail.items.
+    # bqms_rfq table không có cột description; description thật ("CNC BRUSH",
+    # "BLADE") chỉ tồn tại trong staging từ lúc scrape items. Map by bqms_code.
+    # Per Thang 2026-05-15: Submission Opinion phải dùng description, không
+    # phải specification.
+    description_map: dict[str, str] = {}
+    try:
+        staging_row = await conn.fetchrow(
+            """SELECT raw_json FROM bqms_vendor_portal_staging
+               WHERE module='bidding' AND rfq_number=$1
+               ORDER BY id DESC LIMIT 1""", rfq_number,
+        )
+        if staging_row and staging_row["raw_json"]:
+            raw = staging_row["raw_json"]
+            if isinstance(raw, str):
+                raw = _json.loads(raw)
+            detail = (raw.get("_detail") or {})
+            for det_it in (detail.get("items") or []):
+                c = (det_it.get("item_code") or "").strip()
+                d = (det_it.get("description") or "").strip()
+                if c and d:
+                    description_map[c] = d
+    except Exception as exc:
+        logger.warning("push-preview description_map fetch failed for %s: %s",
+                       rfq_number, str(exc)[:120])
+
     items_out: list[dict] = []
     warnings: list[str] = []
     for it in items_db:
         code = it["bqms_code"]
         if not code:
             continue
-        img_src = resolve_image_for_bqms_code(code, rfq_number)
+        # Round 1 needs image; round 2+ uses Samsung's stored image (don't re-upload)
+        img_src = resolve_image_for_bqms_code(code, rfq_number) if round_n == 1 else None
         image_path = None
         image_source = "missing"
-        if img_src:
-            try:
-                resized = resize_for_samsung(img_src)
-                image_path = str(resized)
-                image_source = "override" if "quote-overrides" in str(img_src) else "auto"
-            except Exception as exc:
-                warnings.append(f"{code}: resize ảnh lỗi - {exc}")
+        if round_n == 1:
+            if img_src:
+                try:
+                    resized = resize_for_samsung(img_src)
+                    image_path = str(resized)
+                    image_source = "override" if "quote-overrides" in str(img_src) else "auto"
+                except Exception as exc:
+                    warnings.append(f"{code}: resize ảnh lỗi - {exc}")
+            else:
+                warnings.append(f"{code}: không tìm thấy ảnh")
         else:
-            warnings.append(f"{code}: không tìm thấy ảnh")
+            # Round 2+: no image upload required, Samsung keeps the V1 image.
+            image_source = "skip_round_gt_1"
 
         price_v = it[f"quoted_price_bqms_v{round_n}"]
         if price_v is None and round_n > 1:
@@ -5180,10 +5243,13 @@ async def get_push_preview(
         if price_v is None:
             warnings.append(f"{code}: chưa có giá V{round_n}")
 
+        # Real description from staging (e.g., "CNC BRUSH"), fallback to spec
+        real_desc = description_map.get(code) or it["specification"] or code
+
         items_out.append({
             "rfq_item_id": int(it["id"]),
             "bqms_code": code,
-            "description": (it["specification"] or code)[:200],
+            "description": real_desc[:200],
             "specification": it["specification"],
             "quantity": float(it["expected_qty"] or 0),
             "unit": it["unit"] or "Piece",
@@ -5302,10 +5368,12 @@ async def push_to_sec(
         errors.append("Submission Opinion rỗng")
     if not body.attachment_paths:
         errors.append("Cần ít nhất 1 file đính kèm")
+    # Image required ONLY on round 1 — rounds 2-4 reuse Samsung's stored image.
+    image_required = (body.round == 1)
     for i, it in enumerate(body.items, 1):
         if it.get("abandonment", "N") == "Y":
             continue
-        if not it.get("image_path"):
+        if image_required and not it.get("image_path"):
             errors.append(f"Item #{i} ({it.get('bqms_code')}) thiếu ảnh")
         if not it.get("quotation_price") or float(it["quotation_price"]) <= 0:
             errors.append(f"Item #{i} ({it.get('bqms_code')}) thiếu giá")
