@@ -1038,6 +1038,33 @@ def _ranks_from_factors(factors_by_vendor: dict[int, dict[str, Any]]) -> dict[in
     return ranks
 
 
+async def _compute_prev_ranks(
+    conn: asyncpg.Connection, months: int, min_invites: int,
+) -> dict[int, int]:
+    """{vendor_id: rank} over the immediately-PRECEDING window of the SAME length —
+    current = [now-months, now]; prior = [now-2*months, now-months]. Re-runs the
+    IDENTICAL scoring aggregation with the window shifted back by `months`
+    (offset_months=months) and ranks it with the SAME ordering/tie-break as the
+    live list (_ranks_from_factors). A vendor absent from the prior window is
+    simply absent from the returned dict ⇒ caller treats it as null (no prior rank).
+
+    SHARED by both `vendor_scorecard` (list) and `vendor_scorecard_detail` (single
+    vendor) so the two surfaces can never disagree on a vendor's Δ hạng.
+
+    FULLY GUARDED: any failure in the prior-window path degrades to {} (prev_rank
+    null for every vendor) rather than failing the caller's already-computed
+    live scorecard.
+    """
+    try:
+        prior_factors = await _scorecard_factors(
+            conn, months, min_invites, offset_months=months,
+        )
+        return _ranks_from_factors(prior_factors)
+    except Exception:  # noqa: BLE001 — never let prev_rank break the endpoint
+        logger.warning("scorecard: prev_rank computation failed; degrading to null", exc_info=True)
+        return {}
+
+
 # ===========================================================================
 # GET /vendor-scorecard — ranked scorecard of all vendors
 # ===========================================================================
@@ -1058,23 +1085,9 @@ async def vendor_scorecard(
     """
     factors_by_vendor = await _scorecard_factors(conn, months, min_invites)
 
-    # prev_rank (ADDITIVE): the rank each vendor WOULD have had over the immediately-
-    # preceding window of the SAME length — current = [now-months, now]; prior =
-    # [now-2*months, now-months]. We re-run the IDENTICAL scoring aggregation with the
-    # window shifted back by `months` (offset_months=months) and rank it with the SAME
-    # ordering/tie-break as the live list (_ranks_from_factors). LEFT-JOINed onto the
+    # prev_rank (ADDITIVE) — see _compute_prev_ranks docstring. LEFT-JOINed onto the
     # current rows by vendor_id below; a vendor absent from the prior window ⇒ null.
-    # FULLY GUARDED: any failure in the prior-window path degrades prev_rank to null
-    # for ALL rows rather than failing the (already-computed) live scorecard.
-    prev_ranks: dict[int, int] = {}
-    try:
-        prior_factors = await _scorecard_factors(
-            conn, months, min_invites, offset_months=months,
-        )
-        prev_ranks = _ranks_from_factors(prior_factors)
-    except Exception:  # noqa: BLE001 — never let prev_rank break the endpoint
-        logger.warning("vendor_scorecard: prev_rank computation failed; degrading to null", exc_info=True)
-        prev_ranks = {}
+    prev_ranks = await _compute_prev_ranks(conn, months, min_invites)
 
     # Build FLAT per-vendor rows in the FE VendorRow shape. The FE table reads each
     # field directly: vendor_name, score (0..100|null), grade ('A'|'B'|'C'|null),
@@ -1150,6 +1163,14 @@ async def vendor_scorecard_detail(
             "raw": {},
         }
 
+    # rank / prev_rank (ADDITIVE, W3-05 close-out): mirrors the list endpoint EXACTLY
+    # (same _ranks_from_factors ordering/tie-break, same _compute_prev_ranks window
+    # shift) so the "Δ hạng" mini-stat in the detail drawer never disagrees with the
+    # list row it was opened from. Both null when the vendor is unscored/unranked
+    # (insufficient data or absent from the window) — FE already degrades to "—".
+    rank = _ranks_from_factors(factors_by_vendor).get(vendor_id)
+    prev_rank = (await _compute_prev_ranks(conn, months, min_invites)).get(vendor_id)
+
     if v["sufficient"]:
         score, applied = _score_from_factors(v["factors"])
     else:
@@ -1219,6 +1240,8 @@ async def vendor_scorecard_detail(
             "score": score,
             "grade": g if g in ("A", "B", "C") else None,
             "insufficient": not v["sufficient"],
+            "rank": rank,            # int | None — current-window rank (list ordering)
+            "prev_rank": prev_rank,  # int | None — prior-window rank, for Δ hạng
             "factors": factors_list,
             "recent_awards": [
                 {

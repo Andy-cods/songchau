@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
+import dynamic from 'next/dynamic';
 import { api } from '@/lib/api';
 import { cn } from '@/lib/utils';
 import {
@@ -12,22 +13,26 @@ import {
   Wallet,
   Inbox,
 } from 'lucide-react';
-import {
-  ComposedChart,
-  Bar,
-  Line,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  Legend,
-  ResponsiveContainer,
-} from 'recharts';
 import { KPICard } from '@/components/shared/kpi-card';
 import { TableSkeleton } from '@/components/shared/table-skeleton';
 import { EmptyState } from '@/components/shared/empty-state';
 import { PageHeader } from '@/components/shared/page-header';
-import { CHART } from '@/lib/chart-colors';
+
+// Code-splitting (W3-16): recharts moved into MonthlyComparisonChart.tsx,
+// deferred via dynamic() so it isn't part of this route's first-load JS.
+const MonthlyComparisonChart = dynamic(
+  () => import('./MonthlyComparisonChart').then((m) => m.MonthlyComparisonChart),
+  {
+    ssr: false,
+    loading: () => (
+      <div
+        className="h-72 bg-slate-100 rounded-xl motion-safe:animate-pulse"
+        aria-busy="true"
+        aria-live="polite"
+      />
+    ),
+  },
+);
 
 // ─── Types ──────────────────────────────────────────────────────
 
@@ -56,27 +61,6 @@ interface TopCustomerRow {
 
 type Tone = 'success' | 'warning' | 'danger' | 'neutral';
 
-// ─── Constants ──────────────────────────────────────────────────
-
-/**
- * Finding #13: hoist Recharts hex values into named tokens so palette
- * audits don't need to grep the JSX. Data series pull from the shared
- * chart-colors token set; axis/grid/tooltip stay neutral slate chrome.
- *   - revenue → CHART.brand (series chính / nhấn)
- *   - cost    → CHART.neutral (slate — không cạnh tranh với brand)
- *   - margin  → CHART.info (đường biên LN, thông tin phụ)
- */
-const CHART_TOKENS = {
-  revenue: CHART.brand,
-  cost: CHART.neutral,
-  margin: CHART.info,
-  axisText: '#64748b',
-  axisLine: '#e2e8f0',
-  gridLine: '#e2e8f0',
-  tooltipText: '#475569',
-  tooltipBg: '#ffffff',
-} as const;
-
 // ─── Helpers ────────────────────────────────────────────────────
 
 function fmtVnd(value: number): string {
@@ -85,10 +69,6 @@ function fmtVnd(value: number): string {
   if (value >= 1_000_000)
     return new Intl.NumberFormat('vi-VN').format(Math.round(value / 1_000_000)) + ' tr';
   return new Intl.NumberFormat('vi-VN').format(value) + '₫';
-}
-
-function fmtChartVnd(value: number): string {
-  return fmtVnd(value);
 }
 
 // ─── Margin Badge ────────────────────────────────────────────────
@@ -260,74 +240,7 @@ export default function FinanceReportsPage() {
             aria-live="polite"
           />
         ) : monthly.length > 0 ? (
-          <ResponsiveContainer width="100%" height={320}>
-            <ComposedChart data={monthly} margin={{ top: 5, right: 20, left: 10, bottom: 5 }}>
-              <CartesianGrid stroke={CHART_TOKENS.gridLine} strokeDasharray="3 3" vertical={false} />
-              <XAxis
-                dataKey="month"
-                tick={{ fontSize: 11, fill: CHART_TOKENS.axisText }}
-                axisLine={{ stroke: CHART_TOKENS.axisLine }}
-                tickLine={{ stroke: CHART_TOKENS.axisLine }}
-              />
-              <YAxis
-                yAxisId="left"
-                tickFormatter={fmtChartVnd}
-                tick={{ fontSize: 11, fill: CHART_TOKENS.axisText }}
-                axisLine={{ stroke: CHART_TOKENS.axisLine }}
-                tickLine={{ stroke: CHART_TOKENS.axisLine }}
-                width={70}
-              />
-              <YAxis
-                yAxisId="right"
-                orientation="right"
-                tickFormatter={(v) => `${v}%`}
-                tick={{ fontSize: 11, fill: CHART_TOKENS.axisText }}
-                axisLine={{ stroke: CHART_TOKENS.axisLine }}
-                tickLine={{ stroke: CHART_TOKENS.axisLine }}
-                width={40}
-              />
-              <Tooltip
-                wrapperClassName="!rounded-lg !border-slate-200 !shadow-md"
-                contentStyle={{
-                  backgroundColor: CHART_TOKENS.tooltipBg,
-                  border: `1px solid ${CHART_TOKENS.axisLine}`,
-                  borderRadius: 8,
-                  fontSize: 12,
-                  color: CHART_TOKENS.tooltipText,
-                }}
-                formatter={(value: number, name: string) =>
-                  name === 'Biên LN %'
-                    ? `${Number(value ?? 0).toFixed(1)}%`
-                    : fmtVnd(value)
-                }
-              />
-              <Legend wrapperStyle={{ fontSize: 12, color: CHART_TOKENS.tooltipText }} />
-              <Bar
-                yAxisId="left"
-                dataKey="revenue"
-                name="Doanh thu"
-                fill={CHART_TOKENS.revenue}
-                radius={[3, 3, 0, 0]}
-              />
-              <Bar
-                yAxisId="left"
-                dataKey="cost"
-                name="Chi phí"
-                fill={CHART_TOKENS.cost}
-                radius={[3, 3, 0, 0]}
-              />
-              <Line
-                yAxisId="right"
-                type="monotone"
-                dataKey="margin_pct"
-                name="Biên LN %"
-                stroke={CHART_TOKENS.margin}
-                strokeWidth={2}
-                dot={{ r: 3, fill: CHART_TOKENS.margin }}
-                activeDot={{ r: 5 }}
-              />
-            </ComposedChart>
-          </ResponsiveContainer>
+          <MonthlyComparisonChart monthly={monthly} />
         ) : (
           <EmptyState
             icon={Inbox}

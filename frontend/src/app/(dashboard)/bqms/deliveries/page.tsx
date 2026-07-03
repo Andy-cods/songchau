@@ -2,6 +2,7 @@
 
 import { useState, useMemo, useCallback, useEffect } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
+import dynamic from 'next/dynamic';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Truck, Search, X, Package, Plus, Save, Loader2,
@@ -16,7 +17,14 @@ import { cn, formatDate, formatCurrency } from '@/lib/utils';
 // PR-1 (Thang 2026-05-13): DriverPicker + DriverManagementModal đã extract khỏi file này
 import { DriverPicker } from '@/components/bqms-drivers/DriverPicker';
 import { DriverManagementModal } from '@/components/bqms-drivers/DriverManagementModal';
-import { RevenueDashboardModal } from '@/components/bqms/RevenueDashboardModal';
+
+// Code-splitting (W3-16): RevenueDashboardModal (584 lines, pulls in
+// recharts) — only opened via a button click, so defer its chunk until
+// then. Call site below is already gated by showRevenueDashboard.
+const RevenueDashboardModal = dynamic(
+  () => import('@/components/bqms/RevenueDashboardModal').then((m) => m.RevenueDashboardModal),
+  { ssr: false, loading: () => null },
+);
 import { StatusBadge } from '@/components/shared/status-badge';
 import { SyncFreshnessChip } from '@/components/shared/sync-freshness-chip';
 import { DELIVERY_STATUS_CONFIG } from '@/lib/constants';

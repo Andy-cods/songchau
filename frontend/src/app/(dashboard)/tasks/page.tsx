@@ -205,7 +205,7 @@ function CreateTaskModal({
                 onChange={handleChange}
                 className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-700"
               >
-                <option value="">Chưa phân công</option>
+                <option value="">-- Chọn người --</option>
                 {users.map((u) => (
                   <option key={u.id} value={u.id}>{u.full_name}</option>
                 ))}
@@ -238,7 +238,7 @@ function CreateTaskModal({
           </button>
           <button
             onClick={() => createMutation.mutate(form)}
-            disabled={!form.title || createMutation.isPending}
+            disabled={!form.title || !form.assigned_to || createMutation.isPending}
             className="flex items-center gap-2 px-4 py-2 text-sm bg-brand-600 text-white rounded-lg hover:bg-brand-700 disabled:opacity-60 transition-colors"
           >
             {createMutation.isPending ? (

@@ -657,3 +657,72 @@ async def ensure_ap_for_procurement_delivery(
             delivery_id,
         )
     return ap_id
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# W3-06 — Notify-on-hook-failure (money-flow hooks must NEVER swallow silently)
+# ─────────────────────────────────────────────────────────────────────────────
+async def notify_admins_hook_failure(
+    conn: asyncpg.Connection,
+    *,
+    hook: str,
+    ref_type: str,
+    ref_id: Any,
+    error: str,
+    link: str | None = None,
+) -> int:
+    """Bell-notify every active admin that a GATED money-flow hook FAILED.
+
+    W3-06 requirement — "hook lỗi phải notify, không nuốt": when the auto-AR /
+    auto-AP hook raises, the công-nợ row it was supposed to create is now
+    MISSING, so a human must reconcile it by hand. A lone ``logger.warning`` is
+    NOT enough (nobody watches the log) → this drops one notification per admin
+    into the bell inbox so the gap is visible operationally.
+
+    CONTRACT — call this from the caller's ``except`` block, AFTER the failing
+    auto-AR/AP SAVEPOINT has already rolled back, so the caller's OUTER
+    transaction is clean and still open. The whole insert here is itself wrapped
+    in a nested ``async with conn.transaction()`` SAVEPOINT: an alerting failure
+    can NEVER poison the caller's outer transaction (worst case the alert is
+    dropped and the ERROR log remains the fallback record).
+
+    Reuses the existing ``'workflow_update'`` notification_type enum value — NO
+    ALTER TYPE, keeping the change additive/safe (mirrors migration 020's
+    "KHÔNG ALTER TYPE" posture). Returns the number of rows inserted (0 if no
+    admin recipients, or on any error).
+    """
+    inserted = 0
+    try:
+        async with conn.transaction():  # savepoint — never poison caller txn
+            admins = await conn.fetch(
+                "SELECT id FROM users "
+                "WHERE is_active = true AND deleted_at IS NULL "
+                "  AND role::text = 'admin'"
+            )
+            title = f"Lỗi tự tạo công nợ ({hook}) — cần tạo tay"
+            for r in admins:
+                await conn.execute(
+                    """
+                    INSERT INTO notifications
+                        (recipient_id, type, title, body, ref_type, ref_id, metadata)
+                    VALUES ($1::uuid, 'workflow_update'::notification_type,
+                            $2, $3, $4, $5, $6::jsonb)
+                    """,
+                    str(r["id"]),
+                    title,
+                    (error or "")[:500],
+                    ref_type,
+                    int(ref_id) if ref_id is not None else None,
+                    json.dumps({"hook": hook, "ref_id": ref_id, "link": link}),
+                )
+                inserted += 1
+        logger.error(
+            "money-flow hook '%s' FAILED for %s#%s — notified %d admin(s): %s",
+            hook, ref_type, ref_id, inserted, error,
+        )
+    except Exception as exc:  # noqa: BLE001 — alerting must never break the flow
+        logger.error(
+            "notify_admins_hook_failure itself failed (hook=%s ref=%s#%s): %s",
+            hook, ref_type, ref_id, exc,
+        )
+    return inserted

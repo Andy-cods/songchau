@@ -31,12 +31,26 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+// W3-08 (2026-07-04): đơn nghỉ phép đọc/ghi qua NGUỒN CHUẨN DUY NHẤT — HR M41
+// (bảng leave_requests qua /api/v1/leave, xem backend/app/api/v1/leave.py).
+// Trước đây trang này gọi thẳng /api/v1/calendar/leaves* (backend/app/api/v1/
+// calendar_api.py) — luồng đó KHÔNG set department, KHÔNG trừ leave_balance,
+// KHÔNG có luật "manager duyệt cùng phòng", nên số dư phép lệch với trang /hr.
+// calendar_api.py giữ endpoint /leaves* lại (đã đánh dấu deprecated trong file
+// đó) để không vỡ nếu còn caller ngoài chưa phát hiện, nhưng KHÔNG dùng ở đây nữa.
+import {
+  leaveApi,
+  LEAVE_TYPE_LABELS,
+  LEAVE_STATUS_LABELS,
+  LEAVE_STATUS_BADGE,
+  type LeaveRequest,
+  type LeaveType,
+  type LeaveStatus,
+} from '@/services/hr';
 
 // ─── Types ─────────────────────────────────────────────────────
 
 type EventType = 'meeting' | 'deadline' | 'holiday' | 'leave' | 'delivery';
-type LeaveType = 'annual' | 'sick' | 'personal' | 'other';
-type LeaveStatus = 'pending' | 'approved' | 'rejected';
 
 interface CalendarEvent {
   id: string;
@@ -46,16 +60,6 @@ interface CalendarEvent {
   end_time: string;
   all_day: boolean;
   color: string;
-}
-
-interface LeaveRequest {
-  id: string;
-  user_name: string;
-  leave_type: LeaveType;
-  start_date: string;
-  end_date: string;
-  days_count: number;
-  status: LeaveStatus;
 }
 
 // ─── Constants ─────────────────────────────────────────────────
@@ -76,31 +80,6 @@ const EVENT_TYPE_LABELS: Record<EventType, string> = {
   holiday: 'Nghỉ lễ',
   leave: 'Nghỉ phép',
   delivery: 'Giao hàng',
-};
-
-const LEAVE_TYPE_LABELS: Record<LeaveType, string> = {
-  annual: 'Nghỉ phép năm',
-  sick: 'Nghỉ ốm',
-  personal: 'Việc cá nhân',
-  other: 'Khác',
-};
-
-const LEAVE_STATUS_CONFIG: Record<
-  LeaveStatus,
-  { label: string; class: string }
-> = {
-  pending: {
-    label: 'Chờ duyệt',
-    class: 'bg-amber-100 text-amber-700',
-  },
-  approved: {
-    label: 'Đã duyệt',
-    class: 'bg-emerald-100 text-emerald-700',
-  },
-  rejected: {
-    label: 'Từ chối',
-    class: 'bg-rose-100 text-rose-700',
-  },
 };
 
 const DAYS_OF_WEEK = ['CN', 'T2', 'T3', 'T4', 'T5', 'T6', 'T7'];
@@ -154,16 +133,13 @@ export default function CalendarPage() {
     retry: 1,
   });
 
-  // Fetch leave requests
+  // Fetch leave requests — nguồn chuẩn duy nhất /api/v1/leave (HR M41)
   const { data: leavesRaw, isLoading: leavesLoading } = useQuery<{
-    data: LeaveRequest[];
+    data: { items: LeaveRequest[]; total: number; page: number; limit: number };
   }>({
     queryKey: ['calendar', 'leaves', leaveStatusFilter],
-    queryFn: () => {
-      const params = new URLSearchParams();
-      if (leaveStatusFilter !== 'all') params.set('status', leaveStatusFilter);
-      return api.get(`/api/v1/calendar/leaves?${params}`);
-    },
+    queryFn: () =>
+      leaveApi.list(leaveStatusFilter !== 'all' ? { status: leaveStatusFilter } : {}),
     retry: 1,
   });
 
@@ -183,9 +159,9 @@ export default function CalendarPage() {
     },
   });
 
-  // Create leave mutation
+  // Create leave mutation — nguồn chuẩn duy nhất /api/v1/leave (HR M41)
   const createLeaveMutation = useMutation({
-    mutationFn: (body: typeof leaveForm) => api.post('/api/v1/calendar/leaves', body),
+    mutationFn: (body: typeof leaveForm) => leaveApi.create(body),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['calendar', 'leaves'] });
       setShowLeaveModal(false);
@@ -195,21 +171,22 @@ export default function CalendarPage() {
 
   // Approve leave mutation
   const approveLeaveMutation = useMutation({
-    mutationFn: (id: string) => api.post(`/api/v1/calendar/leaves/${id}/approve`),
+    mutationFn: (id: number) => leaveApi.approve(id),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['calendar', 'leaves'] }),
   });
 
   // Reject leave mutation
   const rejectLeaveMutation = useMutation({
-    mutationFn: (id: string) => api.post(`/api/v1/calendar/leaves/${id}/reject`),
+    mutationFn: (id: number) => leaveApi.reject(id),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['calendar', 'leaves'] }),
   });
 
   // API may return either an array or {items:[...]} — coerce safely.
-  const _toArr = (v: any) =>
-    Array.isArray(v) ? v : Array.isArray(v?.items) ? v.items : [];
-  const events = _toArr(eventsRaw?.data);
-  const leaves = _toArr(leavesRaw?.data);
+  function _toArr<T>(v: any): T[] {
+    return Array.isArray(v) ? v : Array.isArray(v?.items) ? v.items : [];
+  }
+  const events = _toArr<CalendarEvent>(eventsRaw?.data);
+  const leaves = _toArr<LeaveRequest>(leavesRaw?.data);
 
   // Build calendar grid
   const startDow = firstDay.getDay(); // 0=Sun
@@ -449,7 +426,6 @@ export default function CalendarPage() {
             </TableHeader>
             <TableBody>
                 {leaves.map((leave) => {
-                  const statusCfg = LEAVE_STATUS_CONFIG[leave.status];
                   const isProcessing =
                     approveLeaveMutation.isPending || rejectLeaveMutation.isPending;
 
@@ -472,10 +448,10 @@ export default function CalendarPage() {
                         <span
                           className={cn(
                             'text-xs font-medium px-2 py-0.5 rounded-full',
-                            statusCfg.class
+                            LEAVE_STATUS_BADGE[leave.status]
                           )}
                         >
-                          {statusCfg.label}
+                          {LEAVE_STATUS_LABELS[leave.status]}
                         </span>
                       </TableCell>
                       <TableCell>

@@ -131,9 +131,22 @@ export default function SettingsPage() {
   });
 
   // Fetch system info (admin only)
+  // NOTE: chưa có backend endpoint gộp đủ {version, db_tables_count,
+  // uptime_seconds, environment} (xem /api/health + /api/v1/system-health/dashboard
+  // — hai endpoint rời rạc). Giữ nguyên placeholder tạm thời như code cũ, chỉ sửa
+  // để field name khớp với SystemInfo — trước đây object trả về không khớp
+  // interface (db_tables/uptime thay vì db_tables_count/uptime_seconds, thiếu
+  // environment) nên UI luôn hiện "undefined"/NaN, bị ignoreBuildErrors che giấu.
   const { data: sysInfo } = useQuery<SystemInfo>({
     queryKey: ['system', 'info'],
-    queryFn: async () => { try { const r = await api.get('/api/v1/dashboard/kpis'); return { version: '1.0.0', db_tables: 64, uptime: 'Running' }; } catch { return { version: '1.0.0', db_tables: 64, uptime: 'N/A' }; } },
+    queryFn: async () => {
+      try {
+        await api.get('/api/v1/dashboard/kpis');
+        return { version: '1.0.0', db_tables_count: 64, uptime_seconds: 0, environment: process.env.NODE_ENV ?? 'production' };
+      } catch {
+        return { version: '1.0.0', db_tables_count: 64, uptime_seconds: 0, environment: process.env.NODE_ENV ?? 'production' };
+      }
+    },
     enabled: authUser?.role === 'admin',
     retry: false,
   });

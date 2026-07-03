@@ -277,7 +277,7 @@ function UserDetailCard({
         <Metric label="Deal đóng" value={k.deals_closed.toString()} />
         <Metric label="Báo cáo ngày" value={k.daily_reports_submitted.toString()} />
         <Metric label="Ngày hoạt động" value={k.active_days.toString()} />
-        <Metric label="Ngày công" value={`${k.workdays_present}`} hint="chưa trừ lễ" />
+        <Metric label="Ngày công" value={`${k.workdays_present}`} hint="đã trừ lễ" />
         <Metric label="Ngày nghỉ" value={k.leave_days_taken.toString()} />
         <Metric
           label="Đi muộn"

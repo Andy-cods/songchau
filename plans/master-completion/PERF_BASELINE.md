@@ -42,3 +42,22 @@
 - [ ] Sau 48h: chụp `pg_stat_statements` top-20 total_exec_time → chốt danh sách 5 target cho W3-14.
 - [ ] Sau 48h: dựng P95 top-20 endpoint từ /metrics histogram (counter đã reset lúc deploy 03/07).
 - [ ] Điều tra `check_deadline_reminders` fail 2.218 lần (task periodic hỏng).
+
+---
+
+## W3-14 — Tối ưu top query (evidence-based pg_stat_statements, 2026-07-04)
+
+**Đã làm (index an toàn, CONCURRENTLY, đo before/after):**
+- `notifications` inbox `WHERE recipient_id=$1 ORDER BY created_at DESC LIMIT N` (gọi 9k-18k lần, top total-time):
+  - TRƯỚC: Bitmap Heap Scan idx_notif_recipient → nạp 37.379 dòng/user + Sort top-N = **38.7ms, 4.575 buffers**.
+  - Thêm `idx_notif_recipient_created (recipient_id, created_at DESC)` (m48).
+  - SAU: Index Scan đọc thẳng top-N = **0.15ms, 8 buffers** → **~250× nhanh hơn** (vượt xa DoD −40%).
+
+**Kiểm nhưng KHÔNG làm (evidence bác roadmap):**
+- `v_price_observations_clean` (Fable nghi materialize): **KHÔNG nằm trong top-10 total-time** → không đáng materialize. Bỏ.
+- `audit_log` reads (355k ms total): đã có **7 index** (user/table/record/created/action/table_action_created) → phủ tốt, không thiếu index. Bỏ.
+
+**Hoãn (Samsung-adjacent, thuộc W2-08 chờ W1-09):**
+- `bqms_dedup` CTE /rfq-table (~400k ms, 4 biến thể chạy 4×/request). Fold 4×→1× + VIEW dedup thuộc W2-08 (chờ Samsung mở lại). KHÔNG đụng vì liên quan bqms_rfq.
+
+**Bổ sung notif bloat:** 1 user có 37.379 notif → nên rà retention notifications (audit_retention.py) mạnh hơn (ghi chú, không cấp bách sau khi có index).

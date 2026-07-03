@@ -2,10 +2,9 @@
 
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
+import dynamic from 'next/dynamic';
 import { api } from '@/lib/api';
 import { Trophy, Loader2 } from 'lucide-react';
-import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
-import { CHART, WIN_LOSS_COLORS } from '@/lib/chart-colors';
 import { PageHeader } from '@/components/shared/page-header';
 import {
   Table,
@@ -15,6 +14,13 @@ import {
   TableHead,
   TableCell,
 } from '@/components/shared/table';
+
+// Code-splitting (W3-16): recharts moved into WinLossCharts.tsx, deferred
+// via dynamic() so it isn't part of this route's first-load JS.
+const WinLossCharts = dynamic(
+  () => import('./WinLossCharts').then((m) => m.WinLossCharts),
+  { ssr: false, loading: () => <div className="grid grid-cols-2 gap-6 mb-6"><div className="h-[250px] animate-pulse rounded-lg bg-slate-100" /><div className="h-[250px] animate-pulse rounded-lg bg-slate-100" /></div> },
+);
 
 interface Overview {
   total_rfq: number;
@@ -41,9 +47,6 @@ interface LossReason {
   count: number;
   avg_our_price: number;
 }
-
-// Win/Loss/Pending → success / danger / neutral (shared token).
-const COLORS = WIN_LOSS_COLORS;
 
 export default function WinLossPage() {
   const [months, setMonths] = useState(6);
@@ -128,36 +131,7 @@ export default function WinLossPage() {
           </div>
 
           {/* Charts Row */}
-          <div className="grid grid-cols-2 gap-6 mb-6">
-            {/* Pie Chart */}
-            <div className="bg-white rounded-lg shadow-sm border border-slate-200 p-6">
-              <h3 className="text-sm font-semibold text-slate-700 mb-4">Tỷ lệ Win/Loss</h3>
-              <ResponsiveContainer width="100%" height={250}>
-                <PieChart>
-                  <Pie data={pieData} cx="50%" cy="50%" innerRadius={60} outerRadius={100} dataKey="value" label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}>
-                    {pieData.map((_, i) => <Cell key={i} fill={COLORS[i]} />)}
-                  </Pie>
-                  <Tooltip />
-                </PieChart>
-              </ResponsiveContainer>
-            </div>
-
-            {/* Bar Chart */}
-            <div className="bg-white rounded-lg shadow-sm border border-slate-200 p-6">
-              <h3 className="text-sm font-semibold text-slate-700 mb-4">Top 10 Maker — Win vs Loss</h3>
-              <ResponsiveContainer width="100%" height={250}>
-                <BarChart data={barData} layout="vertical">
-                  <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-                  <XAxis type="number" tick={{ fontSize: 11 }} />
-                  <YAxis type="category" dataKey="name" tick={{ fontSize: 11 }} width={100} />
-                  <Tooltip />
-                  <Legend />
-                  <Bar dataKey="Thắng" fill={CHART.success} />
-                  <Bar dataKey="Thua" fill={CHART.danger} />
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
-          </div>
+          <WinLossCharts pieData={pieData} barData={barData} />
 
           {/* Loss Reasons Table */}
           <div className="bg-white rounded-lg shadow-sm border border-slate-200 overflow-hidden">

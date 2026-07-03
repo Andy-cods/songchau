@@ -5,6 +5,7 @@ import { createPortal } from 'react-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
+import dynamic from 'next/dynamic';
 import {
   ClipboardList,
   RefreshCw,
@@ -52,9 +53,7 @@ import { toast } from 'sonner';
 import { cn, formatDate } from '@/lib/utils';
 // PR-2 (Thang 2026-05-13): BqmsImageThumb extracted to @/components/bqms-images
 import { BqmsImageThumb } from '@/components/bqms-images/BqmsImageThumb';
-import PushToSecModal from '@/components/bqms/PushToSecModal';
 import PushProgressPopup from '@/components/bqms/PushProgressPopup';
-import { BatchPushSecModal } from '@/components/bqms/BatchPushSecModal';
 // Issue B (Thang 2026-06-19): surface V-round push state in RFQ cell + drawer
 import PushRoundBadge from '@/components/bqms/PushRoundBadge';
 import RoundHistoryTimeline from '@/components/bqms/RoundHistoryTimeline';
@@ -62,6 +61,19 @@ import RoundHistoryTimeline from '@/components/bqms/RoundHistoryTimeline';
 import { SmartCodeTrackPanel } from '@/components/bqms-images/SmartCodeTrackPanel';
 import { useIsReadOnly, useUserRole } from '@/hooks/use-permissions';
 import { PushToBiddingModal } from '@/components/sourcing/PushToBiddingModal';
+
+// Code-splitting (W3-16): these 2 modals only mount when the user opens
+// them (both call sites below are state-gated) — deferring their chunks
+// keeps them out of /bqms's first-load JS. PushToSecModal is a default
+// export, so no `.then()` is needed.
+const PushToSecModal = dynamic(() => import('@/components/bqms/PushToSecModal'), {
+  ssr: false,
+  loading: () => null,
+});
+const BatchPushSecModal = dynamic(
+  () => import('@/components/bqms/BatchPushSecModal').then((m) => m.BatchPushSecModal),
+  { ssr: false, loading: () => null },
+);
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -3762,7 +3774,7 @@ function DataRow({
           {item.id > 0 ? (
             <ClassificationCell
               rfqId={item.id}
-              current={item.classification}
+              current={item.classification ?? null}
               isOverride={item.classification_is_override}
               autoValue={item.classification_auto}
             />
@@ -4641,9 +4653,9 @@ function DetailDrawer({
                 {folder.folder}
               </div>
             )}
-            {false && folder?.images && folder.images.length > 0 && (
+            {folder?.images && folder.images.length > 0 && false && (
               <div className="mt-3">
-                <div className="text-[11px] text-slate-500 mb-1.5">{folder.images.length} ảnh:</div>
+                <div className="text-[11px] text-slate-500 mb-1.5">{folder?.images?.length} ảnh:</div>
               </div>
             )}
             {folder?.files && folder.files.length > 0 && (

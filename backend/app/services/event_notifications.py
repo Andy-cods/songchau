@@ -6,6 +6,13 @@ Usage:
                                                    called on delivery status update
 
 All functions are best-effort: failures are logged but never raise.
+
+Ranh giới với hệ "canh giờ" (cron deadline): xem comment đầu file
+app/tasks/notifications.py (W3-08, 2026-07-04). Module này (+ services/
+procurement_notifications.py, workflow_engine.py::_notify, bqms_service.py)
+là HỆ B — event-driven, gọi ngay sau 1 hành động nghiệp vụ, KHÔNG chạy theo
+lịch. Nếu bạn định thêm 1 cron mới kiểm tra "cái gì sắp đến hạn" thì đó thuộc
+Hệ A (app/tasks/), không phải file này — tránh tạo 2 nơi cùng lo 1 sự kiện.
 """
 
 from __future__ import annotations

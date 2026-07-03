@@ -20,6 +20,14 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
+# W3-10 RBAC: role được xem TẤT CẢ task_assignments (không bị siết theo ownership).
+# viewer nằm trong nhóm này vì require_role(allow_viewer=True, mặc định) đã để viewer
+# bypass allowed_roles check trên mọi GET — viewer là observer read-only toàn hệ theo
+# thiết kế chung của app/core/rbac.py, không riêng module này. Dùng CHUNG hằng số này ở
+# cả list_tasks (Python tuple, WHERE ... NOT IN) và get_task (bind qua $n::text[] rồi
+# ANY($n)) để tránh 2 nơi liệt kê role rời rạc bị lệch nhau (drift) khi sửa sau này.
+TASK_VIEW_ALL_ROLES = ("manager", "admin", "viewer")
+
 
 # ---------------------------------------------------------------------------
 # Schemas
@@ -87,6 +95,16 @@ async def list_tasks(
     if task_type:
         conditions.append(f"ta.task_type = ${idx}")
         params.append(task_type)
+        idx += 1
+
+    # === W3-10 RBAC: siết theo user ở tầng query (chống rò task người khác) ===
+    # TASK_VIEW_ALL_ROLES: thấy tất cả. Mọi role khác (staff + role lạ tương lai)
+    # → fail-closed, chỉ thấy task LIÊN QUAN mình.
+    if token_data.role not in TASK_VIEW_ALL_ROLES:
+        conditions.append(
+            f"(ta.assigned_to = ${idx}::uuid OR ta.assigned_by = ${idx}::uuid)"
+        )
+        params.append(token_data.user_id)
         idx += 1
 
     where = " AND ".join(conditions)
@@ -294,6 +312,10 @@ async def get_task(
     token_data: TokenData = Depends(require_role("staff", "manager", "admin")),
     conn: asyncpg.Connection = Depends(get_db),
 ):
+    # W3-10 RBAC: ownership check ngay trong WHERE — staff không liên quan (không phải
+    # assigned_to/assigned_by) nhận 404 giống hệt trường hợp id không tồn tại, tránh
+    # rò sự tồn tại của resource (theo tiền lệ notifications.py). manager/admin/viewer
+    # xem được mọi task.
     row = await conn.fetchrow(
         """
         SELECT ta.*,
@@ -304,8 +326,16 @@ async def get_task(
         LEFT JOIN users u_to ON u_to.id = ta.assigned_to
         LEFT JOIN users u_by ON u_by.id = ta.assigned_by
         WHERE ta.id = $1
+          AND (
+                ta.assigned_to = $2::uuid
+             OR ta.assigned_by = $2::uuid
+             OR $3 = ANY($4::text[])
+          )
         """,
         task_id,
+        token_data.user_id,
+        token_data.role,
+        list(TASK_VIEW_ALL_ROLES),
     )
     if not row:
         raise HTTPException(status_code=404, detail="Nhiệm vụ không tồn tại")

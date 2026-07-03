@@ -6537,10 +6537,24 @@ async def update_delivery_status(
                         delivery_id, ap_id,
                     )
                 except Exception as exc:  # noqa: BLE001
-                    # Best-effort: log and let the receipt commit anyway.
-                    logger.warning(
+                    # W3-06 — NEVER swallow: the auto-AP SAVEPOINT above has
+                    # already rolled back (so the delivery-receipt still commits),
+                    # but the công-nợ-phải-trả row is now MISSING. Log at ERROR
+                    # *and* bell-notify every admin so a human creates the AP by
+                    # hand instead of the gap dying silently in the log. The notify
+                    # runs in its OWN savepoint (inside chain_service) so it can't
+                    # poison the still-open outer receipt transaction.
+                    logger.error(
                         "Procurement auto-AP hook failed for delivery %s: %s",
-                        delivery_id, exc,
+                        delivery_id, exc, exc_info=True,
+                    )
+                    await chain_service.notify_admins_hook_failure(
+                        conn,
+                        hook="auto-AP",
+                        ref_type="procurement_delivery",
+                        ref_id=delivery_id,
+                        error=f"delivery {delivery_id}: {exc}",
+                        link="/finance/reconcile",
                     )
         # ============ END PROCUREMENT AUTO-AP BEHAVIOR-CHANGE BLOCK ====
     return {"message": "Đã update"}

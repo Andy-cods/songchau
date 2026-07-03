@@ -584,6 +584,21 @@ def render_xlsx(
     # one-page reference. The template fits ~4 items + the full footer on one A4
     # page (items are a fixed 63pt each); only break for more than that, so small
     # quotes (<=4 items) stay a single page and are visually unchanged.
+    #
+    # Bug (Thang 2026-07-04, W3-04): the RAW template ships with a STALE manual
+    # row-break baked in at row 25 of "mẫu báo giá.xlsx" — an editing artifact
+    # with no cells anchored to it (rows 23-29 are all empty). Just like merges
+    # / images / row-heights above, openpyxl's insert_rows() does NOT shift
+    # ws.row_breaks, so this stray break stays pinned at its ORIGINAL row while
+    # the footer block moves down for N > 3. For N ≈ 6-7 items (and worse for
+    # more) the stale break lands INSIDE the footer — between the "XÁC NHẬN BÁO
+    # GIÁ" + stamp row and the "THANK YOU" row, or straight through the 129pt
+    # stamp image itself (it overflows its own 90.75pt-tall row by ~38pt) —
+    # slicing the seal/signature across an extra, unintended page. Reset all
+    # row breaks up front so the ONLY break present is the one we compute
+    # intentionally below.
+    ws.row_breaks.brk = []
+
     sign_row = totals_start + SIGN_OFFSET
     if n_items > FOOTER_FITS_ITEMS_PER_PAGE:
         from openpyxl.worksheet.pagebreak import Break

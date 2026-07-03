@@ -3,6 +3,7 @@
 import { useState, useMemo, useEffect, useCallback } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useParams, useRouter } from 'next/navigation';
+import dynamic from 'next/dynamic';
 import {
   ChevronLeft, ChevronRight, Pencil, Building2, User2, X, MessageSquare,
   Plus, Send, PanelRightClose, PanelRightOpen,
@@ -19,7 +20,13 @@ import {
 } from '@/components/cockpit';
 import { Pagination } from '../_components/Pagination';
 import { HoSoTab } from '../_components/HoSoTab';
-import { QuoteBatchModal } from '@/components/sourcing/QuoteBatchModal';
+
+// Code-splitting (W3-16): QuoteBatchModal is 1669 lines and only opens on
+// click (state-gated below) — defer its chunk out of this route's bundle.
+const QuoteBatchModal = dynamic(
+  () => import('@/components/sourcing/QuoteBatchModal').then((m) => m.QuoteBatchModal),
+  { ssr: false, loading: () => null },
+);
 
 // ─── Types ──────────────────────────────────────────────────────
 

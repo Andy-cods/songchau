@@ -359,6 +359,12 @@ async def check_timeouts(conn: asyncpg.Connection) -> int:
     Find workflows stuck in pending states for > TIMEOUT_DAYS.
     Creates reminder notifications. Returns count of timed-out items.
     Called by a cron / background task.
+
+    W3-08 (2026-07-04): xác nhận qua grep toàn repo — HIỆN KHÔNG có cron/
+    scheduler nào gọi hàm này (dead, chưa nối). Trước khi nối vào scheduler,
+    kiểm tra không trùng với app/tasks/notifications.py::check_deadline_reminders
+    (hệ A — "canh giờ" deadline workflow chung) để tránh tạo 2 thông báo timeout
+    cho cùng 1 workflow. Xem ranh giới 2 hệ notif ở đầu app/tasks/notifications.py.
     """
     cutoff = datetime.now(timezone.utc) - timedelta(days=TIMEOUT_DAYS)
     rows = await conn.fetch(

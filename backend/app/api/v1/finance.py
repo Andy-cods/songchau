@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 from datetime import date
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel
 import asyncpg
 
+from app.core.audit import write_audit_log
 from app.core.database import get_db
 from app.core.rbac import require_role
 from app.core.security import TokenData
@@ -459,6 +460,7 @@ async def list_payments(
 @router.post("/payments", status_code=201)
 async def create_payment(
     body: PaymentCreateRequest,
+    request: Request,
     token_data: TokenData = Depends(require_role("accountant", "manager", "admin")),
     conn: asyncpg.Connection = Depends(get_db),
 ):
@@ -496,6 +498,20 @@ async def create_payment(
             body.bank_ref,
             body.notes,
             token_data.user_id,
+        )
+
+        # payment_transactions has NO DB-level audit trigger (unlike
+        # accounts_payable/accounts_receivable, covered by trg_audit_*) — write
+        # the audit row explicitly so every payment creation is traceable.
+        await write_audit_log(
+            conn=conn,
+            token_data=token_data,
+            action="INSERT",
+            table_name="payment_transactions",
+            record_id=pt["id"],
+            old_data=None,
+            new_data=dict(pt),
+            request=request,
         )
 
         # Update AP or AR paid_amount and status
@@ -720,5 +736,225 @@ async def financial_summary(
             "accounts_receivable": dict(ar_stats) if ar_stats else {},
             "cash_balance": float(cash_balance) if cash_balance else 0,
             "monthly_payments": dict(monthly) if monthly else {},
+        }
+    }
+
+
+# ---------------------------------------------------------------------------
+# Reconciliation — đối soát AP/AR phát hiện lệch (W3-12, read-only)
+# ---------------------------------------------------------------------------
+
+# Ngưỡng bỏ qua sai số làm tròn. amount/paid_amount là numeric(15,2) nên lệch
+# thật nhỏ nhất có thể là 0.01 — 0.005 chặn đúng ranh giới đó mà không bắt
+# lệch 0 giả do phép trừ Decimal.
+_RECONCILE_EPS = 0.005
+
+_CHECK1_SQL_TEMPLATE = """
+SELECT
+    t.id                                          AS id,
+    t.currency::text                              AS currency,
+    t.paid_amount                                 AS paid_amount,
+    COALESCE(pt.sum_paid, 0)                      AS sum_paid,
+    (t.paid_amount - COALESCE(pt.sum_paid, 0))    AS variance
+FROM {table} t
+LEFT JOIN (
+    SELECT {fk} AS fk, SUM(amount) AS sum_paid
+    FROM payment_transactions
+    WHERE direction = '{direction}'::payment_direction AND {fk} IS NOT NULL
+    GROUP BY {fk}
+) pt ON pt.fk = t.id
+WHERE ABS(t.paid_amount - COALESCE(pt.sum_paid, 0)) > {eps}
+ORDER BY t.id
+"""
+
+_CHECK2_SQL_TEMPLATE = """
+SELECT
+    t.id                  AS id,
+    t.currency::text      AS currency,
+    t.status::text        AS status,
+    t.amount              AS amount,
+    t.paid_amount         AS paid_amount,
+    CASE
+        WHEN t.paid_amount > t.amount + {eps}
+            THEN t.paid_amount - t.amount
+        WHEN t.status = 'paid' AND t.paid_amount < t.amount - {eps}
+            THEN t.amount - t.paid_amount
+        ELSE t.paid_amount
+    END                    AS variance
+FROM {table} t
+WHERE
+    -- (a) trả/thu dư
+    t.paid_amount > t.amount + {eps}
+    -- (b) đã đủ tiền nhưng status chưa 'paid'
+    OR (t.paid_amount >= t.amount - {eps} AND t.status <> 'paid')
+    -- (c) trả/thu một phần nhưng status không 'partial_paid'
+    OR (t.paid_amount > {eps} AND t.paid_amount < t.amount - {eps}
+        AND t.status <> 'partial_paid')
+    -- (d) chưa thanh toán gì nhưng status khai đã (một phần/toàn phần)
+    OR (t.paid_amount <= {eps} AND t.status IN ('paid', 'partial_paid'))
+ORDER BY t.id
+"""
+
+_CHECK3_SQL_TEMPLATE = """
+SELECT
+    t.id                          AS id,
+    t.currency::text              AS currency,
+    t.status::text                AS status,
+    t.due_date                    AS due_date,
+    (t.amount - t.paid_amount)    AS variance
+FROM {table} t
+WHERE t.due_date < CURRENT_DATE
+  AND (t.amount - t.paid_amount) > {eps}
+  AND t.status NOT IN ('overdue', 'paid', 'disputed')
+ORDER BY t.id
+"""
+
+
+@router.get("/reconcile")
+async def reconcile_finance(
+    token_data: TokenData = Depends(require_role("accountant", "manager", "admin")),
+    conn: asyncpg.Connection = Depends(get_db),
+):
+    """Đối soát công nợ AP/AR — phát hiện lệch TRƯỚC khi bật auto-tạo AR/AP.
+
+    READ-ONLY tuyệt đối: chỉ SELECT, KHÔNG sửa dữ liệu.
+
+    3 loại lệch:
+      1. paid_amount_mismatch      — ar/ap.paid_amount khác tổng
+         payment_transactions cùng hướng (inbound cho AR, outbound cho AP).
+      2. status_paid_amount_mismatch — status không khớp paid_amount (đánh
+         'paid' mà chưa đủ tiền, trả/thu dư, 'pending' mà đã có tiền vào,...).
+      3. overdue_not_flagged       — due_date đã qua nhưng status chưa phải
+         'overdue' (và cũng chưa 'paid'/'disputed').
+
+    Giới hạn đã biết (quyết định KISS — không tự chế quy đổi FX mới):
+      - variance_amount giữ NGUYÊN currency gốc của bản ghi.
+      - summary.total_variance_vnd CHỈ cộng issue có currency == 'VND'. AP đa
+        tiền tệ (USD/RMB/...) vẫn liệt kê đầy đủ trong ap_issues nhưng KHÔNG
+        cộng vào tổng VND vì thiếu tỷ giá tin cậy tại thời điểm đối soát.
+      - Check 1 sum toàn bộ payment_transactions cùng hướng bất kể currency,
+        khớp với cách POST /payments cộng dồn paid_amount hiện tại.
+    """
+    ar_issues: list[dict] = []
+    ap_issues: list[dict] = []
+    total_variance_vnd = 0.0
+
+    def _emit(bucket: list[dict], *, itype: str, rid, variance, currency: str,
+              description: str) -> None:
+        nonlocal total_variance_vnd
+        v = float(variance or 0)
+        bucket.append({
+            "type": itype,
+            "id": int(rid),
+            "description": description,
+            "variance_amount": v,
+        })
+        if currency == "VND":
+            total_variance_vnd += v
+
+    # ── Check 1: paid_amount vs SUM(payment_transactions) ──
+    ar_rows = await conn.fetch(
+        _CHECK1_SQL_TEMPLATE.format(
+            table="accounts_receivable", fk="ar_id", direction="inbound",
+            eps=_RECONCILE_EPS,
+        )
+    )
+    for r in ar_rows:
+        _emit(
+            ar_issues, itype="paid_amount_mismatch", rid=r["id"],
+            variance=r["variance"], currency=r["currency"],
+            description=(
+                f"Công nợ phải thu #{r['id']}: paid_amount "
+                f"({float(r['paid_amount']):,.0f}) lệch với tổng thanh toán "
+                f"thực nhận ({float(r['sum_paid']):,.0f}), chênh "
+                f"{float(r['variance']):,.0f} {r['currency']}"
+            ),
+        )
+
+    ap_rows = await conn.fetch(
+        _CHECK1_SQL_TEMPLATE.format(
+            table="accounts_payable", fk="ap_id", direction="outbound",
+            eps=_RECONCILE_EPS,
+        )
+    )
+    for r in ap_rows:
+        _emit(
+            ap_issues, itype="paid_amount_mismatch", rid=r["id"],
+            variance=r["variance"], currency=r["currency"],
+            description=(
+                f"Công nợ phải trả #{r['id']}: paid_amount "
+                f"({float(r['paid_amount']):,.0f}) lệch với tổng thanh toán "
+                f"thực chi ({float(r['sum_paid']):,.0f}), chênh "
+                f"{float(r['variance']):,.0f} {r['currency']}"
+            ),
+        )
+
+    # ── Check 2: status vs paid_amount ──
+    ar_rows = await conn.fetch(
+        _CHECK2_SQL_TEMPLATE.format(table="accounts_receivable", eps=_RECONCILE_EPS)
+    )
+    for r in ar_rows:
+        _emit(
+            ar_issues, itype="status_paid_amount_mismatch", rid=r["id"],
+            variance=r["variance"], currency=r["currency"],
+            description=(
+                f"Công nợ phải thu #{r['id']}: trạng thái '{r['status']}' không "
+                f"khớp số đã thu ({float(r['paid_amount']):,.0f}/"
+                f"{float(r['amount']):,.0f} {r['currency']})"
+            ),
+        )
+
+    ap_rows = await conn.fetch(
+        _CHECK2_SQL_TEMPLATE.format(table="accounts_payable", eps=_RECONCILE_EPS)
+    )
+    for r in ap_rows:
+        _emit(
+            ap_issues, itype="status_paid_amount_mismatch", rid=r["id"],
+            variance=r["variance"], currency=r["currency"],
+            description=(
+                f"Công nợ phải trả #{r['id']}: trạng thái '{r['status']}' không "
+                f"khớp số đã trả ({float(r['paid_amount']):,.0f}/"
+                f"{float(r['amount']):,.0f} {r['currency']})"
+            ),
+        )
+
+    # ── Check 3: overdue chưa cập nhật status ──
+    ar_rows = await conn.fetch(
+        _CHECK3_SQL_TEMPLATE.format(table="accounts_receivable", eps=_RECONCILE_EPS)
+    )
+    for r in ar_rows:
+        _emit(
+            ar_issues, itype="overdue_not_flagged", rid=r["id"],
+            variance=r["variance"], currency=r["currency"],
+            description=(
+                f"Công nợ phải thu #{r['id']}: quá hạn từ {r['due_date']} nhưng "
+                f"trạng thái vẫn '{r['status']}', còn nợ "
+                f"{float(r['variance']):,.0f} {r['currency']}"
+            ),
+        )
+
+    ap_rows = await conn.fetch(
+        _CHECK3_SQL_TEMPLATE.format(table="accounts_payable", eps=_RECONCILE_EPS)
+    )
+    for r in ap_rows:
+        _emit(
+            ap_issues, itype="overdue_not_flagged", rid=r["id"],
+            variance=r["variance"], currency=r["currency"],
+            description=(
+                f"Công nợ phải trả #{r['id']}: quá hạn từ {r['due_date']} nhưng "
+                f"trạng thái vẫn '{r['status']}', còn nợ "
+                f"{float(r['variance']):,.0f} {r['currency']}"
+            ),
+        )
+
+    return {
+        "data": {
+            "ar_issues": ar_issues,
+            "ap_issues": ap_issues,
+            "summary": {
+                "ar_count": len(ar_issues),
+                "ap_count": len(ap_issues),
+                "total_variance_vnd": total_variance_vnd,
+            },
         }
     }

@@ -66,6 +66,20 @@ weekdays_in_month AS (
     WHERE EXTRACT(ISODOW FROM d) < 6
     GROUP BY b.y, b.m
 ),
+holidays_in_month AS (
+    -- M45: ngày lễ active (public_holidays), rơi vào T2-T6 (ISODOW 1-5), trong
+    -- tháng đang xét. Cùng shape với view employee_current_month_kpi
+    -- (m45_public_holidays.sql) — GIỮ 2 nơi khớp nhau (enforced bởi
+    -- test_aggregator_view_parity).
+    SELECT b.y, b.m, COUNT(*)::INT AS hd
+    FROM bounds b
+    JOIN public_holidays ph
+      ON ph.holiday_date >= b.d_start
+     AND ph.holiday_date <  b.d_end_excl
+     AND ph.is_active = true
+    WHERE EXTRACT(ISODOW FROM ph.holiday_date) < 6
+    GROUP BY b.y, b.m
+),
 revenue AS (
     SELECT so.created_by AS user_id,
            SUM(
@@ -205,7 +219,7 @@ SELECT
     COALESCE(ld.days, 0),
     COALESCE(act.active_days,   0),
     COALESCE(act.total_actions, 0),
-    GREATEST(0, wd.wd - COALESCE(ld.days, 0)::INT),
+    GREATEST(0, wd.wd - COALESCE(hd.hd, 0) - COALESCE(ld.days, 0)::INT),
     COALESCE(lc.late_count,         0),
     COALESCE(lc.total_late_minutes, 0),
     %(is_final)s::BOOLEAN,
@@ -213,6 +227,7 @@ SELECT
 FROM users u
 CROSS JOIN bounds b
 CROSS JOIN weekdays_in_month wd
+LEFT JOIN holidays_in_month hd  ON hd.y = b.y AND hd.m = b.m
 LEFT JOIN revenue          r   ON r.user_id   = u.id
 LEFT JOIN new_cust         nc  ON nc.user_id  = u.id
 LEFT JOIN new_prod         np  ON np.user_id  = u.id

@@ -8,6 +8,7 @@
 
 import { useDeferredValue, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useQuery } from '@tanstack/react-query';
+import dynamic from 'next/dynamic';
 import {
   AlertTriangle,
   ArrowDown,
@@ -23,23 +24,42 @@ import {
   Users,
   X,
 } from 'lucide-react';
-import {
-  CartesianGrid,
-  Line,
-  LineChart,
-  ReferenceLine,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from 'recharts';
-
 import { api } from '@/lib/api';
 import { cn } from '@/lib/utils';
 import { CHART } from '@/lib/chart-colors';
 import { useUrlState } from '@/hooks/useUrlState';
-import { CodeHistoryDrawer } from '@/components/analytics/CodeHistoryDrawer';
 import { ExportButton } from '@/components/analytics/ExportButton';
+
+// Code-splitting (W3-16): CodeHistoryDrawer itself pulls in recharts (778
+// lines) — deferring it removes that whole chunk from this route's
+// first-load JS. Kept unconditionally rendered below (unchanged from
+// before) so component lifecycle/state (e.g. forecastMode) behaves
+// identically; the drawer already renders null while `code` is falsy.
+const CodeHistoryDrawer = dynamic(
+  () => import('@/components/analytics/CodeHistoryDrawer').then((m) => m.CodeHistoryDrawer),
+  { ssr: false, loading: () => null },
+);
+
+// The 4 inline charts below live in PriceTrendCharts.tsx so recharts can be
+// deferred via dynamic(ssr:false) — they're wrapped in <div ref={xxxRef}>
+// (unchanged, still in this page) so <ExportButton chartRef> screenshotting
+// keeps working exactly as before.
+const MultiSeriesLineChart = dynamic(
+  () => import('./PriceTrendCharts').then((m) => m.MultiSeriesLineChart),
+  { ssr: false, loading: () => <div className="h-[320px] w-full animate-pulse rounded-lg bg-slate-100" /> },
+);
+const RoleLineChart = dynamic(
+  () => import('./PriceTrendCharts').then((m) => m.RoleLineChart),
+  { ssr: false, loading: () => <div className="h-[300px] w-full animate-pulse rounded-lg bg-slate-100" /> },
+);
+const CustomerLineChart = dynamic(
+  () => import('./PriceTrendCharts').then((m) => m.CustomerLineChart),
+  { ssr: false, loading: () => <div className="h-[260px] w-full animate-pulse rounded-lg bg-slate-100" /> },
+);
+const SupplierLineChart = dynamic(
+  () => import('./PriceTrendCharts').then((m) => m.SupplierLineChart),
+  { ssr: false, loading: () => <div className="h-[260px] w-full animate-pulse rounded-lg bg-slate-100" /> },
+);
 
 // ──────────────────────────────────────────────────────────────────────────
 // Restrained series palette — only these 6 colors used for chart lines.
@@ -715,56 +735,7 @@ export default function PriceTrendsPage() {
         ) : multiChartData.length === 0 ? (
           <EmptyBlock />
         ) : (
-          <ResponsiveContainer width="100%" height={320}>
-            <LineChart data={multiChartData} margin={{ top: 8, right: 16, bottom: 4, left: 4 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-              <XAxis dataKey="month_label" tick={{ fontSize: 11, fill: '#64748b' }} />
-              <YAxis
-                tick={{ fontSize: 11, fill: '#64748b' }}
-                tickFormatter={(v) =>
-                  indexMode ? `${Number(v).toFixed(0)}` : fmtMoneyShort(Number(v))
-                }
-                width={56}
-              />
-              {indexMode && <ReferenceLine y={100} stroke="#cbd5e1" strokeDasharray="2 4" />}
-              <Tooltip
-                contentStyle={{ fontSize: 12, borderRadius: 8, borderColor: '#cbd5e1' }}
-                formatter={(value: unknown, name: string) => {
-                  const num = typeof value === 'number' ? value : Number(value);
-                  if (name === '__market') {
-                    return [
-                      indexMode ? num.toFixed(1) : fmtMoneyShort(num),
-                      'TT XNK (trung vị)',
-                    ];
-                  }
-                  return [indexMode ? num.toFixed(1) : fmtMoneyShort(num), name];
-                }}
-              />
-              {selectedCodes.map((code, idx) => (
-                <Line
-                  key={code}
-                  type="monotone"
-                  dataKey={code}
-                  stroke={SERIES_COLORS[idx % SERIES_COLORS.length]}
-                  strokeWidth={2}
-                  dot={{ r: 2.5 }}
-                  activeDot={{ r: 4 }}
-                  connectNulls
-                  isAnimationActive={false}
-                />
-              ))}
-              <Line
-                type="monotone"
-                dataKey="__market"
-                stroke={MARKET_DASH}
-                strokeWidth={1.5}
-                strokeDasharray="5 4"
-                dot={false}
-                connectNulls
-                isAnimationActive={false}
-              />
-            </LineChart>
-          </ResponsiveContainer>
+          <MultiSeriesLineChart data={multiChartData} indexMode={indexMode} selectedCodes={selectedCodes} />
         )}
         <Legend codes={selectedCodes} showMarket />
         </div>
@@ -814,38 +785,7 @@ export default function PriceTrendsPage() {
           ) : roleChartData.length === 0 || activeRoles.length === 0 ? (
             <EmptyBlock label="Chưa có dữ liệu giá theo vai trò cho các mã đã chọn." />
           ) : (
-            <ResponsiveContainer width="100%" height={300}>
-              <LineChart data={roleChartData} margin={{ top: 8, right: 16, bottom: 4, left: 4 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-                <XAxis dataKey="month_label" tick={{ fontSize: 11, fill: '#64748b' }} />
-                <YAxis
-                  tick={{ fontSize: 11, fill: '#64748b' }}
-                  tickFormatter={(v) => fmtMoneyShort(Number(v))}
-                  width={56}
-                />
-                <Tooltip
-                  contentStyle={{ fontSize: 12, borderRadius: 8, borderColor: '#cbd5e1' }}
-                  formatter={(value: unknown, name: string) => [
-                    fmtMoneyShort(Number(value)),
-                    ROLE_META[name as PriceRole]?.label ?? name,
-                  ]}
-                />
-                {ROLE_KEYS_FE.filter((r) => activeRoles.includes(r)).map((role) => (
-                  <Line
-                    key={role}
-                    type="monotone"
-                    dataKey={role}
-                    name={role}
-                    stroke={ROLE_META[role].color}
-                    strokeWidth={2}
-                    dot={{ r: 2 }}
-                    activeDot={{ r: 4 }}
-                    connectNulls
-                    isAnimationActive={false}
-                  />
-                ))}
-              </LineChart>
-            </ResponsiveContainer>
+            <RoleLineChart data={roleChartData} activeRoles={activeRoles} />
           )}
         </div>
       </Panel>
@@ -874,39 +814,7 @@ export default function PriceTrendsPage() {
             <EmptyBlock label="Chưa có PO Samsung cho các mã đã chọn." />
           ) : (
             <>
-              <ResponsiveContainer width="100%" height={260}>
-                <LineChart
-                  data={customerChartData}
-                  margin={{ top: 8, right: 12, bottom: 4, left: 4 }}
-                >
-                  <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-                  <XAxis dataKey="month_label" tick={{ fontSize: 11, fill: '#64748b' }} />
-                  <YAxis
-                    tick={{ fontSize: 11, fill: '#64748b' }}
-                    tickFormatter={(v) => fmtMoneyShort(Number(v))}
-                    width={56}
-                  />
-                  <Tooltip
-                    contentStyle={{ fontSize: 12, borderRadius: 8, borderColor: '#cbd5e1' }}
-                    formatter={(value: unknown, name: string) => [
-                      fmtMoneyShort(Number(value)),
-                      name,
-                    ]}
-                  />
-                  {(byCustomer.customers ?? []).slice(0, 6).map((cust, idx) => (
-                    <Line
-                      key={cust}
-                      type="monotone"
-                      dataKey={cust}
-                      stroke={SERIES_COLORS[idx % SERIES_COLORS.length]}
-                      strokeWidth={2}
-                      dot={{ r: 2 }}
-                      connectNulls
-                      isAnimationActive={false}
-                    />
-                  ))}
-                </LineChart>
-              </ResponsiveContainer>
+              <CustomerLineChart data={customerChartData} customers={byCustomer.customers ?? []} />
               <Legend codes={(byCustomer.customers ?? []).slice(0, 6)} />
             </>
           )}
@@ -935,39 +843,7 @@ export default function PriceTrendsPage() {
             <EmptyBlock label="Chưa có sourcing entry cho các mã đã chọn." />
           ) : (
             <>
-              <ResponsiveContainer width="100%" height={260}>
-                <LineChart
-                  data={supplierChartData}
-                  margin={{ top: 8, right: 12, bottom: 4, left: 4 }}
-                >
-                  <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-                  <XAxis dataKey="month_label" tick={{ fontSize: 11, fill: '#64748b' }} />
-                  <YAxis
-                    tick={{ fontSize: 11, fill: '#64748b' }}
-                    tickFormatter={(v) => fmtMoneyShort(Number(v))}
-                    width={56}
-                  />
-                  <Tooltip
-                    contentStyle={{ fontSize: 12, borderRadius: 8, borderColor: '#cbd5e1' }}
-                    formatter={(value: unknown, name: string) => [
-                      fmtMoneyShort(Number(value)),
-                      name,
-                    ]}
-                  />
-                  {(bySupplier.suppliers ?? []).slice(0, 6).map((sup, idx) => (
-                    <Line
-                      key={sup}
-                      type="monotone"
-                      dataKey={sup}
-                      stroke={SERIES_COLORS[idx % SERIES_COLORS.length]}
-                      strokeWidth={2}
-                      dot={{ r: 2 }}
-                      connectNulls
-                      isAnimationActive={false}
-                    />
-                  ))}
-                </LineChart>
-              </ResponsiveContainer>
+              <SupplierLineChart data={supplierChartData} suppliers={bySupplier.suppliers ?? []} />
               <Legend codes={(bySupplier.suppliers ?? []).slice(0, 6)} />
             </>
           )}

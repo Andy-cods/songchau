@@ -2,7 +2,7 @@
 
 import { type ElementType, type ReactNode, useEffect, useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
+import dynamic from 'next/dynamic';
 import {
   BadgeDollarSign,
   BarChart3,
@@ -24,6 +24,18 @@ import { api } from '@/lib/api';
 import { cn, formatDate, toNum } from '@/lib/utils';
 import { EmptyState } from '@/components/shared/empty-state';
 import { PageTransition } from '@/components/shared/page-transition';
+
+// Code-splitting (W3-16): recharts moved into MarketPriceCharts.tsx, each
+// chart deferred independently via dynamic() so recharts isn't part of
+// this route's first-load JS.
+const TrendSparkArea = dynamic(
+  () => import('./MarketPriceCharts').then((m) => m.TrendSparkArea),
+  { ssr: false, loading: () => <div className="h-full w-full animate-pulse rounded-2xl bg-slate-100" /> },
+);
+const MarketAreaChart = dynamic(
+  () => import('./MarketPriceCharts').then((m) => m.MarketAreaChart),
+  { ssr: false, loading: () => <div className="h-full w-full animate-pulse rounded-2xl bg-slate-100" /> },
+);
 
 interface XnkRow {
   id: number;
@@ -1058,25 +1070,7 @@ function SearchTab({
                     <div className="mb-2 rounded-[14px] bg-slate-50 px-3 py-2 text-[11px] leading-5 text-slate-600">{activeTrendSection.reason}</div>
                   )}
                   <div className="h-32 rounded-[16px] border border-slate-100 bg-slate-50/70 p-2">
-                    <ResponsiveContainer width="100%" height="100%">
-                      <AreaChart data={activeTrendSection.points} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
-                        <defs>
-                          <linearGradient id={`xnkDashboardTrend${activeTrendSection.year}`} x1="0" x2="0" y1="0" y2="1">
-                            <stop offset="0%" stopColor="#0f4c81" stopOpacity={0.18} />
-                            <stop offset="100%" stopColor="#0f4c81" stopOpacity={0.02} />
-                          </linearGradient>
-                        </defs>
-                        <CartesianGrid stroke="#e2e8f0" strokeDasharray="3 3" vertical={false} />
-                        <XAxis dataKey="period_label" tick={{ fontSize: 9, fill: '#64748b' }} tickLine={false} axisLine={false} />
-                        <YAxis tick={{ fontSize: 9, fill: '#64748b' }} tickLine={false} axisLine={false} width={34} />
-                        <Tooltip
-                          formatter={(value: number, key: string) => key === 'count' ? fmtNum(value, 0) : compactUsd(value)}
-                          labelFormatter={(label) => `Kỳ: ${label}`}
-                          contentStyle={{ borderRadius: 16, borderColor: '#dbe3f0' }}
-                        />
-                        <Area type="monotone" dataKey="count" stroke="#0f4c81" fill={`url(#xnkDashboardTrend${activeTrendSection.year})`} strokeWidth={2} />
-                      </AreaChart>
-                    </ResponsiveContainer>
+                    <TrendSparkArea points={activeTrendSection.points} year={activeTrendSection.year} />
                   </div>
                   <div className="mt-2 grid gap-2 sm:grid-cols-3">
                     {activeTrendSection.points.filter((point) => point.count > 0).slice(-3).map((point) => (
@@ -1370,16 +1364,7 @@ function SearchTab({
                 <div className="mb-3 flex items-center justify-between"><div className="text-sm font-semibold text-slate-900">Lịch sử giá</div><div className="text-xs text-slate-500">{fmtNum(historyRows.length, 0)} dòng</div></div>
                 <div className="h-40">
                   {chartData.length > 1 ? (
-                    <ResponsiveContainer width="100%" height="100%">
-                      <AreaChart data={chartData} margin={{ top: 8, right: 8, left: -18, bottom: 0 }}>
-                        <defs><linearGradient id="marketHistory" x1="0" x2="0" y1="0" y2="1"><stop offset="0%" stopColor="#0f4c81" stopOpacity={0.28} /><stop offset="100%" stopColor="#0f4c81" stopOpacity={0.02} /></linearGradient></defs>
-                        <CartesianGrid stroke="#e2e8f0" strokeDasharray="3 3" vertical={false} />
-                        <XAxis dataKey="date" tick={{ fontSize: 11, fill: '#64748b' }} tickLine={false} axisLine={false} />
-                        <YAxis tick={{ fontSize: 11, fill: '#64748b' }} tickLine={false} axisLine={false} width={48} />
-                        <Tooltip formatter={(value: number) => fmtUsd(value)} labelFormatter={(label) => `Ngày: ${label}`} contentStyle={{ borderRadius: 16, borderColor: '#dbe3f0' }} />
-                        <Area type="monotone" dataKey="price_usd" stroke="#0f4c81" fill="url(#marketHistory)" strokeWidth={2} />
-                      </AreaChart>
-                    </ResponsiveContainer>
+                    <MarketAreaChart data={chartData} />
                   ) : (
                     <div className="flex h-full items-center justify-center rounded-2xl bg-slate-50 text-sm text-slate-400">Cần ít nhất 2 điểm dữ liệu để vẽ trend.</div>
                   )}

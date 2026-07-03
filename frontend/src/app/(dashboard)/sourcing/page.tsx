@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import dynamic from 'next/dynamic';
 import {
   AlertCircle,
   ArrowDown,
@@ -51,8 +52,14 @@ import { SourcingFormDrawer, type SourcingEntry } from '@/components/sourcing/So
 import { SourcingImportModal } from '@/components/sourcing/SourcingImportModal';
 import { SupplierCompareDrawer } from '@/components/sourcing/SupplierCompareDrawer';
 import { BulkLookupSourcingModal } from '@/components/sourcing/BulkLookupSourcingModal';
-import { QuoteBatchModal } from '@/components/sourcing/QuoteBatchModal';
 import { PushToBiddingModal } from '@/components/sourcing/PushToBiddingModal';
+
+// Code-splitting (W3-16): QuoteBatchModal is 1669 lines and only opens on
+// click (state-gated below) — defer its chunk out of this route's bundle.
+const QuoteBatchModal = dynamic(
+  () => import('@/components/sourcing/QuoteBatchModal').then((m) => m.QuoteBatchModal),
+  { ssr: false, loading: () => null },
+);
 
 /* ─────────── Types ─────────── */
 

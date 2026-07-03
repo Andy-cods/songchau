@@ -81,7 +81,6 @@ function triggerUrlDownload(url: string, filename?: string) {
  * Falls back gracefully if the package is not installed (dev env).
  */
 async function rasterizeChart(node: HTMLElement): Promise<string> {
-  // @ts-expect-error — html2canvas is installed at runtime (see package.json)
   const html2canvasModule = await import('html2canvas');
   const html2canvas = html2canvasModule.default ?? html2canvasModule;
   const canvas = await html2canvas(node, {

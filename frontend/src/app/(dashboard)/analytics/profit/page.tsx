@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
+import dynamic from 'next/dynamic';
 import { api } from '@/lib/api';
 import {
   DollarSign,
@@ -10,18 +11,14 @@ import {
   BarChart2,
   Loader2,
 } from 'lucide-react';
-import {
-  LineChart,
-  Line,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  Legend,
-  ResponsiveContainer,
-} from 'recharts';
-import { CHART } from '@/lib/chart-colors';
 import { PageHeader } from '@/components/shared/page-header';
+
+// Code-splitting (W3-16): recharts moved into ProfitTrendChart.tsx, deferred
+// via dynamic() so it isn't part of this route's first-load JS.
+const ProfitTrendChart = dynamic(
+  () => import('./ProfitTrendChart').then((m) => m.ProfitTrendChart),
+  { ssr: false, loading: () => <div className="h-[320px] w-full animate-pulse rounded-lg bg-slate-100" /> },
+);
 
 // ─── Types ─────────────────────────────────────────────────────
 
@@ -422,44 +419,7 @@ export default function ProfitAnalysisPage() {
                 <h3 className="text-sm font-semibold text-slate-700 mb-4">
                   Doanh thu / Chi phí / Lợi nhuận theo tháng
                 </h3>
-                <ResponsiveContainer width="100%" height={320}>
-                  <LineChart data={periods}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-                    <XAxis dataKey="month" tick={{ fontSize: 11 }} />
-                    <YAxis
-                      tick={{ fontSize: 11 }}
-                      tickFormatter={(v) => `${(v / 1_000_000).toFixed(0)}tr`}
-                    />
-                    <Tooltip
-                      formatter={(v: number, name: string) => [fmtVnd(v), name]}
-                    />
-                    <Legend />
-                    <Line
-                      type="monotone"
-                      dataKey="revenue"
-                      stroke={CHART.brand}
-                      strokeWidth={2}
-                      name="Doanh thu"
-                      dot={{ r: 3 }}
-                    />
-                    <Line
-                      type="monotone"
-                      dataKey="cost"
-                      stroke={CHART.danger}
-                      strokeWidth={2}
-                      name="Chi phí"
-                      dot={{ r: 3 }}
-                    />
-                    <Line
-                      type="monotone"
-                      dataKey="profit"
-                      stroke={CHART.success}
-                      strokeWidth={2}
-                      name="Lợi nhuận"
-                      dot={{ r: 3 }}
-                    />
-                  </LineChart>
-                </ResponsiveContainer>
+                <ProfitTrendChart periods={periods} />
               </div>
 
               {/* Table */}

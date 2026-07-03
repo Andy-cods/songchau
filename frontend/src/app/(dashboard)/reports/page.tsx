@@ -1,6 +1,7 @@
 'use client';
 
 import { useQuery } from '@tanstack/react-query';
+import dynamic from 'next/dynamic';
 import {
   BarChart3,
   TrendingUp,
@@ -12,10 +13,29 @@ import { api } from '@/lib/api';
 import { formatCurrency } from '@/lib/utils';
 import { PageHeader } from '@/components/shared/page-header';
 import { KPICard } from '@/components/shared/kpi-card';
-import { LineAreaChart } from '@/components/charts/line-area-chart';
-import { HorizontalBarChart } from '@/components/charts/horizontal-bar-chart';
-import { DonutChart } from '@/components/charts/donut-chart';
 import { CHART } from '@/lib/chart-colors';
+
+// Code-splitting (W3-16): recharts is heavy (~100KB+) — defer its chunk
+// until these charts actually render, instead of bundling it into the
+// route's first-load JS. ssr:false is safe: ResponsiveContainer measures
+// the DOM and never needs to render server-side anyway.
+// (Named DynamicChartFallback — a `ChartSkeleton` already exists below for
+// the data-loading state, so this avoids a duplicate-identifier collision.)
+const DynamicChartFallback = ({ height }: { height: number }) => (
+  <div className="w-full animate-pulse rounded-lg bg-slate-100" style={{ height }} />
+);
+const LineAreaChart = dynamic(
+  () => import('@/components/charts/line-area-chart').then((m) => m.LineAreaChart),
+  { ssr: false, loading: () => <DynamicChartFallback height={320} /> },
+);
+const HorizontalBarChart = dynamic(
+  () => import('@/components/charts/horizontal-bar-chart').then((m) => m.HorizontalBarChart),
+  { ssr: false, loading: () => <DynamicChartFallback height={360} /> },
+);
+const DonutChart = dynamic(
+  () => import('@/components/charts/donut-chart').then((m) => m.DonutChart),
+  { ssr: false, loading: () => <DynamicChartFallback height={320} /> },
+);
 
 // ─── Page Component ────────────────────────────────────────────
 

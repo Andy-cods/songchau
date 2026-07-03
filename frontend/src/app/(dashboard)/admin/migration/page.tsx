@@ -6,7 +6,7 @@ import {
   RefreshCw, Loader2, CheckCircle2, XCircle, AlertTriangle,
   Clock, PlayCircle, ShieldCheck, Database, ChevronDown, ChevronUp,
   FolderOpen, FolderClosed, FileSpreadsheet, ChevronRight, Search,
-  Files, CloudOff, CloudCheck, FileClock, Eye, Download, SkipForward,
+  Files, CloudOff, FileClock, Eye, Download, SkipForward,
 } from 'lucide-react';
 import { api } from '@/lib/api';
 import { PageHeader } from '@/components/shared/page-header';
@@ -60,7 +60,7 @@ interface DataQualityItem {
   created_at: string;
 }
 
-type SyncStatus = 'imported' | 'needs_update' | 'has_mapping' | 'no_mapping' | 'empty';
+type SyncStatus = 'imported' | 'needs_update' | 'has_mapping' | 'no_mapping' | 'empty' | 'error';
 
 interface FileNode {
   name: string;
@@ -371,7 +371,7 @@ function OneDriveFileExplorer() {
   const [importResult, setImportResult] = useState<ImportResult | null>(null);
   const [importLoading, setImportLoading] = useState(false);
   const [skipLoading, setSkipLoading] = useState(false);
-  const [actionMessage, setActionMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [actionMessage, setActionMessage] = useState<{ type: 'success' | 'error' | 'info'; text: string } | null>(null);
 
   const { data: raw, isLoading, isError, refetch, isFetching } = useQuery({
     queryKey: ['migration-file-tree'],
@@ -380,7 +380,7 @@ function OneDriveFileExplorer() {
   });
 
   const summary: FileTreeSummary = raw?.data?.summary ?? {
-    total_files: 0, total_size_bytes: 0, imported: 0, needs_update: 0, has_mapping: 0, no_mapping: 0, empty: 0,
+    total_files: 0, total_size_bytes: 0, imported: 0, needs_update: 0, has_mapping: 0, no_mapping: 0, empty: 0, error: 0,
   };
   const rawTree: TreeNode[] = Array.isArray(raw?.data?.tree) ? raw.data.tree : [];
 
@@ -520,7 +520,7 @@ function OneDriveFileExplorer() {
     setExpandedPaths(new Set());
   }
 
-  const tabs: { key: 'all' | 'synced' | 'modified' | 'not_imported'; label: string; count: number | null }[] = [
+  const tabs: { key: 'all' | 'imported' | 'needs_update' | 'has_mapping' | 'no_mapping'; label: string; count: number | null }[] = [
     { key: 'all', label: 'Tất cả', count: summary.total_files },
     { key: 'imported', label: 'Đã import', count: summary.imported },
     { key: 'needs_update', label: 'Cần cập nhật', count: summary.needs_update },

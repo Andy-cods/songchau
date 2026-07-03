@@ -27,9 +27,10 @@ from datetime import datetime, timezone
 from typing import Any, Literal
 
 import asyncpg
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 
+from app.core.audit import write_audit_log
 from app.core.database import get_db
 from app.core.rbac import require_role, TokenData
 
@@ -364,6 +365,7 @@ async def get_payment_request(
 async def approve_payment_request(
     pr_id: int,
     body: PaymentApprovePayload,
+    request: Request,
     token_data: TokenData = Depends(require_role("accountant", "admin")),
     conn: asyncpg.Connection = Depends(get_db),
 ):
@@ -407,6 +409,26 @@ async def approve_payment_request(
              WHERE id = $3
             """,
             token_data.user_id, new_notes, pr_id,
+        )
+
+        # payment_requests has NO DB-level audit trigger (unlike
+        # accounts_payable/accounts_receivable) — write the audit row
+        # explicitly so every approve/reject/mark-paid transition is
+        # traceable. Atomic with the UPDATE above (same outer transaction).
+        await write_audit_log(
+            conn=conn,
+            token_data=token_data,
+            action="UPDATE",
+            table_name="payment_requests",
+            record_id=pr_id,
+            old_data=dict(pr),
+            new_data={
+                **dict(pr),
+                "status": "approved",
+                "approved_by": str(token_data.user_id),
+                "notes": new_notes,
+            },
+            request=request,
         )
 
         # Drive linked sourcing_order to payment_approved
@@ -534,10 +556,25 @@ async def approve_payment_request(
                                 },
                             )
                     except Exception as exc:
-                        # Best-effort: log and let the approval commit anyway.
-                        logger.warning(
+                        # W3-06 — NEVER swallow: the auto-AR SAVEPOINT above has
+                        # already rolled back (so the accountant's approval + SO
+                        # transition still commit), but the công-nợ row the deal
+                        # needed is now MISSING. Log at ERROR *and* bell-notify
+                        # every admin so a human creates the AR by hand instead of
+                        # the gap dying silently in the log. The notify runs in its
+                        # OWN savepoint (inside chain_service) so it can't poison
+                        # the still-open outer approval transaction.
+                        logger.error(
                             "Phase3 auto-AR hook failed for SO %s / PR %s: %s",
-                            so_id, pr_id, exc,
+                            so_id, pr_id, exc, exc_info=True,
+                        )
+                        await chain_service.notify_admins_hook_failure(
+                            conn,
+                            hook="auto-AR",
+                            ref_type="payment_request",
+                            ref_id=pr_id,
+                            error=f"SO {so_id} / PR {pr_id}: {exc}",
+                            link="/finance/reconcile",
                         )
                 # ============ END PHASE 3 BEHAVIOR-CHANGE BLOCK ===============
 
@@ -546,6 +583,16 @@ async def approve_payment_request(
             await conn.execute(
                 "UPDATE payment_requests SET status = 'paid', paid_at = NOW() WHERE id = $1",
                 pr_id,
+            )
+            await write_audit_log(
+                conn=conn,
+                token_data=token_data,
+                action="UPDATE",
+                table_name="payment_requests",
+                record_id=pr_id,
+                old_data={"status": "approved"},
+                new_data={"status": "paid", "paid_immediately": True},
+                request=request,
             )
 
         # ── Side effects (out-of-band) ──
@@ -591,6 +638,7 @@ async def approve_payment_request(
 async def reject_payment_request(
     pr_id: int,
     body: PaymentRejectPayload,
+    request: Request,
     token_data: TokenData = Depends(require_role("accountant", "admin")),
     conn: asyncpg.Connection = Depends(get_db),
 ):
@@ -635,6 +683,22 @@ async def reject_payment_request(
             token_data.user_id,
             f"{reason}: {note}",
             pr_id,
+        )
+
+        await write_audit_log(
+            conn=conn,
+            token_data=token_data,
+            action="UPDATE",
+            table_name="payment_requests",
+            record_id=pr_id,
+            old_data=dict(pr),
+            new_data={
+                **dict(pr),
+                "status": "rejected",
+                "rejected_by": str(token_data.user_id),
+                "rejection_reason": f"{reason}: {note}",
+            },
+            request=request,
         )
 
         so_id = pr["sourcing_order_id"]
@@ -712,6 +776,7 @@ async def reject_payment_request(
 async def mark_payment_request_paid(
     pr_id: int,
     body: PaymentMarkPaidPayload,
+    request: Request,
     token_data: TokenData = Depends(require_role("accountant", "admin")),
     conn: asyncpg.Connection = Depends(get_db),
 ):
@@ -757,6 +822,26 @@ async def mark_payment_request_paid(
              WHERE id = $3
             """,
             paid_at, json.dumps(meta), pr_id,
+        )
+
+        # `pr` came back from a JOIN with sourcing_orders (order_number/so_id) —
+        # strip those before snapshotting so old/new_data only reflect the
+        # payment_requests row itself, not the joined columns.
+        pr_only = {k: v for k, v in dict(pr).items() if k not in ("order_number", "so_id")}
+        await write_audit_log(
+            conn=conn,
+            token_data=token_data,
+            action="UPDATE",
+            table_name="payment_requests",
+            record_id=pr_id,
+            old_data=pr_only,
+            new_data={
+                **pr_only,
+                "status": "paid",
+                "paid_at": paid_at,
+                "metadata": meta,
+            },
+            request=request,
         )
 
     # In-app notif for paid is already covered via /notifications subscribers;

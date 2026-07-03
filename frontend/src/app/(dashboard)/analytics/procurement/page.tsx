@@ -24,11 +24,9 @@
 
 import { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
+import dynamic from 'next/dynamic';
 import { api } from '@/lib/api';
 import { cn, toNum, safeFixed } from '@/lib/utils';
-import { LineAreaChart } from '@/components/charts/line-area-chart';
-import { DonutChart } from '@/components/charts/donut-chart';
-import { Sparkline } from '@/components/charts/sparkline';
 import {
   PageShellHeader,
   KpiRail,
@@ -45,6 +43,23 @@ import {
   AlertCircle,
   PiggyBank,
 } from 'lucide-react';
+
+// Code-splitting (W3-16): defer recharts chunk until charts render.
+const ChartSkeleton = ({ height }: { height: number }) => (
+  <div className="w-full animate-pulse rounded-lg bg-slate-100" style={{ height }} />
+);
+const LineAreaChart = dynamic(
+  () => import('@/components/charts/line-area-chart').then((m) => m.LineAreaChart),
+  { ssr: false, loading: () => <ChartSkeleton height={320} /> },
+);
+const DonutChart = dynamic(
+  () => import('@/components/charts/donut-chart').then((m) => m.DonutChart),
+  { ssr: false, loading: () => <ChartSkeleton height={320} /> },
+);
+const Sparkline = dynamic(
+  () => import('@/components/charts/sparkline').then((m) => m.Sparkline),
+  { ssr: false, loading: () => null },
+);
 
 // ─── Design palette (restrained — ONE indigo brand + slate ramp) ────
 const BRAND = '#4f46e5'; // brand-600 series for every chart / highlight

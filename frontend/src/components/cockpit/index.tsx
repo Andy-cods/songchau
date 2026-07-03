@@ -14,6 +14,7 @@ import {
   type ReactNode,
   type HTMLAttributes,
 } from 'react';
+import dynamic from 'next/dynamic';
 import {
   motion,
   AnimatePresence,
@@ -22,7 +23,6 @@ import {
 } from 'framer-motion';
 import { TrendingUp, TrendingDown, Minus, Rows3, Rows4 } from 'lucide-react';
 import { cn, toNum, safeFixed } from '@/lib/utils';
-import { Sparkline } from '@/components/charts/sparkline';
 import {
   TYPE,
   ELEVATION,
@@ -51,6 +51,14 @@ export type { BadgeTone, Density };
 
 // Shared brand color for charts/sparklines (brand-600 #4f46e5 — indigo design law).
 const BRAND = '#4f46e5';
+
+// Code-splitting (W3-16): cockpit is imported by many bidding pages; deferring
+// recharts here keeps it out of every consumer's first-load JS until a
+// Sparkline actually mounts.
+const Sparkline = dynamic(
+  () => import('@/components/charts/sparkline').then((m) => m.Sparkline),
+  { ssr: false, loading: () => null },
+);
 
 // ════════════════════════════════════════════════════════════════════════
 // TopProgressBar — system-wide thin violet refetch heartbeat (h-0.5).

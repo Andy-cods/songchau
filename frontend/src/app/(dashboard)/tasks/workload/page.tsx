@@ -33,7 +33,8 @@ interface WorkloadItem {
   full_name: string;
   pending_count: number;
   in_progress_count: number;
-  completed_today: number;
+  // Backend counts completions over a rolling 30-day window, not calendar "today".
+  completed_30d: number;
 }
 
 interface AutoAssignResult {
@@ -89,7 +90,7 @@ export default function WorkloadPage() {
   });
 
   const _wRaw: any = data?.data;
-  const workload = Array.isArray(_wRaw) ? _wRaw : Array.isArray(_wRaw?.items) ? _wRaw.items : [];
+  const workload: WorkloadItem[] = Array.isArray(_wRaw) ? _wRaw : Array.isArray(_wRaw?.items) ? _wRaw.items : [];
 
   const maxTotal = Math.max(...workload.map((w) => w.pending_count + w.in_progress_count), 1);
 
@@ -178,8 +179,8 @@ export default function WorkloadPage() {
           <StatCard
             icon={CheckCircle}
             tone="success"
-            label="Xong hôm nay"
-            value={workload.reduce((s, w) => s + w.completed_today, 0)}
+            label="Xong (30 ngày)"
+            value={workload.reduce((s, w) => s + w.completed_30d, 0)}
           />
         </div>
       )}
@@ -209,7 +210,7 @@ export default function WorkloadPage() {
                   <div className="flex items-center justify-between mb-2">
                     <span className="text-sm font-medium text-slate-800">{w.full_name}</span>
                     <span className="text-xs text-slate-500">
-                      {totalActive} đang xử lý · {w.completed_today} xong hôm nay
+                      {totalActive} đang xử lý · {w.completed_30d} xong (30 ngày)
                     </span>
                   </div>
                   <div className="space-y-1.5">
@@ -226,8 +227,8 @@ export default function WorkloadPage() {
                       colorClass="bg-sky-400"
                     />
                     <WorkloadBar
-                      label="Xong hôm nay"
-                      value={w.completed_today}
+                      label="Xong (30 ngày)"
+                      value={w.completed_30d}
                       max={maxTotal}
                       colorClass="bg-emerald-400"
                     />
@@ -259,7 +260,7 @@ export default function WorkloadPage() {
                 <TableHead>Nhân viên</TableHead>
                 <TableHead className="text-right">Chờ xử lý</TableHead>
                 <TableHead className="text-right">Đang làm</TableHead>
-                <TableHead className="text-right">Xong hôm nay</TableHead>
+                <TableHead className="text-right">Xong (30 ngày)</TableHead>
                 <TableHead className="text-right">Tổng đang xử lý</TableHead>
                 <TableHead>Xem công việc</TableHead>
               </TableRow>
@@ -286,7 +287,7 @@ export default function WorkloadPage() {
                         <span className="text-sm font-mono text-sky-600">{w.in_progress_count}</span>
                       </TableCell>
                       <TableCell className="text-right">
-                        <span className="text-sm font-mono text-emerald-600">{w.completed_today}</span>
+                        <span className="text-sm font-mono text-emerald-600">{w.completed_30d}</span>
                       </TableCell>
                       <TableCell className="text-right">
                         <span className={`text-sm font-mono ${loadClass}`}>{total}</span>

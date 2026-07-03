@@ -1,16 +1,21 @@
 """
-Calendar & Leave API (M39) — Team Calendar and Employee Leave Management.
+Calendar API (M39) — Team Calendar.
 
 Endpoints:
   GET    /events                      — List calendar events (date range filter)
   POST   /events                      — Create calendar event
   PUT    /events/{id}                 — Update calendar event
   DELETE /events/{id}                 — Delete calendar event
-  GET    /leaves                      — List leave requests (status filter)
-  POST   /leaves                      — Create leave request
-  POST   /leaves/{id}/approve         — Approve leave request (manager/admin)
-  POST   /leaves/{id}/reject          — Reject leave request (manager/admin)
-  GET    /leaves/balance/{user_id}    — Leave balance: annual 12 days − used
+
+DEPRECATED (W3-08, 2026-07-04) — Leave endpoints below are legacy, kept only
+in case of undiscovered external callers. Nguồn chuẩn duy nhất cho nghỉ phép
+là HR M41 (app/api/v1/leave.py, mount /api/v1/leave). Xem ghi chú chi tiết
+ngay phía trên nhóm route /leaves*. KHÔNG dùng cho tính năng mới:
+  GET    /leaves                      — [DEPRECATED] dùng GET /api/v1/leave
+  POST   /leaves                      — [DEPRECATED] dùng POST /api/v1/leave
+  POST   /leaves/{id}/approve         — [DEPRECATED] dùng /api/v1/leave/{id}/approve
+  POST   /leaves/{id}/reject          — [DEPRECATED] dùng /api/v1/leave/{id}/reject
+  GET    /leaves/balance/{user_id}    — [DEPRECATED] dùng /api/v1/leave/balance/{user_id}
 """
 
 from __future__ import annotations
@@ -275,7 +280,24 @@ async def delete_event(
 
 
 # ---------------------------------------------------------------------------
-# Leave Requests
+# Leave Requests — DEPRECATED (W3-08, 2026-07-04)
+# ---------------------------------------------------------------------------
+# Nguồn chuẩn duy nhất cho nghỉ phép giờ là HR M41: app/api/v1/leave.py,
+# mount tại /api/v1/leave, bảng leave_requests + leave_balance + leave_policy.
+# Lý do gỡ: các endpoint /leaves* dưới đây (1) không set users.department khi
+# tạo đơn -> đơn "biến mất" khỏi danh sách duyệt theo phòng ở /hr; (2) approve
+# không trừ leave_balance -> số dư lệch với /hr (nơi có SELECT...FOR UPDATE +
+# chặn vượt hạn mức); (3) không có luật "manager chỉ duyệt cùng phòng, không
+# tự duyệt"; (4) leave_balance() bên dưới hardcode ANNUAL_LEAVE_DAYS=12,
+# bỏ qua leave_policy per-role/dept thật.
+#
+# frontend/src/app/(dashboard)/calendar/page.tsx đã chuyển sang gọi thẳng
+# leaveApi (frontend/src/services/hr.ts) -> /api/v1/leave* kể từ 2026-07-04.
+# Grep toàn repo xác nhận KHÔNG còn caller nội bộ nào gọi /calendar/leaves*
+# (chỉ có chính trang trên, nay đã sửa). Endpoint dưới đây GIỮ NGUYÊN (không
+# unmount, không xoá) đề phòng còn caller ngoài (script/tool) chưa phát hiện —
+# xoá hẳn sẽ làm ở lần dead-code sweep có allowlist/ADR riêng (xem W0-17).
+# KHÔNG dùng các endpoint này cho tính năng mới.
 # ---------------------------------------------------------------------------
 
 @router.get("/leaves")

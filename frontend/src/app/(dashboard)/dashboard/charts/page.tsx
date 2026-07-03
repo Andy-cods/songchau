@@ -2,6 +2,7 @@
 
 import { useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
+import dynamic from 'next/dynamic';
 import {
   TrendingUp,
   TrendingDown,
@@ -16,27 +17,30 @@ import {
   ChevronRight,
 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
-import {
-  BarChart,
-  Bar,
-  LineChart,
-  Line,
-  AreaChart,
-  Area,
-  PieChart,
-  Pie,
-  Cell,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  ResponsiveContainer,
-  ReferenceLine,
-} from 'recharts';
 import { api } from '@/lib/api';
 import { cn } from '@/lib/utils';
 import { useIsReadOnly } from '@/hooks/use-permissions';
 import { CHART, CATEGORICAL } from '@/lib/chart-colors';
+
+// Code-splitting (W3-16): recharts moved into DashboardCharts.tsx, each
+// chart deferred independently via dynamic() so recharts isn't part of
+// this route's first-load JS.
+const RevenueChart = dynamic(
+  () => import('./DashboardCharts').then((m) => m.RevenueChart),
+  { ssr: false, loading: () => <Skeleton className="h-[280px]" /> },
+);
+const YoyChart = dynamic(
+  () => import('./DashboardCharts').then((m) => m.YoyChart),
+  { ssr: false, loading: () => <Skeleton className="h-[280px]" /> },
+);
+const MakersDonutChart = dynamic(
+  () => import('./DashboardCharts').then((m) => m.MakersDonutChart),
+  { ssr: false, loading: () => <Skeleton className="h-[200px] w-[200px]" /> },
+);
+const WinRateChart = dynamic(
+  () => import('./DashboardCharts').then((m) => m.WinRateChart),
+  { ssr: false, loading: () => <Skeleton className="h-[260px]" /> },
+);
 
 /* ================================================================
    DESIGN SYSTEM — màu lấy từ '@/lib/chart-colors' (brand + status + slate)
@@ -98,27 +102,6 @@ function convPct(from: number, to: number): string {
 /* ================================================================
    SHARED COMPONENTS
    ================================================================ */
-
-/** Tooltip for Recharts — dark glass morphism style */
-function ChartTooltip({ active, payload, label, valueFormatter }: any) {
-  if (!active || !payload?.length) return null;
-  return (
-    <div className="bg-slate-900 text-white rounded-lg px-3.5 py-2.5 shadow-xl text-xs border border-slate-700/50">
-      <p className="font-medium text-slate-400 mb-1.5 text-[11px]">{label}</p>
-      <div className="space-y-1">
-        {payload.map((entry: any, i: number) => (
-          <div key={i} className="flex items-center gap-2">
-            <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: entry.color }} />
-            <span className="text-slate-300">{entry.name}</span>
-            <span className="font-mono font-semibold ml-auto pl-3">
-              {valueFormatter ? valueFormatter(entry.value) : fmtNum(entry.value ?? 0)}
-            </span>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
 
 /** Skeleton loader with subtle shimmer */
 function Skeleton({ className }: { className?: string }) {
@@ -239,6 +222,15 @@ export default function DashboardPage() {
   const avgWinRate = winRateTrendSafe.length
     ? winRateTrendSafe.reduce((s, r) => s + r.win_rate, 0) / winRateTrendSafe.length
     : 0;
+
+  // Pre-computed here (rather than inline in JSX) so it can be passed as a
+  // typed prop to the dynamic-imported WinRateChart (W3-16 code-splitting).
+  const winRateChartData = winRateTrendSafe.map((r) => ({
+    name: monthLabel(r.month),
+    rate: r.win_rate,
+    won: r.won,
+    lost: r.lost,
+  }));
 
   // Pre-coerce owners list so .toFixed never crashes on string win_rate.
   const ownersSafe = owners.map((o: any) => ({
@@ -411,25 +403,7 @@ export default function DashboardPage() {
               </div>
             </div>
             {isLoading ? <Skeleton className="h-[280px]" /> : (
-              <ResponsiveContainer width="100%" height={280}>
-                <BarChart data={revenueChartData} barCategoryGap="25%" barGap={2}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
-                  <XAxis
-                    dataKey="name"
-                    tick={{ fontSize: 11, fill: '#94a3b8' }}
-                    axisLine={false} tickLine={false}
-                  />
-                  <YAxis
-                    tickFormatter={fmtVnd}
-                    tick={{ fontSize: 11, fill: '#94a3b8' }}
-                    axisLine={false} tickLine={false}
-                    width={50}
-                  />
-                  <Tooltip content={<ChartTooltip valueFormatter={fmtVnd} />} />
-                  <Bar dataKey="quoted" name="Báo giá" fill={COLORS.violet} radius={[4,4,0,0]} />
-                  <Bar dataKey="won" name="Chốt được" fill={COLORS.emerald} radius={[4,4,0,0]} />
-                </BarChart>
-              </ResponsiveContainer>
+              <RevenueChart data={revenueChartData} />
             )}
           </div>
 
@@ -450,48 +424,7 @@ export default function DashboardPage() {
               </div>
             </div>
             {isLoading ? <Skeleton className="h-[280px]" /> : (
-              <ResponsiveContainer width="100%" height={280}>
-                <AreaChart data={yoyChartData}>
-                  <defs>
-                    <linearGradient id="grad-this-year" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="0%" stopColor={COLORS.violet} stopOpacity={0.12} />
-                      <stop offset="100%" stopColor={COLORS.violet} stopOpacity={0} />
-                    </linearGradient>
-                  </defs>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
-                  <XAxis
-                    dataKey="name"
-                    tick={{ fontSize: 11, fill: '#94a3b8' }}
-                    axisLine={false} tickLine={false}
-                  />
-                  <YAxis
-                    tick={{ fontSize: 11, fill: '#94a3b8' }}
-                    axisLine={false} tickLine={false}
-                    width={40}
-                  />
-                  <Tooltip content={<ChartTooltip />} />
-                  <Area
-                    type="monotone"
-                    dataKey="thisYear"
-                    name={`${currentYear}`}
-                    stroke={COLORS.violet}
-                    strokeWidth={2.5}
-                    fill="url(#grad-this-year)"
-                    dot={{ r: 3, fill: COLORS.violet, strokeWidth: 0 }}
-                    activeDot={{ r: 5, stroke: '#fff', strokeWidth: 2 }}
-                  />
-                  <Line
-                    type="monotone"
-                    dataKey="lastYear"
-                    name={`${currentYear - 1}`}
-                    stroke="#cbd5e1"
-                    strokeWidth={2}
-                    strokeDasharray="6 4"
-                    dot={{ r: 3, fill: '#cbd5e1', strokeWidth: 0 }}
-                    activeDot={{ r: 5, stroke: '#fff', strokeWidth: 2 }}
-                  />
-                </AreaChart>
-              </ResponsiveContainer>
+              <YoyChart data={yoyChartData} currentYear={currentYear} />
             )}
           </div>
         </section>
@@ -606,34 +539,7 @@ export default function DashboardPage() {
               <div className="flex flex-col items-center">
                 {/* Donut */}
                 <div className="relative">
-                  <ResponsiveContainer width={200} height={200}>
-                    <PieChart>
-                      <Pie
-                        data={makersDonut}
-                        cx="50%" cy="50%"
-                        innerRadius={60} outerRadius={88}
-                        paddingAngle={2}
-                        dataKey="value"
-                        strokeWidth={0}
-                      >
-                        {makersDonut.map((_: any, i: number) => (
-                          <Cell key={i} fill={COLORS.donut[i % COLORS.donut.length]} />
-                        ))}
-                      </Pie>
-                      <Tooltip
-                        content={({ active, payload }: any) => {
-                          if (!active || !payload?.[0]) return null;
-                          const item = payload[0].payload;
-                          return (
-                            <div className="bg-slate-900 text-white rounded-lg px-3.5 py-2.5 shadow-xl text-xs border border-slate-700/50">
-                              <p className="font-semibold mb-1">{item.name}</p>
-                              <p className="text-slate-400">{fmtNum(item.value)} RFQ &middot; Win: {item.rate?.toFixed(1)}%</p>
-                            </div>
-                          );
-                        }}
-                      />
-                    </PieChart>
-                  </ResponsiveContainer>
+                  <MakersDonutChart data={makersDonut} />
                   {/* Center label */}
                   <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
                     <span className="text-2xl font-bold text-slate-800">
@@ -806,52 +712,7 @@ export default function DashboardPage() {
               )}
             </div>
             {isLoading ? <Skeleton className="h-[260px]" /> : (
-              <ResponsiveContainer width="100%" height={260}>
-                <AreaChart data={winRateTrendSafe.map((r) => ({
-                  name: monthLabel(r.month),
-                  rate: r.win_rate,
-                  won: r.won,
-                  lost: r.lost,
-                }))}>
-                  <defs>
-                    <linearGradient id="grad-winrate" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="0%" stopColor={COLORS.emerald} stopOpacity={0.15} />
-                      <stop offset="100%" stopColor={COLORS.emerald} stopOpacity={0} />
-                    </linearGradient>
-                  </defs>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
-                  <XAxis
-                    dataKey="name"
-                    tick={{ fontSize: 11, fill: '#94a3b8' }}
-                    axisLine={false} tickLine={false}
-                  />
-                  <YAxis
-                    tickFormatter={(v) => `${v}%`}
-                    tick={{ fontSize: 11, fill: '#94a3b8' }}
-                    axisLine={false} tickLine={false}
-                    width={40}
-                  />
-                  <Tooltip content={<ChartTooltip valueFormatter={(v: number) => `${v.toFixed(1)}%`} />} />
-                  {avgWinRate > 0 && (
-                    <ReferenceLine
-                      y={avgWinRate}
-                      stroke={COLORS.amber}
-                      strokeDasharray="4 3"
-                      strokeWidth={1.5}
-                    />
-                  )}
-                  <Area
-                    type="monotone"
-                    dataKey="rate"
-                    name="Tỷ lệ thắng"
-                    stroke={COLORS.emerald}
-                    strokeWidth={2.5}
-                    fill="url(#grad-winrate)"
-                    dot={{ r: 3, fill: COLORS.emerald, strokeWidth: 0 }}
-                    activeDot={{ r: 5, stroke: '#fff', strokeWidth: 2 }}
-                  />
-                </AreaChart>
-              </ResponsiveContainer>
+              <WinRateChart data={winRateChartData} avgWinRate={avgWinRate} />
             )}
           </div>
 

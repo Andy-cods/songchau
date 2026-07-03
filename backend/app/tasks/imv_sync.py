@@ -213,6 +213,8 @@ def _sync_entity(entity: str, rows: Any) -> dict[str, Any]:
         _update_sync_log(sync_id, result, entity_type=entity)
     if result['status'] == 'error':
         _check_consecutive_errors(entity, result.get('error_message', ''))
+    elif entity in _ATTENTION_ENTITIES and result.get('new_records', 0) > 0:
+        _notify_admins_new_rows(entity, result['new_records'])
     return result
 
 
@@ -284,6 +286,77 @@ def _notify_admins_sync_error(entity: str, error_message: str) -> None:
     finally:
         conn.close()
     logger.warning('imv: consecutive-error alert sent for entity=%s', entity)
+
+
+# ─── Guard-on-data: contracts/rejections have no downstream processing ─
+#
+# W3-02: imv_contracts / imv_rejections sync fully through the same generic
+# pipeline as the other 4 entities (UPSERT_SPECS above) and are listed
+# read-only on the /imv UI ("Hợp đồng" / "Từ chối" tabs), but nothing in the
+# ERP actually CONSUMES that data — no auto-created internal PO/contract
+# record from an imv_contracts row, no follow-up task when a shipment gets
+# rejected. Building that full processing flow is YAGNI until the business
+# need is confirmed (imv_module_v2.sql even notes rejections is "empty for
+# us" historically). Staying silent when NEW rows land is the real risk
+# though, so this is a minimal guard: whenever a sync brings in new rows for
+# one of these two entities, ping admins so a human reviews it by hand —
+# nothing more.
+_ATTENTION_ENTITIES: dict[str, tuple[str, str, str]] = {
+    # entity -> (notification_type enum value, title prefix, deep link)
+    'contracts': ('imv_contract_new', 'Hợp đồng IMV mới', '/imv?tab=contracts'),
+    'rejections': ('imv_rejection_new', 'Từ chối IMV mới', '/imv?tab=rejections'),
+}
+
+
+def _notify_admins_new_rows(entity: str, new_count: int) -> None:
+    """Push a Bell notification to admins — new imv_contracts/imv_rejections
+    rows landed and there is no automated processing for them yet, so a
+    human needs to look. No-op for entities outside _ATTENTION_ENTITIES.
+    """
+    spec = _ATTENTION_ENTITIES.get(entity)
+    if not spec:
+        return
+    notif_type, title_prefix, link = spec
+
+    conn = psycopg2.connect(SYNC_DSN)
+    try:
+        with conn, conn.cursor() as cur:
+            cur.execute(
+                "SELECT id FROM users WHERE is_active = true AND deleted_at IS NULL AND role = 'admin'"
+            )
+            admin_ids = [r[0] for r in cur.fetchall()]
+            if not admin_ids:
+                logger.warning('imv: no admin recipients found for %s attention alert', entity)
+                return
+            body = (
+                f'{new_count} dong moi trong imv_{entity} — chua co luong xu ly '
+                f'tu dong, can kiem tra tay.'
+            )
+            for uid in admin_ids:
+                try:
+                    cur.execute(
+                        """
+                        INSERT INTO notifications
+                            (recipient_id, type, title, body, ref_type, metadata)
+                        VALUES (%s, %s, %s, %s, %s, %s)
+                        """,
+                        (
+                            uid,
+                            notif_type,
+                            f'{title_prefix}: {new_count} dong',
+                            body,
+                            f'imv_{entity}',
+                            psycopg2.extras.Json({'entity': entity, 'new_records': new_count, 'link': link}),
+                        ),
+                    )
+                except Exception:
+                    logger.exception('imv: attention notif insert failed for admin %s (%s)', uid, entity)
+    finally:
+        conn.close()
+    logger.warning(
+        'imv: %s new %s rows detected — admin notified (no auto-processing exists yet)',
+        new_count, entity,
+    )
 
 
 # ─── DB helpers ───────────────────────────────────────────────

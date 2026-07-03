@@ -2,6 +2,7 @@
 
 import { use } from 'react';
 import { useQuery } from '@tanstack/react-query';
+import dynamic from 'next/dynamic';
 import { api } from '@/lib/api';
 import {
   Package,
@@ -13,20 +14,17 @@ import {
 } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import {
-  BarChart,
-  Bar,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  ResponsiveContainer,
-} from 'recharts';
-import { CHART } from '@/lib/chart-colors';
 import { StatCard, type StatTone } from '@/components/shared/stat-card';
 import { Card } from '@/components/shared/card';
 import { EmptyState } from '@/components/shared/empty-state';
 import { Skeleton } from '@/components/ui/skeleton';
+
+// Code-splitting (W3-16): recharts moved into ConsumptionChart.tsx, deferred
+// via dynamic() so it isn't part of this route's first-load JS.
+const ConsumptionChart = dynamic(
+  () => import('./ConsumptionChart').then((m) => m.ConsumptionChart),
+  { ssr: false, loading: () => <Skeleton className="h-[280px] w-full" /> },
+);
 
 // ─── Types ─────────────────────────────────────────────────────
 
@@ -199,18 +197,7 @@ export default function ProductForecastPage({
             <p className="text-sm">Không có dữ liệu xuất kho</p>
           </div>
         ) : (
-          <ResponsiveContainer width="100%" height={280}>
-            <BarChart data={chartData}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-              <XAxis dataKey="day" tick={{ fontSize: 11 }} />
-              <YAxis tick={{ fontSize: 11 }} />
-              <Tooltip
-                formatter={(v: number) => [v.toLocaleString('vi-VN'), 'Xuất kho']}
-                labelFormatter={(label) => `Ngày ${label}`}
-              />
-              <Bar dataKey="qty" fill={CHART.brand} radius={[3, 3, 0, 0]} name="Xuất kho" />
-            </BarChart>
-          </ResponsiveContainer>
+          <ConsumptionChart data={chartData} />
         )}
       </Card>
 

@@ -12,6 +12,57 @@ check_deadline_reminders
 
 All DB access uses a sync psycopg2 connection so it runs safely inside a
 Procrastinate worker process.
+
+---------------------------------------------------------------------------
+RANH GIỚI 2 HỆ NOTIFICATION (W3-08, 2026-07-04) — đọc trước khi thêm loại
+thông báo mới, để tránh tạo trùng cho cùng 1 sự kiện.
+---------------------------------------------------------------------------
+Cả 2 hệ ghi vào CÙNG bảng `notifications` nhưng có trigger khác nhau:
+
+  HỆ A — "canh giờ" (cron/periodic, module này + các file cùng nhóm):
+    - app/tasks/notifications.py           (file này) — deadline workflow
+      chung (payment_request/leave...), chạy hourly.
+    - app/tasks/procurement_deadlines.py   — deadline riêng đấu thầu NCC
+      (hạn báo giá NCC sắp hết, PO sắp/quá hạn giao hàng).
+    - app/tasks/bqms_push_watchdog.py      — job đẩy báo giá Samsung bị treo.
+    Đặc điểm: KHÔNG gắn với 1 hành động user cụ thể — tự truy vấn "cái gì đã
+    đến hạn" theo lịch, có điều kiện chống lặp riêng (time window / cờ
+    reminder_sent_at) để không nhắc lại nhiều lần cho cùng 1 deadline.
+
+  HỆ B — "theo sự kiện nghiệp vụ" (event-driven, gọi ngay sau 1 hành động):
+    - app/services/event_notifications.py       — PO mới từ Samsung, đổi
+      trạng thái giao hàng, RFQ nhảy vòng V1→V2/V3.
+    - app/services/procurement_notifications.py — 15+ sự kiện đấu thầu NCC
+      (award, quote submit/decline/withdraw, contract, PO, delivery, Q&A...).
+    - app/services/workflow_engine.py::_notify  — workflow đổi trạng thái
+      (duyệt/từ chối/đóng) trong advance_workflow().
+    - app/services/bqms_service.py              — báo giá BQMS cần Manager
+      duyệt.
+    - INSERT rải rác ngay trong router sau khi ghi DB thành công: leave.py,
+      payment_requests.py, sourcing.py, task_assignments.py,
+      batch_operations.py, users.py, vendor/profile.py.
+    Đặc điểm: gọi NGAY sau 1 hành động (tạo/duyệt/từ chối/đổi trạng thái),
+    không định kỳ, không cần chống lặp theo thời gian (mỗi hành động = 1 lần).
+
+  Router đọc/quản lý (không tạo notification, chỉ CRUD cho người dùng cuối):
+    - app/api/v1/notifications.py       — inbox chính (list/read/mark-read).
+    - app/api/v1/smart_notifications.py — /preferences (bật/tắt theo loại) +
+      admin gửi thông báo thủ công. FE /notifications/settings hiện CHƯA nối
+      vào /preferences (gọi nhầm sang notifications.py) — biết vấn đề, chưa
+      sửa ở đợt này (ngoài phạm vi W3-08, xem module-readiness.ts key
+      'notifications').
+
+  QUY TẮC khi thêm loại thông báo mới: nếu sự kiện có mốc "đến hạn" cần nhắc
+  lặp lại theo thời gian → thêm vào Hệ A (cron), có điều kiện chống lặp rõ
+  ràng. Nếu sự kiện là kết quả trực tiếp của 1 hành động user → thêm vào Hệ B
+  (gọi ngay sau khi ghi DB), KHÔNG thêm cron riêng cho việc này (tránh trùng).
+
+  Rủi ro đã biết (chưa phải bug đang chạy, chỉ là bẫy cho tương lai):
+  app/services/workflow_engine.py::check_timeouts() định nghĩa loại
+  'workflow_timeout' giống ý tưởng "canh giờ" của module này, nhưng KHÔNG có
+  cron/scheduler nào gọi nó hiện tại (xác nhận qua grep toàn repo). Nếu sau
+  này có người nối nó vào scheduler, cần kiểm tra không bị trùng với
+  check_deadline_reminders() bên dưới trước khi bật.
 """
 
 from __future__ import annotations

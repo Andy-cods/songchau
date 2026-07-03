@@ -2,11 +2,8 @@
 
 import { useEffect, useMemo, useState, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
+import dynamic from 'next/dynamic';
 import { api } from '@/lib/api';
-import {
-  ResponsiveContainer, Bar, ComposedChart, Line, XAxis, YAxis, Tooltip,
-  CartesianGrid, Area, AreaChart, ReferenceLine,
-} from 'recharts';
 import {
   Copy, Check, Calendar as CalendarIcon, TrendingUp, TrendingDown,
   Package, Truck, Sparkles, FileText, RefreshCw, Printer, Share2,
@@ -16,7 +13,13 @@ import {
 import { cn } from '@/lib/utils';
 import { useIsReadOnly } from '@/hooks/use-permissions';
 import { toast } from 'sonner';
-import { CHART } from '@/lib/chart-colors';
+
+// Code-splitting (W3-16): recharts moved into DailyTrendChart.tsx, deferred
+// via dynamic() so it isn't part of this route's first-load JS.
+const DailyTrendChart = dynamic(
+  () => import('./DailyTrendChart').then((m) => m.DailyTrendChart),
+  { ssr: false, loading: () => <div className="h-full bg-slate-100 rounded-xl animate-pulse" /> },
+);
 
 // ─── Types ────────────────────────────────────────────────────
 
@@ -401,57 +404,7 @@ export default function DailyReportPage() {
                 ) : trend.length === 0 ? (
                   <EmptyState icon={<BarChart3 />} text="Chưa có dữ liệu cho khoảng thời gian này" />
                 ) : (
-                  <ResponsiveContainer width="100%" height="100%">
-                    <ComposedChart data={trend} margin={{ top: 10, right: 16, left: 0, bottom: 0 }}>
-                      <defs>
-                        <linearGradient id="trendBar" x1="0" x2="0" y1="0" y2="1">
-                          <stop offset="0%" stopColor={CHART.brand} stopOpacity={0.95} />
-                          <stop offset="100%" stopColor={CHART.brand} stopOpacity={0.45} />
-                        </linearGradient>
-                      </defs>
-                      <CartesianGrid stroke="#e2e8f0" strokeDasharray="3 3" vertical={false} />
-                      <XAxis
-                        dataKey="bucket"
-                        tick={{ fontSize: 11, fill: '#64748b' }}
-                        tickFormatter={fmtDate}
-                        tickLine={false}
-                        axisLine={false}
-                      />
-                      <YAxis
-                        tick={{ fontSize: 11, fill: '#64748b' }}
-                        width={48}
-                        tickFormatter={(v) => `${v}`}
-                        tickLine={false}
-                        axisLine={false}
-                        allowDecimals={false}
-                      />
-                      <Tooltip
-                        cursor={{ fill: '#f1f5f9' }}
-                        content={<TrendTooltipCount />}
-                      />
-                      <Bar
-                        dataKey="amount"
-                        name="Tổng yêu cầu"
-                        fill="url(#trendBar)"
-                        radius={[8, 8, 0, 0]}
-                        maxBarSize={40}
-                        cursor="pointer"
-                        onClick={(data: any) => {
-                          if (data?.bucket) setReportDate(data.bucket);
-                        }}
-                      />
-                      <Line
-                        type="monotone"
-                        dataKey="po_count"
-                        name="Đã báo giá"
-                        stroke={CHART.success}
-                        strokeWidth={2.5}
-                        dot={{ r: 3, fill: CHART.success, stroke: '#fff', strokeWidth: 2 }}
-                        activeDot={{ r: 5, fill: CHART.success, stroke: '#fff', strokeWidth: 2 }}
-                        isAnimationActive={false}
-                      />
-                    </ComposedChart>
-                  </ResponsiveContainer>
+                  <DailyTrendChart trend={trend} setReportDate={setReportDate} />
                 )}
               </div>
               <div className="px-5 py-3 border-t border-slate-100 bg-slate-50 grid grid-cols-3 gap-4 text-xs">
@@ -842,30 +795,6 @@ function TrendTooltip({ active, payload, label }: any) {
             {fmtPct(delta)} YoY
           </div>
         )}
-      </div>
-    </div>
-  );
-}
-
-function TrendTooltipCount({ active, payload, label }: any) {
-  if (!active || !payload?.length) return null;
-  const total = payload.find((p: any) => p.dataKey === 'amount')?.value ?? 0;
-  const quoted = payload[0]?.payload?.po_count ?? 0;
-  return (
-    <div className="bg-slate-900 text-white rounded-lg shadow-xl px-3 py-2.5 text-xs border border-slate-700 min-w-[170px]">
-      <div className="font-semibold text-slate-200 mb-1.5">{fmtDate(label)}</div>
-      <div className="space-y-1">
-        <div className="flex items-center justify-between gap-3">
-          <span className="text-brand-300">● Tổng yêu cầu</span>
-          <span className="font-mono tabular-nums">{total} mã</span>
-        </div>
-        <div className="flex items-center justify-between gap-3">
-          <span className="text-emerald-300">● Đã báo giá</span>
-          <span className="font-mono tabular-nums">{quoted} mã</span>
-        </div>
-      </div>
-      <div className="mt-2 pt-1.5 border-t border-slate-700 text-[11px] text-slate-400 text-center">
-        Bấm để chốt ngày này
       </div>
     </div>
   );

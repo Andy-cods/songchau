@@ -13,9 +13,21 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import dynamic from 'next/dynamic';
 import { XCircle, Pencil, ImageOff, Loader2, Scissors } from 'lucide-react';
-import { BqmsImagePickerModal } from './BqmsImagePickerModal';
-import { BqmsImageCropModal } from './BqmsImageCropModal';
+
+// Code-splitting (W3-16): BqmsImageThumb renders once per image cell, so it
+// can appear dozens of times per table/grid. Both modals only mount when a
+// user clicks "pick"/"crop" on a specific thumb (state-gated below), so
+// deferring their chunks removes them from every page that lists images.
+const BqmsImagePickerModal = dynamic(
+  () => import('./BqmsImagePickerModal').then((m) => m.BqmsImagePickerModal),
+  { ssr: false, loading: () => null },
+);
+const BqmsImageCropModal = dynamic(
+  () => import('./BqmsImageCropModal').then((m) => m.BqmsImageCropModal),
+  { ssr: false, loading: () => null },
+);
 
 function withToken(url: string): string {
   if (typeof window === 'undefined') return url;

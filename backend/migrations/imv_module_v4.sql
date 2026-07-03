@@ -1,0 +1,25 @@
+-- ============================================================
+-- imv_module_v4.sql — W3-02: guard-on-data alert cho IMV contracts/rejections
+-- ADDITIVE, IDEMPOTENT, re-runnable via: docker cp ... && psql -f.
+-- Author: Thang (via Claude) — 2026-07-04
+-- DEPLOY: docker cp + psql -f; restart sc-api + sc-worker + sc-scheduler.
+--
+-- WHY: imv_contracts / imv_rejections sync đầy đủ qua cùng pipeline generic
+--   với 4 entity IMV còn lại (app/tasks/imv_sync.py UPSERT_SPECS) và đã hiện
+--   trên UI (/imv tab "Hợp đồng" / "Từ chối"), nhưng KHÔNG có luồng xử lý
+--   nghiệp vụ nào tiêu thụ dữ liệu này (không tự tạo PO/hợp đồng nội bộ,
+--   không có tác vụ theo dõi khi 1 lô hàng bị từ chối). Build luồng xử lý
+--   đầy đủ là YAGNI (chưa rõ nghiệp vụ cần — imv_module_v2.sql còn ghi chú
+--   "rejections — empty for us"). Nhưng im lặng khi CÓ dữ liệu mới là rủi ro
+--   thật, nên chỉ thêm guard tối thiểu: app/tasks/imv_sync.py giờ bắn 1 Bell
+--   notification cho admin khi 1 lần sync mang về new_records>0 cho
+--   contracts/rejections (_notify_admins_new_rows). notifications.type là
+--   ENUM THẬT notification_type (xem imv_module_v3.sql cho tiền lệ) —
+--   insert 1 label chưa khai báo sẽ lỗi, nên phải thêm ở đây trước.
+--
+-- NOTE: ALTER TYPE ... ADD VALUE là NON-TRANSACTIONAL trong Postgres và
+--   không chạy được trong khối DO/BEGIN. IF NOT EXISTS giúp idempotent/
+--   re-runnable.
+-- ============================================================
+ALTER TYPE notification_type ADD VALUE IF NOT EXISTS 'imv_contract_new';
+ALTER TYPE notification_type ADD VALUE IF NOT EXISTS 'imv_rejection_new';

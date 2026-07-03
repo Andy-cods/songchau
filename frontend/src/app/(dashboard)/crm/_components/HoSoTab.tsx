@@ -22,6 +22,7 @@
 
 import { useMemo, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import dynamic from 'next/dynamic';
 import { FileText, Package, FolderOpen, Download, Send, Pencil, ShoppingCart, ArrowRight, Boxes } from 'lucide-react';
 import { api } from '@/lib/api';
 import { cn, formatDate } from '@/lib/utils';
@@ -30,7 +31,13 @@ import {
   DataPanel, StatusPill,
   TYPE, DEPTH, ROW_PADDING, type BadgeTone,
 } from '@/components/cockpit';
-import { QuoteBatchModal } from '@/components/sourcing/QuoteBatchModal';
+
+// Code-splitting (W3-16): QuoteBatchModal is 1669 lines and only opens on
+// click (state-gated below) — defer its chunk out of this route's bundle.
+const QuoteBatchModal = dynamic(
+  () => import('@/components/sourcing/QuoteBatchModal').then((m) => m.QuoteBatchModal),
+  { ssr: false, loading: () => null },
+);
 
 // ─── Types ──────────────────────────────────────────────────────
 

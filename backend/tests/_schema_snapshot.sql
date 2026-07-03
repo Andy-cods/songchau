@@ -2,7 +2,7 @@
 -- PostgreSQL database dump
 --
 
-\restrict UVjHNLGIwTSTHmuXY5t4PJV4BeycpaP2UjldfA0aulSwuYPhFkiE6MgshfluJYS
+\restrict 04MEWBsBJgOYsybArl7QEbxgMkSUF9rv2hvSBPbA5cnTTbPQ6xFjbVFy92KeXuq
 
 -- Dumped from database version 16.13
 -- Dumped by pg_dump version 16.13
@@ -185,7 +185,9 @@ CREATE TYPE public.notification_type AS ENUM (
     'workflow_timeout',
     'workflow_update',
     'deadline_overdue',
-    'deadline_upcoming'
+    'deadline_upcoming',
+    'imv_contract_new',
+    'imv_rejection_new'
 );
 
 
@@ -360,6 +362,21 @@ CREATE TYPE public.workflow_type AS ENUM (
     'expense_approval',
     'task_assignment'
 );
+
+
+--
+-- Name: audit_log_immutable(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.audit_log_immutable() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+BEGIN
+    RAISE EXCEPTION
+        'audit_log is append-only (immutable) — UPDATE/DELETE bị cấm'
+        USING ERRCODE = 'integrity_constraint_violation';
+END;
+$$;
 
 
 --
@@ -4325,6 +4342,33 @@ CREATE TABLE public.leave_requests (
 
 
 --
+-- Name: public_holidays; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.public_holidays (
+    id bigint NOT NULL,
+    holiday_date date NOT NULL,
+    name text,
+    is_active boolean DEFAULT true NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+
+--
+-- Name: TABLE public_holidays; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON TABLE public.public_holidays IS 'M45 — Danh mục ngày lễ VN dùng để trừ khỏi employee_monthly_kpi.workdays_present. is_active=false để "tắt" 1 ngày mà không xoá lịch sử. Admin seed/sửa tay qua SQL (chưa có UI quản trị riêng).';
+
+
+--
+-- Name: COLUMN public_holidays.holiday_date; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.public_holidays.holiday_date IS 'Ngày dương lịch. Chỉ ngày rơi vào Thứ 2-6 (ISODOW 1-5) mới được trừ khỏi workdays_present — ngày lễ rơi T7/CN không trừ thêm (vốn đã không tính là ngày công).';
+
+
+--
 -- Name: revenue_chain; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -4487,6 +4531,14 @@ CREATE VIEW public.employee_current_month_kpi AS
             LATERAL generate_series((b_1.d_start)::timestamp without time zone, (b_1.d_end_excl - '1 day'::interval), '1 day'::interval) d(d)
           WHERE (EXTRACT(isodow FROM d.d) < (6)::numeric)
           GROUP BY b_1.y, b_1.m
+        ), holidays_in_month AS (
+         SELECT b_1.y,
+            b_1.m,
+            (count(*))::integer AS hd
+           FROM (bounds b_1
+             JOIN public.public_holidays ph ON (((ph.holiday_date >= b_1.d_start) AND (ph.holiday_date < b_1.d_end_excl) AND (ph.is_active = true))))
+          WHERE (EXTRACT(isodow FROM ph.holiday_date) < (6)::numeric)
+          GROUP BY b_1.y, b_1.m
         ), revenue AS (
          SELECT so.created_by AS user_id,
             sum((so.total_amount *
@@ -4608,14 +4660,15 @@ CREATE VIEW public.employee_current_month_kpi AS
     (COALESCE(ld.days, (0)::numeric))::numeric(4,1) AS leave_days_taken,
     COALESCE(act.active_days, 0) AS active_days,
     COALESCE(act.total_actions, 0) AS total_actions,
-    GREATEST(0, (wd.wd - (COALESCE(ld.days, (0)::numeric))::integer)) AS workdays_present,
+    GREATEST(0, ((wd.wd - COALESCE(hd.hd, 0)) - (COALESCE(ld.days, (0)::numeric))::integer)) AS workdays_present,
     COALESCE(lc.late_count, 0) AS late_count,
     COALESCE(lc.total_late_minutes, 0) AS total_late_minutes,
     now() AS computed_at,
     false AS is_final
-   FROM (((((((((((((public.users u
+   FROM ((((((((((((((public.users u
      CROSS JOIN bounds b)
      CROSS JOIN weekdays_in_month wd)
+     LEFT JOIN holidays_in_month hd ON (((hd.y = b.y) AND (hd.m = b.m))))
      LEFT JOIN revenue r ON ((r.user_id = u.id)))
      LEFT JOIN new_cust nc ON ((nc.user_id = u.id)))
      LEFT JOIN new_prod np ON ((np.user_id = u.id)))
@@ -4682,7 +4735,7 @@ COMMENT ON COLUMN public.employee_monthly_kpi.department IS 'Snapshot department
 -- Name: COLUMN employee_monthly_kpi.workdays_present; Type: COMMENT; Schema: public; Owner: -
 --
 
-COMMENT ON COLUMN public.employee_monthly_kpi.workdays_present IS 'Mon-Fri trong tháng - leave_days_taken. Chưa trừ ngày lễ (xem M42).';
+COMMENT ON COLUMN public.employee_monthly_kpi.workdays_present IS 'Mon-Fri trong tháng - ngày lễ (public_holidays, M45) - leave_days_taken.';
 
 
 --
@@ -7833,6 +7886,25 @@ CREATE SEQUENCE public.profit_reports_id_seq
 --
 
 ALTER SEQUENCE public.profit_reports_id_seq OWNED BY public.profit_reports.id;
+
+
+--
+-- Name: public_holidays_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.public_holidays_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: public_holidays_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.public_holidays_id_seq OWNED BY public.public_holidays.id;
 
 
 --
@@ -11636,6 +11708,13 @@ ALTER TABLE ONLY public.profit_reports ALTER COLUMN id SET DEFAULT nextval('publ
 
 
 --
+-- Name: public_holidays id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.public_holidays ALTER COLUMN id SET DEFAULT nextval('public.public_holidays_id_seq'::regclass);
+
+
+--
 -- Name: purchase_invoices_q id; Type: DEFAULT; Schema: public; Owner: -
 --
 
@@ -13271,6 +13350,22 @@ ALTER TABLE ONLY public.products
 
 ALTER TABLE ONLY public.profit_reports
     ADD CONSTRAINT profit_reports_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: public_holidays public_holidays_holiday_date_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.public_holidays
+    ADD CONSTRAINT public_holidays_holiday_date_key UNIQUE (holiday_date);
+
+
+--
+-- Name: public_holidays public_holidays_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.public_holidays
+    ADD CONSTRAINT public_holidays_pkey PRIMARY KEY (id);
 
 
 --
@@ -15950,6 +16045,13 @@ CREATE INDEX idx_notif_recipient ON public.notifications USING btree (recipient_
 
 
 --
+-- Name: idx_notif_recipient_created; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_notif_recipient_created ON public.notifications USING btree (recipient_id, created_at DESC);
+
+
+--
 -- Name: idx_notif_ref; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -16598,6 +16700,13 @@ CREATE INDEX idx_pt_date ON public.payment_transactions USING btree (payment_dat
 --
 
 CREATE INDEX idx_pt_direction ON public.payment_transactions USING btree (direction);
+
+
+--
+-- Name: idx_public_holidays_active; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_public_holidays_active ON public.public_holidays USING btree (holiday_date) WHERE (is_active = true);
 
 
 --
@@ -18488,6 +18597,13 @@ CREATE TRIGGER trg_audit_imv_purchase_orders AFTER INSERT OR DELETE OR UPDATE ON
 --
 
 CREATE TRIGGER trg_audit_inventory AFTER INSERT OR DELETE OR UPDATE ON public.inventory FOR EACH ROW EXECUTE FUNCTION public.auto_audit_log();
+
+
+--
+-- Name: audit_log trg_audit_log_immutable; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER trg_audit_log_immutable BEFORE DELETE OR UPDATE ON public.audit_log FOR EACH ROW EXECUTE FUNCTION public.audit_log_immutable();
 
 
 --
@@ -21430,5 +21546,5 @@ ALTER TABLE public.workflow_instances ENABLE ROW LEVEL SECURITY;
 -- PostgreSQL database dump complete
 --
 
-\unrestrict UVjHNLGIwTSTHmuXY5t4PJV4BeycpaP2UjldfA0aulSwuYPhFkiE6MgshfluJYS
+\unrestrict 04MEWBsBJgOYsybArl7QEbxgMkSUF9rv2hvSBPbA5cnTTbPQ6xFjbVFy92KeXuq
 
