@@ -10,6 +10,7 @@ import { useAuth } from '@/providers/auth-provider';
 import { getUsers } from '@/services/users';
 import { DataTable } from '@/components/shared/data-table';
 import { EmptyState } from '@/components/shared/empty-state';
+import { PageHeader } from '@/components/shared/page-header';
 import { StatusBadge } from '@/components/shared/status-badge';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -92,17 +93,13 @@ const columns = [
 
 function AccessDenied() {
   return (
-    <div className="flex flex-col items-center justify-center py-24">
-      <div className="flex h-16 w-16 items-center justify-center rounded-full bg-red-50 mb-4">
-        <ShieldAlert className="h-8 w-8 text-red-400" />
-      </div>
-      <h3 className="text-lg font-display font-semibold text-slate-900">
-        Truy cập bị từ chối
-      </h3>
-      <p className="mt-1 text-sm text-slate-500 max-w-sm text-center">
-        Bạn không có quyền truy cập trang này. Chỉ quản trị viên mới có thể quản lý người dùng.
-      </p>
-    </div>
+    <EmptyState
+      variant="error"
+      icon={ShieldAlert}
+      heading="Truy cập bị từ chối"
+      description="Bạn không có quyền truy cập trang này. Chỉ quản trị viên mới có thể quản lý người dùng."
+      className="py-24"
+    />
   );
 }
 
@@ -132,22 +129,20 @@ export default function UsersPage() {
   return (
     <div>
       {/* Header */}
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <h2 className="text-xl font-display font-bold text-slate-900">
-            Người dùng
-          </h2>
-          <p className="text-sm text-slate-500 mt-0.5">
-            Quản lý tài khoản và phân quyền
-          </p>
-        </div>
-        <Link href="/users/new">
-          <Button>
-            <Plus className="h-4 w-4" />
-            Thêm người dùng
-          </Button>
-        </Link>
-      </div>
+      <PageHeader
+        icon={Users}
+        title="Người dùng"
+        subtitle="Quản lý tài khoản và phân quyền"
+        actions={
+          <Link href="/users/new">
+            <Button>
+              <Plus className="h-4 w-4" />
+              Thêm người dùng
+            </Button>
+          </Link>
+        }
+        className="mb-6"
+      />
 
       {/* Data Table */}
       <DataTable

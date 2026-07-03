@@ -1,0 +1,143 @@
+# dead_code_allowlist.yaml
+#
+# Allowlist cho scripts/dead_code_sweep.py — mỗi entry BẮT BUỘC có 'reason'
+# (script từ chối chạy nếu thiếu). Path ghi tương đối repo root, dùng '/'.
+#
+# Nhóm entry:
+#   [TẠM — W0-16/W0-17] File đã CHỐT xoá trong ROADMAP (plans/master-completion/
+#     ROADMAP.md dòng 85-86) nhưng CHƯA bị xoá thật tại thời điểm seed file này
+#     (2026-07-03, W0-19). Allowlist ở đây chỉ để tránh script đỏ falsely
+#     trong lúc chờ W0-16/W0-17 thực thi. SAU KHI file bị xoá thật → GỠ entry
+#     tương ứng khỏi allowlist này (nếu không gỡ, script sẽ không báo lỗi khi
+#     ai đó lỡ tạo lại 1 file trùng tên chết y hệt — mất tác dụng bảo vệ).
+#
+#   [GIỮ — ADR] File cố ý giữ dù script có thể coi là mồ côi, có lý do kiến
+#     trúc/nghiệp vụ rõ ràng, không tính "tạm".
+
+# ── [TẠM — W0-16] Backend: 5 module chết, verify 2 lớp, chờ W0-16 xoá ──
+
+- path: backend/app/etl/excel_processor.py
+  reason: >
+    TẠM chờ W0-16 xoá (ROADMAP dòng 85): 0-importer xác nhận cả 2 lớp.
+    Gỡ entry này ngay sau khi file bị xoá thật.
+
+- path: backend/app/services/file_browser_service.py
+  reason: >
+    TẠM chờ W0-16 xoá (ROADMAP dòng 85): 0-importer xác nhận cả 2 lớp.
+    Gỡ entry này ngay sau khi file bị xoá thật.
+
+- path: backend/app/etl/bqms_deep_inspect.py
+  reason: >
+    TẠM chờ W0-16 xoá (ROADMAP dòng 85): 0-importer xác nhận cả 2 lớp.
+    Gỡ entry này ngay sau khi file bị xoá thật.
+
+- path: backend/app/etl/bqms_sitemap.py
+  reason: >
+    TẠM chờ W0-16 xoá (ROADMAP dòng 85): vòng review trước (Fable) phán
+    "keep" SAI — 2 "caller" tưởng thấy chỉ là comment nhắc tên file .md,
+    không phải import thật. 0-importer xác nhận cả 2 lớp. Gỡ entry này
+    ngay sau khi file bị xoá thật.
+
+- path: backend/app/core/pagination.py
+  reason: >
+    TẠM chờ W0-16 xoá (ROADMAP dòng 85): chỉ tự nhắc tên trong docstring
+    của chính nó, không nơi nào import. Gỡ entry này ngay sau khi file
+    bị xoá thật.
+
+# ── [TẠM — W0-17] Frontend: 15 file chết (~150KB), verify 2 lớp cả vendor-portal ──
+
+- path: frontend/src/components/bqms/CreateDossierWizardModal.tsx
+  reason: >
+    TẠM chờ W0-17 xoá (ROADMAP dòng 86, 55KB): bị thay thế bởi luồng
+    6-tab mới. Gỡ entry này ngay sau khi file bị xoá thật.
+
+- path: frontend/src/components/analytics/SellerDetailDrawer.tsx
+  reason: >
+    TẠM chờ W0-17 xoá (ROADMAP dòng 86, 40KB): 0-importer xác nhận cả
+    2 lớp. Gỡ entry này ngay sau khi file bị xoá thật.
+
+- path: frontend/src/components/layout/sidebar.tsx
+  reason: >
+    TẠM chờ W0-17 xoá (ROADMAP dòng 86): layout cũ, đã thay bằng layout
+    mới. Gỡ entry này ngay sau khi file bị xoá thật.
+
+- path: frontend/src/components/layout/topbar.tsx
+  reason: >
+    TẠM chờ W0-17 xoá (ROADMAP dòng 86): layout cũ, đã thay bằng layout
+    mới. Gỡ entry này ngay sau khi file bị xoá thật.
+
+- path: frontend/src/components/layout/user-menu.tsx
+  reason: >
+    TẠM chờ W0-17 xoá (ROADMAP dòng 86): layout cũ, đã thay bằng layout
+    mới. Gỡ entry này ngay sau khi file bị xoá thật.
+
+- path: frontend/src/components/ui/theme-toggle.tsx
+  reason: >
+    TẠM chờ W0-17 xoá (ROADMAP dòng 86): dark mode đã bị gỡ khỏi hệ
+    thống (xem project_ui_design_overhaul_27jun). Gỡ entry này ngay sau
+    khi file bị xoá thật.
+
+- path: frontend/src/components/layout/module-readiness-banner.tsx
+  reason: >
+    TẠM chờ W0-17 xoá (ROADMAP dòng 86): 0-importer xác nhận cả 2 lớp.
+    Gỡ entry này ngay sau khi file bị xoá thật.
+
+- path: frontend/src/components/charts/pareto-chart.tsx
+  reason: >
+    TẠM chờ W0-17 xoá (ROADMAP dòng 86): 0-importer xác nhận cả 2 lớp.
+    Gỡ entry này ngay sau khi file bị xoá thật.
+
+- path: frontend/src/components/ui/toast-provider.tsx
+  reason: >
+    TẠM chờ W0-17 xoá (ROADMAP dòng 86, 198): nơi DUY NHẤT mount
+    <Toaster/> (sonner) nhưng nghi vấn CHƯA TỪNG được mount ở root layout
+    — bug tiềm ẩn độc lập, Thang cần bấm 1 hành động có toast để verify
+    trước khi xoá. Gỡ entry này ngay sau khi file bị xoá thật.
+
+- path: frontend/src/components/ui/separator.tsx
+  reason: >
+    TẠM chờ W0-17 xoá (ROADMAP dòng 86): 0-importer xác nhận cả 2 lớp.
+    Gỡ entry này ngay sau khi file bị xoá thật.
+
+- path: frontend/src/components/shared/price-lookup.tsx
+  reason: >
+    TẠM chờ W0-17 xoá (ROADMAP dòng 86): 0-importer xác nhận cả 2 lớp.
+    Gỡ entry này ngay sau khi file bị xoá thật.
+
+- path: frontend/src/components/shared/date-range-picker.tsx
+  reason: >
+    TẠM chờ W0-17 xoá (ROADMAP dòng 86): 0-importer xác nhận cả 2 lớp.
+    Gỡ entry này ngay sau khi file bị xoá thật.
+
+- path: frontend/src/components/shared/file-dropzone.tsx
+  reason: >
+    TẠM chờ W0-17 xoá (ROADMAP dòng 86): 0-importer xác nhận cả 2 lớp.
+    Gỡ entry này ngay sau khi file bị xoá thật.
+
+- path: frontend/src/components/shared/export-button.tsx
+  reason: >
+    TẠM chờ W0-17 xoá (ROADMAP dòng 86): đây là bản shared/export-button
+    CHẾT, KHÁC với components/analytics/ExportButton.tsx đang SỐNG (không
+    nhầm 2 file). Gỡ entry này ngay sau khi file bị xoá thật.
+
+- path: frontend/src/services/purchase-orders.ts
+  reason: >
+    TẠM chờ W0-17 xoá (ROADMAP dòng 86): 0-importer xác nhận cả 2 lớp.
+    Gỡ entry này ngay sau khi file bị xoá thật.
+
+# ── [GIỮ — ADR] Cố ý giữ, không phải dead code thật ──
+
+- path: backend/app/api/v1/revenue_tasks.py
+  reason: >
+    ADR: router ĐANG được mount tại app/api/v1/__init__.py:108-109
+    (prefix /revenue-tasks). Script này lẽ ra đã tự loại trừ file mount
+    trong router registry — entry này thêm PHÒNG THỦ theo yêu cầu W0-19,
+    phòng trường hợp cấu trúc mount đổi sau này khiến rule tự-loại-trừ
+    không khớp nữa. Giữ nguyên, không xoá.
+
+- path: backend/app/api/vendor/rank.py
+  reason: >
+    ADR (ROADMAP "Cân nhắc rồi BỎ", dòng 250): endpoint rank-hint
+    (#15 band-mờ) trả 404 khi feature flag OFF — đây là THIẾT KẾ CHỦ
+    ĐÍCH (feature flag), KHÔNG PHẢI dead code. Router đang mount tại
+    app/api/vendor/__init__.py:14,29. Giữ nguyên, không xoá.

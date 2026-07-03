@@ -123,6 +123,28 @@ def safe_str(value: Any) -> str | None:
     return s
 
 
+def _split_item_spec(s: Any) -> tuple[str | None, str | None]:
+    """Split a combined '<ItemName>\\n<Spec>' cell into (item_name, spec).
+
+    SPLIT RULE (identical across all three write-paths + the SQL backfill):
+      item_name = trim(text BEFORE the first '\\n')
+      spec      = trim(text AFTER  the first '\\n')
+      If there is NO '\\n', item_name is None and spec is the trimmed input.
+
+    Returns (None, None) for an empty/None input.
+    """
+    if s is None:
+        return None, None
+    raw = str(s)
+    if "\n" not in raw:
+        stripped = raw.strip()
+        return None, (stripped or None)
+    head, tail = raw.split("\n", 1)
+    item_name = head.strip() or None
+    spec = tail.strip() or None
+    return item_name, spec
+
+
 def parse_date(value: Any) -> date | None:
     """Parse Excel date: datetime objects, serial numbers, or strings."""
     if value is None:
@@ -612,7 +634,7 @@ async def import_bqms_deliveries(conn, source: Path, dry_run: bool, verbose: boo
     sql = """
         INSERT INTO bqms_deliveries (
             po_date, po_number, shipping_no, quotation_no,
-            bqms_code, specification, quantity, unit,
+            bqms_code, item_name, specification, quantity, unit,
             unit_price, amount, sev_type, buyer_email,
             recipient_name, receiving_warehouse, buyer_phone,
             delivery_status, delivery_date, actual_delivered_qty,
@@ -620,13 +642,15 @@ async def import_bqms_deliveries(conn, source: Path, dry_run: bool, verbose: boo
             data_source, source_hash, synced_at
         ) VALUES (
             $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
-            $11, $12, $13, $14, $15,
-            COALESCE($16::delivery_status, 'chua_giao'),
-            $17, $18, $19, $20, $21,
-            $22, $23, NOW()
+            $11, $12, $13, $14, $15, $16,
+            COALESCE($17::delivery_status, 'chua_giao'),
+            $18, $19, $20, $21, $22,
+            $23, $24, NOW()
         )
         ON CONFLICT (po_number, shipping_no, bqms_code)
             DO UPDATE SET
+                item_name = COALESCE(EXCLUDED.item_name, bqms_deliveries.item_name),
+                specification = COALESCE(EXCLUDED.specification, bqms_deliveries.specification),
                 delivery_status = COALESCE(EXCLUDED.delivery_status, bqms_deliveries.delivery_status),
                 delivery_date = COALESCE(EXCLUDED.delivery_date, bqms_deliveries.delivery_date),
                 actual_delivered_qty = COALESCE(EXCLUDED.actual_delivered_qty, bqms_deliveries.actual_delivered_qty),
@@ -687,13 +711,15 @@ async def import_bqms_deliveries(conn, source: Path, dry_run: bool, verbose: boo
             if not bqms_code:
                 bqms_code = ""
 
+            _item_name, _spec = _split_item_spec(_get(row, 5))
             params = [
                 parse_date(_get(row, 0)),          # po_date
                 po_number,                          # po_number (TEXT)
                 shipping_no,                        # shipping_no (TEXT)
                 safe_str(_get(row, 3)),             # quotation_no
                 bqms_code,                          # bqms_code
-                safe_str(_get(row, 5)),             # specification
+                _item_name,                         # item_name (split from col 5)
+                _spec,                              # specification (split from col 5)
                 parse_number(_get(row, 6)),         # quantity
                 safe_str(_get(row, 7)),             # unit
                 parse_number(_get(row, 8)),         # unit_price

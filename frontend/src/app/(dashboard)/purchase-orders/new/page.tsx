@@ -12,6 +12,7 @@ import { toast } from 'sonner';
 import { api } from '@/lib/api';
 import { cn, formatCurrency } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
+import { PageHeader } from '@/components/shared/page-header';
 import type { PaginatedResponse, Supplier } from '@/types/models';
 
 // ─── Zod Schema ─────────────────────────────────────────────────
@@ -125,14 +126,10 @@ export default function NewPurchaseOrderPage() {
         >
           <ArrowLeft className="h-4 w-4" />
         </Link>
-        <div>
-          <h2 className="text-xl font-display font-bold text-slate-900">
-            Tạo đơn mua hàng mới
-          </h2>
-          <p className="text-sm text-slate-500 mt-0.5">
-            Điền thông tin đơn đặt hàng
-          </p>
-        </div>
+        <PageHeader
+          title="Tạo đơn mua hàng mới"
+          subtitle="Điền thông tin đơn đặt hàng"
+        />
       </div>
 
       <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
@@ -151,7 +148,7 @@ export default function NewPurchaseOrderPage() {
               <select
                 {...register('supplier_id')}
                 className={cn(
-                  'w-full h-9 px-3 text-sm border rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent',
+                  'w-full h-9 px-3 text-sm border rounded-lg bg-white focus:outline-none focus:border-brand-400 focus:ring-2 focus:ring-brand-100',
                   errors.supplier_id ? 'border-red-400' : 'border-slate-300'
                 )}
                 disabled={suppliersLoading}
@@ -179,7 +176,7 @@ export default function NewPurchaseOrderPage() {
               </label>
               <select
                 {...register('currency')}
-                className="w-full h-9 px-3 text-sm border border-slate-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                className="w-full h-9 px-3 text-sm border border-slate-300 rounded-lg bg-white focus:outline-none focus:border-brand-400 focus:ring-2 focus:ring-brand-100"
               >
                 <option value="VND">VNĐ (VND)</option>
                 <option value="USD">USD</option>
@@ -195,7 +192,7 @@ export default function NewPurchaseOrderPage() {
               <input
                 type="date"
                 {...register('expected_delivery')}
-                className="w-full h-9 px-3 text-sm border border-slate-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                className="w-full h-9 px-3 text-sm border border-slate-300 rounded-lg bg-white focus:outline-none focus:border-brand-400 focus:ring-2 focus:ring-brand-100"
               />
             </div>
 
@@ -208,7 +205,7 @@ export default function NewPurchaseOrderPage() {
                 {...register('notes')}
                 rows={3}
                 placeholder="Nhập ghi chú, yêu cầu đặc biệt..."
-                className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent resize-none"
+                className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg bg-white focus:outline-none focus:border-brand-400 focus:ring-2 focus:ring-brand-100 resize-none"
               />
             </div>
           </div>
@@ -223,7 +220,7 @@ export default function NewPurchaseOrderPage() {
             <button
               type="button"
               onClick={() => append({ ...DEFAULT_ITEM, currency: watchedCurrency })}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-indigo-600 hover:text-indigo-700 hover:bg-indigo-50 rounded-md transition-colors"
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-brand-600 hover:text-brand-700 hover:bg-brand-50 rounded-md transition-colors"
             >
               <Plus className="h-3.5 w-3.5" />
               Thêm dòng
@@ -269,14 +266,14 @@ export default function NewPurchaseOrderPage() {
                           {...register(`items.${index}.product_name`)}
                           placeholder="Tên sản phẩm"
                           className={cn(
-                            'w-full h-8 px-2 text-sm border rounded-md bg-white focus:outline-none focus:ring-1 focus:ring-indigo-500',
+                            'w-full h-8 px-2 text-sm border rounded-md bg-white focus:outline-none focus:border-brand-400 focus:ring-1 focus:ring-brand-100',
                             errors.items?.[index]?.product_name
                               ? 'border-red-400'
                               : 'border-slate-200'
                           )}
                         />
                         {errors.items?.[index]?.product_name && (
-                          <p className="text-[10px] text-red-500 mt-0.5">
+                          <p className="text-[11px] text-red-500 mt-0.5">
                             {errors.items[index]?.product_name?.message}
                           </p>
                         )}
@@ -287,7 +284,7 @@ export default function NewPurchaseOrderPage() {
                         <input
                           {...register(`items.${index}.specification`)}
                           placeholder="Quy cách"
-                          className="w-full h-8 px-2 text-sm border border-slate-200 rounded-md bg-white focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                          className="w-full h-8 px-2 text-sm border border-slate-200 rounded-md bg-white focus:outline-none focus:border-brand-400 focus:ring-1 focus:ring-brand-100"
                         />
                       </td>
 
@@ -299,7 +296,7 @@ export default function NewPurchaseOrderPage() {
                           step="any"
                           {...register(`items.${index}.quantity`)}
                           className={cn(
-                            'w-full h-8 px-2 text-sm border rounded-md bg-white focus:outline-none focus:ring-1 focus:ring-indigo-500 text-right',
+                            'w-full h-8 px-2 text-sm border rounded-md bg-white focus:outline-none focus:border-brand-400 focus:ring-1 focus:ring-brand-100 text-right',
                             errors.items?.[index]?.quantity
                               ? 'border-red-400'
                               : 'border-slate-200'
@@ -313,7 +310,7 @@ export default function NewPurchaseOrderPage() {
                           {...register(`items.${index}.unit`)}
                           placeholder="cái"
                           className={cn(
-                            'w-full h-8 px-2 text-sm border rounded-md bg-white focus:outline-none focus:ring-1 focus:ring-indigo-500',
+                            'w-full h-8 px-2 text-sm border rounded-md bg-white focus:outline-none focus:border-brand-400 focus:ring-1 focus:ring-brand-100',
                             errors.items?.[index]?.unit
                               ? 'border-red-400'
                               : 'border-slate-200'
@@ -329,7 +326,7 @@ export default function NewPurchaseOrderPage() {
                           step="any"
                           {...register(`items.${index}.unit_price`)}
                           placeholder="0"
-                          className="w-full h-8 px-2 text-sm border border-slate-200 rounded-md bg-white focus:outline-none focus:ring-1 focus:ring-indigo-500 text-right"
+                          className="w-full h-8 px-2 text-sm border border-slate-200 rounded-md bg-white focus:outline-none focus:border-brand-400 focus:ring-1 focus:ring-brand-100 text-right"
                         />
                       </td>
 
@@ -366,7 +363,7 @@ export default function NewPurchaseOrderPage() {
               <span className="text-sm font-medium text-slate-600">
                 Tổng cộng:
               </span>
-              <span className="text-lg font-bold font-mono text-indigo-700">
+              <span className="text-lg font-bold font-mono text-brand-700">
                 {formatCurrency(total, watchedCurrency)}
               </span>
             </div>

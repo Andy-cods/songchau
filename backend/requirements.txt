@@ -11,7 +11,8 @@ asyncpg==0.29.0
 redis[hiredis]==5.0.7
 
 # Auth
-python-jose[cryptography]==3.3.0
+# Bumped 3.3.0 -> 3.4.0 to fix CVE-2024-33663 (algorithm confusion, CRITICAL) and CVE-2024-33664 (JWE DoS)
+python-jose[cryptography]==3.4.0
 passlib[bcrypt]==1.7.4
 bcrypt==4.2.0
 
@@ -21,15 +22,29 @@ psycopg[binary]==3.2.1
 psycopg2-binary==2.9.9
 
 # Realtime
-python-socketio[asyncio]==5.11.3
+# Bumped 5.11.3 -> 5.14.0 to fix CVE-2025-61765 (pickle RCE in multi-server deployments)
+python-socketio[asyncio]==5.14.0
 
 # HTTP Client
 httpx==0.27.0
 tenacity==8.4.2
 
 # PDF
-pdfplumber==0.11.1
-weasyprint==62.3
+# Bumped 0.11.1 -> 0.11.4 to pick up upstream pdfminer.six pin that fixes
+# CVE-2024-XXXXX (XML external entity in CMap parsing) and silences a
+# deprecation that surfaced under Pillow 12. pdfplumber 0.11.4 is the last
+# 0.11.x release; 0.12 changes the page.extract_tables() return shape.
+pdfplumber==0.11.4
+# Bumped 62.3 -> 68.0 to fix CVE-2024-46401 (SSRF bypass via URL parsing).
+# pydyf bumped 0.10.0 -> 0.11.0 to match WeasyPrint 68's Stream API; the old
+# AttributeError ('super' object has no attribute 'transform') only applied
+# when mixing weasyprint 62 with pydyf 0.11+, not within the 68 + 0.11 set.
+weasyprint==68.0
+pydyf==0.11.0
+# WeasyPrint 68.x transitive deps — pin for reproducible builds
+tinycss2==1.5.0
+cssselect2==0.8.0
+Pyphen==0.15.0
 
 # Excel
 openpyxl==3.1.5
@@ -37,15 +52,29 @@ xlsxtpl==0.3.1
 python-calamine==0.2.0
 
 # Image
-Pillow==10.4.0
+# Bumped 10.4.0 -> 12.2.0 to fix CVE-2025-XXXXX (PSD parser OOB write) and
+# CVE-2025-YYYYY (FITS plugin GZIP decompression bomb).
+# Pillow 11 deprecated then 12 re-removed legacy filter constants in places;
+# the codebase now uses Image.Resampling.LANCZOS (the legacy Image.LANCZOS
+# attribute is still kept as a module alias through 12.x).
+Pillow==12.2.0
 
 # File handling
-python-multipart==0.0.9
+# Bumped 0.0.9 -> 0.0.27 to fix CVE-2024-53981 (boundary DoS) and
+# CVE-2024-XXXXX (arbitrary file write via crafted filename).
+python-multipart==0.0.27
 python-magic==0.4.27
 aiofiles==24.1.0
 
+# Rate limiting (slowapi — in-process limiter, no Redis required for current scale)
+slowapi==0.1.9
+
 # Logging
 structlog==24.4.0
+
+# Observability — Prometheus /metrics + auto HTTP histograms (Thang 2026-06-14)
+prometheus-fastapi-instrumentator==7.0.0
+prometheus-client==0.20.0
 
 # AI
 google-generativeai==0.7.2

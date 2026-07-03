@@ -12,6 +12,7 @@ import {
 } from 'recharts';
 import { api } from '@/lib/api';
 import { cn } from '@/lib/utils';
+import { CHART } from '@/lib/chart-colors';
 
 interface RevenueStats {
   summary: {
@@ -209,14 +210,14 @@ export function RevenueDashboardModal({
       onClick={onClose}
     >
       <div
-        className="bg-slate-50 rounded-2xl shadow-2xl w-full max-w-7xl max-h-[95vh] flex flex-col"
+        className="bg-slate-50 rounded-xl shadow-2xl w-full max-w-7xl max-h-[95vh] flex flex-col"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
-        <div className="px-6 py-4 border-b border-slate-200 bg-white rounded-t-2xl flex items-center justify-between">
+        <div className="px-6 py-4 border-b border-slate-200 bg-white rounded-t-xl flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="p-2 bg-violet-100 rounded-lg">
-              <BarChart3 className="h-5 w-5 text-violet-600" />
+            <div className="p-2 bg-brand-50 rounded-lg">
+              <BarChart3 className="h-5 w-5 text-brand-600" />
             </div>
             <div>
               <h2 className="font-bold text-slate-900 text-lg">
@@ -231,7 +232,7 @@ export function RevenueDashboardModal({
                   </>
                 )}
                 {isFetching && (
-                  <span className="ml-2 text-violet-500">cập nhật...</span>
+                  <span className="ml-2 text-brand-500">cập nhật...</span>
                 )}
               </p>
             </div>
@@ -306,7 +307,7 @@ export function RevenueDashboardModal({
           <select
             value={groupBy}
             onChange={e => setGroupBy(e.target.value)}
-            className="px-2 py-1 border border-violet-200 rounded text-xs bg-violet-50 font-semibold text-violet-700"
+            className="px-2 py-1 border border-brand-200 rounded text-xs bg-brand-50 font-semibold text-brand-700"
           >
             {GROUP_OPTIONS.map(g => (
               <option key={g.value} value={g.value}>{g.label}</option>
@@ -340,13 +341,13 @@ export function RevenueDashboardModal({
                   icon={Package} label="Tổng đơn PO"
                   value={fmtNum(summary.total_orders)}
                   sub={`${fmtNum(summary.total_qty)} sản phẩm`}
-                  accent="blue"
+                  accent="slate"
                 />
                 <KpiCard
                   icon={DollarSign} label="Tổng GT PO"
                   value={fmtVnd(summary.total_amount_vnd)}
                   sub="VND (theo amount)"
-                  accent="violet"
+                  accent="brand"
                 />
                 <KpiCard
                   icon={TrendingUp} label="Doanh thu đã giao"
@@ -387,9 +388,9 @@ export function RevenueDashboardModal({
                       </p>
                     </div>
                     <div className="flex items-center gap-3 text-xs">
-                      <Legend2 color="#8b5cf6" label="Tổng GT PO" />
-                      <Legend2 color="#10b981" label="Đã giao" />
-                      <Legend2 color="#f59e0b" label="Số đơn (trục phải)" />
+                      <Legend2 color={CHART.brand} label="Tổng GT PO" />
+                      <Legend2 color={CHART.success} label="Đã giao" />
+                      <Legend2 color={CHART.warning} label="Số đơn (trục phải)" />
                     </div>
                   </div>
                   <ResponsiveContainer width="100%" height={300}>
@@ -420,11 +421,11 @@ export function RevenueDashboardModal({
                         labelStyle={{ fontSize: 12, fontWeight: 600 }}
                         contentStyle={{ fontSize: 12 }}
                       />
-                      <Bar yAxisId="left" dataKey="total_amount" fill="#8b5cf6" />
-                      <Bar yAxisId="left" dataKey="delivered_amount" fill="#10b981" />
+                      <Bar yAxisId="left" dataKey="total_amount" fill={CHART.brand} />
+                      <Bar yAxisId="left" dataKey="delivered_amount" fill={CHART.success} />
                       <Line
                         yAxisId="right" type="monotone" dataKey="count"
-                        stroke="#f59e0b" strokeWidth={2} dot={{ r: 3 }}
+                        stroke={CHART.warning} strokeWidth={2} dot={{ r: 3 }}
                       />
                     </ComposedChart>
                   </ResponsiveContainer>
@@ -476,7 +477,7 @@ export function RevenueDashboardModal({
                               <td className="px-4 py-2 text-right tabular-nums">
                                 {fmtNum(b.count)}
                               </td>
-                              <td className="px-4 py-2 text-right font-mono text-violet-700 tabular-nums">
+                              <td className="px-4 py-2 text-right font-mono text-brand-700 tabular-nums">
                                 {fmtVnd(b.total_amount)}
                               </td>
                               <td className="px-4 py-2 text-right font-mono text-emerald-700 tabular-nums">
@@ -506,7 +507,7 @@ export function RevenueDashboardModal({
                           <td className="px-4 py-2 text-right tabular-nums">
                             {fmtNum(breakdown.reduce((s, b) => s + b.count, 0))}
                           </td>
-                          <td className="px-4 py-2 text-right font-mono text-violet-700 tabular-nums">
+                          <td className="px-4 py-2 text-right font-mono text-brand-700 tabular-nums">
                             {fmtVnd(breakdown.reduce((s, b) => s + b.total_amount, 0))}
                           </td>
                           <td className="px-4 py-2 text-right font-mono text-emerald-700 tabular-nums">
@@ -541,19 +542,19 @@ function KpiCard({
 }: {
   icon: typeof Package;
   label: string; value: string; sub?: string;
-  accent: 'blue' | 'violet' | 'emerald' | 'amber' | 'cyan' | 'rose';
+  accent: 'slate' | 'brand' | 'emerald' | 'amber' | 'cyan' | 'rose';
 }) {
   const cardClass = {
-    blue: 'border-l-blue-500',
-    violet: 'border-l-violet-500',
+    slate: 'border-l-slate-400',
+    brand: 'border-l-brand-500',
     emerald: 'border-l-emerald-500',
     amber: 'border-l-amber-500',
     cyan: 'border-l-cyan-500',
     rose: 'border-l-rose-500',
   }[accent];
   const iconClass = {
-    blue: 'text-blue-600',
-    violet: 'text-violet-600',
+    slate: 'text-slate-500',
+    brand: 'text-brand-600',
     emerald: 'text-emerald-600',
     amber: 'text-amber-600',
     cyan: 'text-cyan-600',
@@ -563,7 +564,7 @@ function KpiCard({
     <div className={cn('bg-white rounded-xl border border-slate-200 border-l-4 p-3', cardClass)}>
       <div className="flex items-center gap-2 mb-1">
         <Icon className={cn('h-3.5 w-3.5', iconClass)} />
-        <span className="text-[10px] text-slate-500 uppercase tracking-wide font-semibold">
+        <span className="text-[11px] text-slate-500 uppercase tracking-wide font-semibold">
           {label}
         </span>
       </div>

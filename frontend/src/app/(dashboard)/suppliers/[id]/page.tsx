@@ -24,6 +24,7 @@ import { toast } from 'sonner';
 import { api } from '@/lib/api';
 import { cn, formatCurrency, formatDate } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
+import { PageHeader } from '@/components/shared/page-header';
 import type { Supplier } from '@/types/models';
 
 // ─── Types ───────────────────────────────────────────────────────
@@ -161,7 +162,7 @@ export default function SupplierDetailPage() {
   if (isLoading) {
     return (
       <div className="flex items-center justify-center py-24">
-        <div className="h-8 w-8 rounded-full border-2 border-indigo-500 border-t-transparent animate-spin" />
+        <div className="h-8 w-8 rounded-full border-2 border-brand-500 border-t-transparent animate-spin" />
       </div>
     );
   }
@@ -191,14 +192,10 @@ export default function SupplierDetailPage() {
           >
             <ArrowLeft className="h-4 w-4" />
           </Link>
-          <div>
-            <h2 className="text-xl font-display font-bold text-slate-900">
-              {supplier.name}
-            </h2>
-            <p className="text-sm text-slate-500 mt-0.5 font-mono">
-              {supplier.code}
-            </p>
-          </div>
+          <PageHeader
+            title={supplier.name}
+            subtitle={<span className="font-mono">{supplier.code}</span>}
+          />
         </div>
 
         {!isEditing ? (
@@ -277,14 +274,14 @@ export default function SupplierDetailPage() {
                       {...register(name as keyof EditFormData)}
                       placeholder={placeholder}
                       className={cn(
-                        'w-full h-8 px-2 text-sm border rounded-md focus:outline-none focus:ring-1 focus:ring-indigo-500',
+                        'w-full h-8 px-2 text-sm border rounded-md focus:outline-none focus:border-brand-400 focus:ring-1 focus:ring-brand-100',
                         errors[name as keyof EditFormData]
                           ? 'border-red-400'
                           : 'border-slate-300'
                       )}
                     />
                     {errors[name as keyof EditFormData] && (
-                      <p className="text-[10px] text-red-500 mt-0.5">
+                      <p className="text-[11px] text-red-500 mt-0.5">
                         {errors[name as keyof EditFormData]?.message as string}
                       </p>
                     )}
@@ -341,7 +338,7 @@ export default function SupplierDetailPage() {
         <div className="lg:col-span-2">
           <div className="bg-white rounded-lg shadow-sm border border-slate-200">
             <div className="flex items-center gap-2 p-4 border-b border-slate-100">
-              <History className="h-4 w-4 text-indigo-500" />
+              <History className="h-4 w-4 text-brand-500" />
               <h3 className="text-sm font-semibold text-slate-700">
                 Lịch sử giá
               </h3>

@@ -31,6 +31,7 @@ const SEGMENT_LABELS: Record<string, string> = {
   backups: 'Backup',
   'data-quality': 'Chất lượng DL',
   'security-log': 'Bảo mật',
+  'vendor-staging': 'Duyệt Vendor Portal',
   language: 'Ngôn ngữ',
   emails: 'Email Samsung',
   forecast: 'Dự báo',
@@ -113,7 +114,7 @@ export function Breadcrumb() {
             ) : (
               <Link
                 href={crumb.href}
-                className={cn('text-sm text-slate-400 hover:text-slate-600 transition-colors truncate')}
+                className={cn('text-sm text-slate-500 hover:text-slate-700 transition-colors truncate')}
               >
                 {crumb.label}
               </Link>

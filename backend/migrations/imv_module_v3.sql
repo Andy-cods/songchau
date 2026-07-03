@@ -1,0 +1,16 @@
+-- ============================================================
+-- imv_module_v3.sql — W0-11: IMV fail-silent fix, consecutive-error alert
+-- ADDITIVE, IDEMPOTENT, re-runnable via: docker cp ... && psql -f.
+-- Author: Thang — 2026-07-03
+-- DEPLOY: docker cp + psql -f; restart sc-api + sc-worker + sc-scheduler.
+--
+-- WHY: app/tasks/imv_sync.py now inserts a Bell notification (type
+--   'imv_sync_error') for admin users when an IMV entity sync fails twice in
+--   a row. `notifications.type` is the REAL enum `notification_type`
+--   (see migrations/procurement_v2_004_analytics_notif.sql) — inserting an
+--   unknown enum label errors, so it must be added here first.
+--
+-- NOTE: ALTER TYPE ... ADD VALUE is NON-TRANSACTIONAL in Postgres and cannot
+--   run inside a DO/BEGIN block. IF NOT EXISTS makes it idempotent/re-runnable.
+-- ============================================================
+ALTER TYPE notification_type ADD VALUE IF NOT EXISTS 'imv_sync_error';

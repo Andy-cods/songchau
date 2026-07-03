@@ -5,12 +5,16 @@ Provides end-to-end tracing: RFQ → SO → Supplier Quote → PO → Shipment �
 
 from __future__ import annotations
 
+import logging
+
 from fastapi import APIRouter, Depends, HTTPException, Query
 import asyncpg
 
 from app.core.database import get_db
 from app.core.rbac import require_role
 from app.core.security import TokenData
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -332,14 +336,17 @@ async def get_chain_margin(
     )
 
     if margin_row:
-        return {"data": dict(margin_row), "source": "pre_calculated"}
+        row_data = dict(margin_row)
+        row_data.setdefault("rate_missing", False)
+        return {"data": row_data, "source": "pre_calculated"}
 
     # Live calculation
     revenue_vnd = 0.0
     cogs_vnd = 0.0
-    freight_vnd = 0.0
+    freight_vnd: float | None = 0.0
     customs_duty_vnd = 0.0
     other_costs_vnd = 0.0
+    rate_missing = False  # W0-15: true khi cần quy đổi USD->VND mà exchange_rates rỗng
 
     # Revenue: from invoice
     if chain.get("invoice_id"):
@@ -377,56 +384,80 @@ async def get_chain_margin(
                 ORDER BY rate_date DESC LIMIT 1
                 """
             )
-            usd_rate_val = float(usd_rate) if usd_rate else 25450.0
             freight_usd = float(sh.get("freight_cost_usd") or 0)
-            freight_vnd = round(freight_usd * usd_rate_val, 2)
+            if usd_rate:
+                freight_vnd = round(freight_usd * float(usd_rate), 2)
+            elif freight_usd > 0:
+                # Không có tỷ giá thật -> KHÔNG bịa hằng cứng (W0-15). Để null.
+                rate_missing = True
+                freight_vnd = None
+                logger.warning(
+                    "deal_chain margin(%s): exchange_rates rỗng (USD->VND) — "
+                    "freight_usd=%.2f không quy đổi được, freight_vnd=null.",
+                    chain_code, freight_usd,
+                )
+            else:
+                freight_vnd = 0.0
             customs_duty_vnd = float(sh.get("customs_duty_vnd") or 0)
             other_costs_vnd = float(sh.get("other_costs_vnd") or 0)
 
-    total_cost_vnd = cogs_vnd + freight_vnd + customs_duty_vnd + other_costs_vnd
-    gross_profit_vnd = revenue_vnd - total_cost_vnd
-    margin_pct = (gross_profit_vnd / revenue_vnd * 100) if revenue_vnd > 0 else 0.0
+    if freight_vnd is None:
+        # Chi phí phụ thuộc rate không tính được -> để null thay vì số bịa.
+        total_cost_vnd = None
+        gross_profit_vnd = None
+        margin_pct = None
+        is_profitable = None
+        meets_threshold = None
+    else:
+        total_cost_vnd = cogs_vnd + freight_vnd + customs_duty_vnd + other_costs_vnd
+        gross_profit_vnd = revenue_vnd - total_cost_vnd
+        margin_pct = (gross_profit_vnd / revenue_vnd * 100) if revenue_vnd > 0 else 0.0
+        is_profitable = gross_profit_vnd > 0
+        meets_threshold = margin_pct >= 15.0
 
     breakdown = {
         "chain_code": chain_code,
         "revenue_vnd": round(revenue_vnd, 2),
         "costs": {
             "cogs_vnd": round(cogs_vnd, 2),
-            "freight_vnd": round(freight_vnd, 2),
+            "freight_vnd": round(freight_vnd, 2) if freight_vnd is not None else None,
             "customs_duty_vnd": round(customs_duty_vnd, 2),
             "other_costs_vnd": round(other_costs_vnd, 2),
-            "total_cost_vnd": round(total_cost_vnd, 2),
+            "total_cost_vnd": round(total_cost_vnd, 2) if total_cost_vnd is not None else None,
         },
-        "gross_profit_vnd": round(gross_profit_vnd, 2),
-        "margin_pct": round(margin_pct, 2),
-        "is_profitable": gross_profit_vnd > 0,
-        "meets_threshold": margin_pct >= 15.0,
+        "gross_profit_vnd": round(gross_profit_vnd, 2) if gross_profit_vnd is not None else None,
+        "margin_pct": round(margin_pct, 2) if margin_pct is not None else None,
+        "is_profitable": is_profitable,
+        "meets_threshold": meets_threshold,
+        "rate_missing": rate_missing,
     }
 
-    # Persist the calculated margin
-    await conn.execute(
-        """
-        INSERT INTO deal_margins
-            (chain_code, sales_order_id, invoice_id,
-             revenue_vnd, cogs_vnd, freight_vnd, customs_duty_vnd, other_costs_vnd)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-        ON CONFLICT (chain_code) DO UPDATE SET
-            revenue_vnd       = EXCLUDED.revenue_vnd,
-            cogs_vnd          = EXCLUDED.cogs_vnd,
-            freight_vnd       = EXCLUDED.freight_vnd,
-            customs_duty_vnd  = EXCLUDED.customs_duty_vnd,
-            other_costs_vnd   = EXCLUDED.other_costs_vnd,
-            calculated_at     = NOW(),
-            updated_at        = NOW()
-        """,
-        chain_code,
-        chain.get("sales_order_id"),
-        chain.get("invoice_id"),
-        round(revenue_vnd, 2),
-        round(cogs_vnd, 2),
-        round(freight_vnd, 2),
-        round(customs_duty_vnd, 2),
-        round(other_costs_vnd, 2),
-    )
+    # Persist the calculated margin — bỏ qua khi rate_missing để KHÔNG ghi số bịa
+    # vào deal_margins (freight_vnd NOT NULL DEFAULT 0, generated cols phụ thuộc nó).
+    if not rate_missing:
+        await conn.execute(
+            """
+            INSERT INTO deal_margins
+                (chain_code, sales_order_id, invoice_id,
+                 revenue_vnd, cogs_vnd, freight_vnd, customs_duty_vnd, other_costs_vnd)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+            ON CONFLICT (chain_code) DO UPDATE SET
+                revenue_vnd       = EXCLUDED.revenue_vnd,
+                cogs_vnd          = EXCLUDED.cogs_vnd,
+                freight_vnd       = EXCLUDED.freight_vnd,
+                customs_duty_vnd  = EXCLUDED.customs_duty_vnd,
+                other_costs_vnd   = EXCLUDED.other_costs_vnd,
+                calculated_at     = NOW(),
+                updated_at        = NOW()
+            """,
+            chain_code,
+            chain.get("sales_order_id"),
+            chain.get("invoice_id"),
+            round(revenue_vnd, 2),
+            round(cogs_vnd, 2),
+            round(freight_vnd, 2),
+            round(customs_duty_vnd, 2),
+            round(other_costs_vnd, 2),
+        )
 
     return {"data": breakdown, "source": "live_calculated"}

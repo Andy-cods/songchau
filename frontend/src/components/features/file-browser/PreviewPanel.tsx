@@ -130,8 +130,8 @@ export default function PreviewPanel({ file, previewData, isLoading, onClose }: 
             target="_blank"
             rel="noopener noreferrer"
             className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2
-                       text-sm font-medium text-white bg-blue-600 rounded-lg
-                       hover:bg-blue-700 transition-colors"
+                       text-sm font-medium text-white bg-brand-600 rounded-lg
+                       hover:bg-brand-700 transition-colors"
           >
             <Download className="w-4 h-4" />
             Tải về

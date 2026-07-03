@@ -10,10 +10,27 @@ import {
   Loader2,
   CheckCircle,
   XCircle,
-  X,
 } from 'lucide-react';
 import { api } from '@/lib/api';
 import { cn } from '@/lib/utils';
+import { PageHeader } from '@/components/shared/page-header';
+import { Card } from '@/components/shared/card';
+import {
+  Table,
+  TableHeader,
+  TableBody,
+  TableRow,
+  TableHead,
+  TableCell,
+} from '@/components/shared/table';
+import { EmptyState } from '@/components/shared/empty-state';
+import { Skeleton } from '@/components/ui/skeleton';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 
 // ─── Types ─────────────────────────────────────────────────────
 
@@ -44,11 +61,13 @@ interface LeaveRequest {
 // ─── Constants ─────────────────────────────────────────────────
 
 const EVENT_TYPE_COLORS: Record<EventType, string> = {
-  meeting: 'bg-blue-100 text-blue-700 border-blue-200',
-  deadline: 'bg-red-100 text-red-700 border-red-200',
-  holiday: 'bg-green-100 text-green-700 border-green-200',
+  // Status-token palette only (no rainbow): deadline=danger, holiday=success,
+  // leave=warning, meeting/delivery=neutral. Purple dropped per design law.
+  meeting: 'bg-slate-100 text-slate-700 border-slate-200',
+  deadline: 'bg-rose-100 text-rose-700 border-rose-200',
+  holiday: 'bg-emerald-100 text-emerald-700 border-emerald-200',
   leave: 'bg-amber-100 text-amber-700 border-amber-200',
-  delivery: 'bg-purple-100 text-purple-700 border-purple-200',
+  delivery: 'bg-slate-100 text-slate-700 border-slate-200',
 };
 
 const EVENT_TYPE_LABELS: Record<EventType, string> = {
@@ -80,7 +99,7 @@ const LEAVE_STATUS_CONFIG: Record<
   },
   rejected: {
     label: 'Từ chối',
-    class: 'bg-red-100 text-red-700',
+    class: 'bg-rose-100 text-rose-700',
   },
 };
 
@@ -231,24 +250,21 @@ export default function CalendarPage() {
   return (
     <div>
       {/* Header */}
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <h2 className="text-xl font-display font-bold text-slate-900">
-            <CalendarDays className="h-5 w-5 inline mr-2 text-brand-600" />
-            Lịch & Nghỉ phép
-          </h2>
-          <p className="text-sm text-slate-500 mt-0.5">
-            Quản lý sự kiện và đơn nghỉ phép
-          </p>
-        </div>
-        <button
-          onClick={() => setShowEventModal(true)}
-          className="inline-flex items-center gap-1.5 px-4 py-2 bg-brand-600 text-white text-sm font-medium rounded-lg hover:bg-brand-700 transition-colors"
-        >
-          <Plus className="h-4 w-4" />
-          Tạo sự kiện
-        </button>
-      </div>
+      <PageHeader
+        className="mb-6"
+        icon={CalendarDays}
+        title="Lịch & Nghỉ phép"
+        subtitle="Quản lý sự kiện và đơn nghỉ phép"
+        actions={
+          <button
+            onClick={() => setShowEventModal(true)}
+            className="inline-flex items-center gap-1.5 px-4 py-2 bg-brand-600 text-white text-sm font-medium rounded-lg hover:bg-brand-700 transition-colors"
+          >
+            <Plus className="h-4 w-4" />
+            Tạo sự kiện
+          </button>
+        }
+      />
 
       {/* Calendar */}
       <div className="bg-white rounded-lg shadow-sm border border-slate-200 overflow-hidden mb-6">
@@ -410,65 +426,49 @@ export default function CalendarPage() {
           <div className="divide-y divide-slate-100">
             {Array.from({ length: 3 }).map((_, i) => (
               <div key={i} className="flex items-center gap-4 px-4 py-3">
-                <div className="h-4 w-28 bg-slate-200 rounded animate-pulse" />
-                <div className="h-4 w-20 bg-slate-200 rounded animate-pulse" />
-                <div className="h-4 w-32 bg-slate-200 rounded animate-pulse" />
-                <div className="h-5 w-16 bg-slate-200 rounded-full animate-pulse ml-auto" />
+                <Skeleton className="h-4 w-28" />
+                <Skeleton className="h-4 w-20" />
+                <Skeleton className="h-4 w-32" />
+                <Skeleton className="h-5 w-16 rounded-full ml-auto" />
               </div>
             ))}
           </div>
         ) : leaves.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-12 text-slate-400">
-            <CalendarDays className="h-8 w-8 mb-2 text-slate-300" />
-            <p className="text-sm">Không có đơn nghỉ phép</p>
-          </div>
+          <EmptyState icon={CalendarDays} heading="Không có đơn nghỉ phép" />
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead>
-                <tr className="border-b border-slate-100 bg-slate-50/50">
-                  <th className="text-left text-xs font-mono uppercase tracking-wider text-slate-400 px-4 py-3">
-                    Nhân viên
-                  </th>
-                  <th className="text-left text-xs font-mono uppercase tracking-wider text-slate-400 px-4 py-3">
-                    Loại nghỉ
-                  </th>
-                  <th className="text-left text-xs font-mono uppercase tracking-wider text-slate-400 px-4 py-3">
-                    Thời gian
-                  </th>
-                  <th className="text-center text-xs font-mono uppercase tracking-wider text-slate-400 px-4 py-3">
-                    Số ngày
-                  </th>
-                  <th className="text-left text-xs font-mono uppercase tracking-wider text-slate-400 px-4 py-3">
-                    Trạng thái
-                  </th>
-                  <th className="text-right text-xs font-mono uppercase tracking-wider text-slate-400 px-4 py-3">
-                    Thao tác
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Nhân viên</TableHead>
+                <TableHead>Loại nghỉ</TableHead>
+                <TableHead>Thời gian</TableHead>
+                <TableHead className="text-center">Số ngày</TableHead>
+                <TableHead>Trạng thái</TableHead>
+                <TableHead className="text-right">Thao tác</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
                 {leaves.map((leave) => {
                   const statusCfg = LEAVE_STATUS_CONFIG[leave.status];
                   const isProcessing =
                     approveLeaveMutation.isPending || rejectLeaveMutation.isPending;
 
                   return (
-                    <tr key={leave.id} className="hover:bg-slate-50/50 transition-colors">
-                      <td className="px-4 py-3 text-sm font-medium text-slate-800">
+                    <TableRow key={leave.id}>
+                      <TableCell className="text-sm font-medium text-slate-800">
                         {leave.user_name}
-                      </td>
-                      <td className="px-4 py-3 text-sm text-slate-600">
+                      </TableCell>
+                      <TableCell className="text-sm text-slate-600">
                         {LEAVE_TYPE_LABELS[leave.leave_type]}
-                      </td>
-                      <td className="px-4 py-3 text-sm text-slate-600">
+                      </TableCell>
+                      <TableCell className="text-sm text-slate-600">
                         {new Date(leave.start_date).toLocaleDateString('vi-VN')} →{' '}
                         {new Date(leave.end_date).toLocaleDateString('vi-VN')}
-                      </td>
-                      <td className="px-4 py-3 text-sm text-center font-semibold text-slate-700">
+                      </TableCell>
+                      <TableCell className="text-sm text-center font-semibold text-slate-700">
                         {leave.days_count}
-                      </td>
-                      <td className="px-4 py-3">
+                      </TableCell>
+                      <TableCell>
                         <span
                           className={cn(
                             'text-xs font-medium px-2 py-0.5 rounded-full',
@@ -477,8 +477,8 @@ export default function CalendarPage() {
                         >
                           {statusCfg.label}
                         </span>
-                      </td>
-                      <td className="px-4 py-3">
+                      </TableCell>
+                      <TableCell>
                         {leave.status === 'pending' && (
                           <div className="flex items-center justify-end gap-2">
                             <button
@@ -496,7 +496,7 @@ export default function CalendarPage() {
                             <button
                               onClick={() => rejectLeaveMutation.mutate(leave.id)}
                               disabled={isProcessing}
-                              className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50 transition-colors"
+                              className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium bg-rose-600 text-white rounded-lg hover:bg-rose-700 disabled:opacity-50 transition-colors"
                             >
                               {rejectLeaveMutation.isPending ? (
                                 <Loader2 className="h-3 w-3 animate-spin" />
@@ -507,13 +507,12 @@ export default function CalendarPage() {
                             </button>
                           </div>
                         )}
-                      </td>
-                    </tr>
+                      </TableCell>
+                    </TableRow>
                   );
                 })}
-              </tbody>
-            </table>
-          </div>
+            </TableBody>
+          </Table>
         )}
       </div>
 
@@ -529,7 +528,7 @@ export default function CalendarPage() {
           >
             <div>
               <label className="block text-xs font-medium text-slate-600 mb-1">
-                Tiêu đề <span className="text-red-500">*</span>
+                Tiêu đề <span className="text-rose-500">*</span>
               </label>
               <input
                 required
@@ -566,7 +565,7 @@ export default function CalendarPage() {
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className="block text-xs font-medium text-slate-600 mb-1">
-                  Bắt đầu <span className="text-red-500">*</span>
+                  Bắt đầu <span className="text-rose-500">*</span>
                 </label>
                 <input
                   required
@@ -580,7 +579,7 @@ export default function CalendarPage() {
               </div>
               <div>
                 <label className="block text-xs font-medium text-slate-600 mb-1">
-                  Kết thúc <span className="text-red-500">*</span>
+                  Kết thúc <span className="text-rose-500">*</span>
                 </label>
                 <input
                   required
@@ -610,7 +609,7 @@ export default function CalendarPage() {
             </div>
 
             {createEventMutation.isError && (
-              <p className="text-sm text-red-600">Có lỗi xảy ra. Thử lại sau.</p>
+              <p className="text-sm text-rose-600">Có lỗi xảy ra. Thử lại sau.</p>
             )}
 
             <div className="flex justify-end gap-3 pt-2">
@@ -671,7 +670,7 @@ export default function CalendarPage() {
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className="block text-xs font-medium text-slate-600 mb-1">
-                  Từ ngày <span className="text-red-500">*</span>
+                  Từ ngày <span className="text-rose-500">*</span>
                 </label>
                 <input
                   required
@@ -685,7 +684,7 @@ export default function CalendarPage() {
               </div>
               <div>
                 <label className="block text-xs font-medium text-slate-600 mb-1">
-                  Đến ngày <span className="text-red-500">*</span>
+                  Đến ngày <span className="text-rose-500">*</span>
                 </label>
                 <input
                   required
@@ -701,7 +700,7 @@ export default function CalendarPage() {
 
             <div>
               <label className="block text-xs font-medium text-slate-600 mb-1">
-                Lý do <span className="text-red-500">*</span>
+                Lý do <span className="text-rose-500">*</span>
               </label>
               <textarea
                 required
@@ -716,7 +715,7 @@ export default function CalendarPage() {
             </div>
 
             {createLeaveMutation.isError && (
-              <p className="text-sm text-red-600">Có lỗi xảy ra. Thử lại sau.</p>
+              <p className="text-sm text-rose-600">Có lỗi xảy ra. Thử lại sau.</p>
             )}
 
             <div className="flex justify-end gap-3 pt-2">
@@ -757,25 +756,13 @@ function Modal({
   onClose: () => void;
 }) {
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      {/* Backdrop */}
-      <div
-        className="absolute inset-0 bg-black/40"
-        onClick={onClose}
-      />
-      {/* Dialog */}
-      <div className="relative bg-white rounded-xl shadow-xl w-full max-w-md p-6">
-        <div className="flex items-center justify-between mb-5">
-          <h3 className="text-base font-semibold text-slate-900">{title}</h3>
-          <button
-            onClick={onClose}
-            className="p-1 rounded-lg hover:bg-slate-100 text-slate-400 transition-colors"
-          >
-            <X className="h-5 w-5" />
-          </button>
-        </div>
+    <Dialog open onOpenChange={(o) => { if (!o) onClose(); }}>
+      <DialogContent className="max-w-md">
+        <DialogHeader className="mb-5">
+          <DialogTitle className="text-base">{title}</DialogTitle>
+        </DialogHeader>
         {children}
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }

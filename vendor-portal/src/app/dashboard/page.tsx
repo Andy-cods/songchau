@@ -1,140 +1,267 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { useRouter } from 'next/navigation';
+import { Inbox, FileText, Trophy, Wallet } from 'lucide-react';
 import { api } from '@/lib/api';
-import Link from 'next/link';
+import { formatDate, formatMoneyNum } from '@/lib/format';
+import type { InvitedBatch, MyQuoteRow } from '@/lib/types';
+import { PageHeader } from '@/components/ui/PageHeader';
+import { StatStrip } from '@/components/ui/StatStrip';
+import { SearchBar } from '@/components/ui/SearchBar';
+import { DataTable, type Column } from '@/components/ui/DataTable';
+import { StatusChip } from '@/components/ui/StatusChip';
+import { Deadline } from '@/components/ui/Deadline';
+import { DDay } from '@/components/ui/DDay';
 
-interface Batch {
-  id: number;
-  batch_code: string;
-  title: string;
-  description?: string;
-  status: string;
-  item_count: number;
-  published_at?: string;
-  my_quote_count: number;
-}
-
-interface Quote {
-  id: number;
-  batch_id: number;
-  batch_code: string;
-  title: string;
-  currency: string;
-  total_amount: number;
-  status: string;
-  submitted_at: string;
-}
-
-function StatCard({ label, value, sub }: { label: string; value: string | number; sub?: string }) {
-  return (
-    <div className="bg-white rounded-xl border border-slate-200 px-5 py-4">
-      <p className="text-xs text-slate-500 mb-1">{label}</p>
-      <p className="text-2xl font-bold text-slate-800">{value}</p>
-      {sub && <p className="text-xs text-slate-400 mt-0.5">{sub}</p>}
-    </div>
-  );
+// Resolve a batch's per-vendor invitation status. Prefer the server-sent
+// inv_status; otherwise derive it from the timestamps (same precedence the old
+// card used) so the StatusChip + "đang mời" KPI stay consistent.
+function resolveInvStatus(b: InvitedBatch): string {
+  return b.inv_status ?? (b.quoted_at ? 'submitted' : b.viewed_at ? 'viewed' : 'invited');
 }
 
 export default function VendorDashboard() {
-  const [batches, setBatches] = useState<Batch[]>([]);
-  const [quotes, setQuotes] = useState<Quote[]>([]);
+  const router = useRouter();
+  const [batches, setBatches] = useState<InvitedBatch[]>([]);
+  const [quotes, setQuotes] = useState<MyQuoteRow[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [query, setQuery] = useState('');
 
+  // PRESERVED: identical dual-fetch (GET /api/vendor/batches + /quotes/my).
   useEffect(() => {
     Promise.all([
-      api.get<any>('/api/vendor/batches'),
-      api.get<any>('/api/vendor/quotes/my'),
+      api.get<{ data: InvitedBatch[] }>('/api/vendor/batches'),
+      api.get<{ data: MyQuoteRow[] }>('/api/vendor/quotes/my'),
     ])
       .then(([batchRes, quoteRes]) => {
         setBatches(batchRes.data || []);
         setQuotes(quoteRes.data || []);
       })
-      .catch(() => {})
+      .catch(() => setError('Không tải được dữ liệu tổng quan. Vui lòng thử lại.'))
       .finally(() => setLoading(false));
   }, []);
 
-  const openBatches = batches.length;
-  const submittedQuotes = quotes.length;
+  // ── KPIs ──────────────────────────────────────────────────────────────────
+  // RFQ đang mời = invitations still awaiting action (invited or viewed, not yet
+  // submitted/declined). "chưa xem" hint = the subset still in plain "invited".
+  const invitedActive = batches.filter(b => {
+    const s = resolveInvStatus(b);
+    return s === 'invited' || s === 'viewed';
+  }).length;
+  const unviewedCount = batches.filter(b => resolveInvStatus(b) === 'invited').length;
+
+  // PRESERVED KPI logic for quotes/awards from /quotes/my.
+  const submittedQuotes = quotes.filter(q => q.status === 'submitted' || q.status === 'awarded').length;
+  const draftQuotes = quotes.filter(q => q.status === 'draft').length;
   const awardedCount = quotes.filter(q => q.status === 'awarded').length;
 
+  // Tổng giá trị đã chào = sum of total_amount across every quote row.
+  const totalQuoted = quotes.reduce((sum, q) => sum + (Number(q.total_amount) || 0), 0);
+
+  // ── Client-side filter (batch_code / title) ────────────────────────────────
+  const filteredBatches = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return batches;
+    return batches.filter(
+      b =>
+        b.batch_code?.toLowerCase().includes(q) ||
+        b.title?.toLowerCase().includes(q),
+    );
+  }, [batches, query]);
+
+  const columns: Column<InvitedBatch>[] = [
+    {
+      key: 'batch_code',
+      header: 'Mã RFQ',
+      w: 130,
+      render: b => (
+        <span className="inline-block rounded bg-brand-50 px-2 py-0.5 font-mono text-[11px] font-semibold text-brand-700">
+          {b.batch_code}
+        </span>
+      ),
+    },
+    {
+      key: 'title',
+      header: 'Tiêu đề',
+      // Full text on hover (title attr) — never lose info to clipping.
+      render: b => (
+        <span className="block max-w-[420px] truncate text-slate-800" title={b.title}>
+          {b.title}
+        </span>
+      ),
+    },
+    {
+      key: 'item_count',
+      header: 'Số mục',
+      w: 80,
+      align: 'right',
+      format: 'num',
+    },
+    {
+      key: 'current_round',
+      header: 'Vòng',
+      w: 80,
+      align: 'center',
+      render: b =>
+        b.current_round != null ? (
+          <span className="tabular-nums text-slate-600">Vòng {b.current_round}</span>
+        ) : (
+          <span className="text-slate-400">—</span>
+        ),
+    },
+    {
+      key: 'award_mode' as keyof InvitedBatch,
+      header: 'Cơ chế',
+      w: 96,
+      align: 'center',
+      render: b => (
+        <span className="text-[11px] text-slate-500">
+          {b.award_mode === 'per_batch' ? 'Cả phiên' : b.award_mode === 'per_item' ? 'Từng mã' : '—'}
+        </span>
+      ),
+    },
+    {
+      key: 'bid_deadline',
+      header: 'Hạn nộp',
+      w: 240,
+      render: b => (
+        <span className="inline-flex items-center gap-1.5">
+          <Deadline date={b.bid_deadline ?? null} relative={false} />
+          <DDay date={b.bid_deadline ?? null} />
+        </span>
+      ),
+    },
+    {
+      key: 'viewed_at',
+      header: 'Đã xem',
+      w: 110,
+      align: 'right',
+      render: b =>
+        b.viewed_at ? (
+          <span className="font-mono tabular-nums text-slate-600">{formatDate(b.viewed_at)}</span>
+        ) : (
+          <span className="text-slate-400">—</span>
+        ),
+    },
+    {
+      key: 'inv_status',
+      header: 'Trạng thái',
+      w: 120,
+      align: 'center',
+      render: b => <StatusChip kind="inv" status={resolveInvStatus(b)} />,
+    },
+    {
+      key: 'invited_at',
+      header: 'Mời lúc',
+      w: 110,
+      align: 'right',
+      render: b =>
+        b.invited_at ? (
+          <span className="font-mono tabular-nums text-slate-500">{formatDate(b.invited_at)}</span>
+        ) : (
+          <span className="text-slate-400">—</span>
+        ),
+    },
+  ];
+
   return (
-    <main className="max-w-6xl mx-auto px-6 py-8">
-      {/* Stats */}
-      <div className="grid grid-cols-3 gap-4 mb-8">
-        <StatCard label="Đợt đang mở" value={loading ? '—' : openBatches} sub="đợt báo giá hiện tại" />
-        <StatCard label="Báo giá đã gửi" value={loading ? '—' : submittedQuotes} sub="tổng số báo giá" />
-        <StatCard label="Trúng thầu" value={loading ? '—' : awardedCount} sub="đơn hàng được chọn" />
-      </div>
+    <main className="mx-auto max-w-[1400px] px-6 py-6">
+      <PageHeader
+        title="Bảng điều khiển"
+        subtitle="Theo dõi đợt được mời, báo giá đã gửi và kết quả trúng thầu"
+      />
 
-      {/* Open batches */}
-      <div className="flex items-center justify-between mb-4">
-        <div>
-          <h2 className="text-lg font-bold text-slate-800">Đợt báo giá đang mở</h2>
-          <p className="text-sm text-slate-500 mt-0.5">Chọn đợt để xem chi tiết và gửi báo giá</p>
-        </div>
-        <Link href="/quotes" className="text-sm text-brand-600 hover:underline font-medium">
-          Xem tất cả báo giá →
-        </Link>
-      </div>
+      {/* KPI strip */}
+      <StatStrip
+        className="mb-6"
+        items={[
+          {
+            label: 'RFQ đang mời',
+            value: loading ? '—' : invitedActive,
+            hint: loading
+              ? 'đợt báo giá đang mở'
+              : unviewedCount > 0
+                ? `${unviewedCount} chưa xem`
+                : 'đợt báo giá đang mở',
+            icon: <Inbox className="h-4 w-4" />,
+            tone: 'brand',
+          },
+          {
+            label: 'Báo giá đã gửi',
+            value: loading ? '—' : submittedQuotes,
+            hint: loading ? 'tổng số báo giá' : draftQuotes > 0 ? `${draftQuotes} nháp` : 'tổng số báo giá',
+            icon: <FileText className="h-4 w-4" />,
+            tone: 'sky',
+          },
+          {
+            label: 'Trúng thầu',
+            value: loading ? '—' : awardedCount,
+            hint: 'đơn hàng được chọn',
+            icon: <Trophy className="h-4 w-4" />,
+            tone: 'emerald',
+          },
+          {
+            label: 'Tổng giá trị đã chào',
+            value: loading ? '—' : formatMoneyNum(totalQuoted, '₫'),
+            hint: loading ? '' : `trên ${quotes.length} báo giá`,
+            icon: <Wallet className="h-4 w-4" />,
+            tone: 'amber',
+          },
+        ]}
+      />
 
-      {loading ? (
-        <div className="space-y-3">
-          {[1, 2, 3].map(i => (
-            <div key={i} className="bg-white rounded-lg h-24 animate-pulse border border-slate-200" />
-          ))}
-        </div>
-      ) : batches.length === 0 ? (
-        <div className="bg-white rounded-xl border border-slate-200 p-16 text-center">
-          <div className="w-12 h-12 bg-slate-100 rounded-xl flex items-center justify-center mx-auto mb-4">
-            <svg className="w-6 h-6 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
-                d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-            </svg>
-          </div>
-          <p className="text-slate-700 font-medium mb-1">Chưa có đợt báo giá nào đang mở</p>
-          <p className="text-sm text-slate-400">Hệ thống sẽ thông báo khi có đợt báo giá mới từ Song Châu</p>
-        </div>
-      ) : (
-        <div className="space-y-3">
-          {batches.map(b => (
-            <Link
-              key={b.id}
-              href={`/rfq/${b.id}`}
-              className="block bg-white rounded-lg border border-slate-200 p-5 hover:border-brand-300 hover:shadow-sm transition-all group"
-            >
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-3 min-w-0">
-                  <span className="font-mono text-xs text-brand-600 bg-brand-50 px-2 py-0.5 rounded shrink-0">
-                    {b.batch_code}
-                  </span>
-                  <h3 className="font-semibold text-slate-800 truncate group-hover:text-brand-700 transition-colors">
-                    {b.title}
-                  </h3>
-                </div>
-                <div className="flex items-center gap-2 shrink-0 ml-4">
-                  <span className="text-xs text-slate-400">{b.item_count} items</span>
-                  {b.my_quote_count > 0 ? (
-                    <span className="text-xs bg-emerald-50 text-emerald-700 border border-emerald-200 px-2 py-0.5 rounded-full font-medium">
-                      Đã báo giá
-                    </span>
-                  ) : (
-                    <span className="text-xs bg-amber-50 text-amber-700 border border-amber-200 px-2 py-0.5 rounded-full font-medium">
-                      Chưa báo giá
-                    </span>
-                  )}
-                  <svg className="w-4 h-4 text-slate-300 group-hover:text-brand-400 transition-colors" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                  </svg>
-                </div>
-              </div>
-              {b.description && (
-                <p className="text-sm text-slate-500 mt-2 line-clamp-1">{b.description}</p>
-              )}
-            </Link>
-          ))}
+      {/* Error banner */}
+      {error && (
+        <div
+          role="alert"
+          className="mb-4 flex items-start gap-3 rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700"
+        >
+          <svg className="mt-0.5 h-4 w-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v4m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
+          </svg>
+          <p>{error}</p>
         </div>
       )}
+
+      {/* Invited batches */}
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+        <h2 className="flex items-baseline gap-2 text-base font-bold text-slate-800">
+          RFQ được mời
+          {!loading && (
+            <span className="text-sm font-semibold tabular-nums text-slate-400">({filteredBatches.length})</span>
+          )}
+        </h2>
+        <SearchBar
+          className="w-full sm:w-80"
+          value={query}
+          onChange={setQuery}
+          placeholder="Tìm mã RFQ / tiêu đề…"
+        />
+      </div>
+
+      <DataTable
+        columns={columns}
+        rows={filteredBatches}
+        loading={loading}
+        onRowClick={b => router.push(`/rfq/${b.id}`)}
+        emptyLabel={
+          query.trim()
+            ? 'Không có RFQ khớp với từ khóa'
+            : 'Chưa được mời báo giá đợt nào — Song Châu sẽ thông báo khi có đợt mới'
+        }
+        emptyIcon={
+          <svg className="h-10 w-10" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={1.5}
+              d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
+            />
+          </svg>
+        }
+      />
     </main>
   );
 }

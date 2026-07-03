@@ -74,7 +74,7 @@ export function HorizontalBarChart({
         {title && (
           <h3 className="text-sm font-semibold text-slate-700 mb-3">{title}</h3>
         )}
-        <div className="flex items-center justify-center text-slate-400 text-sm h-[360px]">
+        <div className="flex items-center justify-center text-slate-500 text-sm h-[360px]">
           Chưa có dữ liệu
         </div>
       </div>

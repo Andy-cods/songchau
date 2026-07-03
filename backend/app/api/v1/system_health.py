@@ -290,14 +290,21 @@ async def list_backups(
     return {"data": {"db_records": [dict(r) for r in rows], "files": fs_files}}
 
 
-@router.post("/backups/create")
+@router.post("/backups/create", summary="Export schema snapshot (KHÔNG phải backup đầy đủ)")
 async def create_backup(
     token_data: TokenData = Depends(require_role("admin")),
     conn: asyncpg.Connection = Depends(get_db),
 ):
+    """Tạo SCHEMA SNAPSHOT (không phải backup dữ liệu đầy đủ).
+
+    Chỉ dump schema (danh sách bảng/cột) + row count, và dữ liệu thật của các
+    bảng NHỎ (<=1000 dòng). Các bảng lớn (đơn hàng, đấu thầu, báo giá...) chỉ
+    có schema + đếm số dòng, KHÔNG có dữ liệu. Đây KHÔNG thể dùng để khôi phục
+    hệ thống. Backup dữ liệu thật là cron pg_dump chạy hằng đêm trên server.
+    """
     BACKUP_DIR.mkdir(parents=True, exist_ok=True)
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-    filename = f"backup_{ts}.json"
+    filename = f"schema_snapshot_{ts}.json"
     filepath = BACKUP_DIR / filename
 
     t0 = _time.time()
@@ -313,8 +320,14 @@ async def create_backup(
         tables = await conn.fetch(
             "SELECT tablename FROM pg_tables WHERE schemaname='public' ORDER BY tablename"
         )
-        backup_data = {"timestamp": ts, "tables": {}}
+        backup_data = {
+            "timestamp": ts,
+            "kind": "schema_snapshot",
+            "warning": "Đây KHÔNG phải backup dữ liệu đầy đủ. Chỉ có schema + dữ liệu của bảng <=1000 dòng. Backup thật là cron pg_dump hằng đêm.",
+            "tables": {},
+        }
         total_rows = 0
+        large_tables_skipped = []
 
         for t in tables:
             name = t["tablename"]
@@ -339,9 +352,12 @@ async def create_backup(
                     ]
                 except Exception:
                     pass  # skip if serialization fails
+            elif count > 1000:
+                large_tables_skipped.append(name)
 
         backup_data["total_tables"] = len(tables)
         backup_data["total_rows"] = total_rows
+        backup_data["large_tables_skipped"] = large_tables_skipped
 
         # Write file
         with open(filepath, "w") as f:
@@ -360,7 +376,12 @@ async def create_backup(
             "id": backup_id, "file": filename, "size_bytes": file_size,
             "size_human": f"{file_size / 1024 / 1024:.1f} MB",
             "tables": len(tables), "rows": total_rows, "duration_s": duration,
-        }, "message": f"Backup hoàn tất: {len(tables)} tables, {total_rows:,} rows"}
+            "large_tables_skipped": large_tables_skipped,
+            "warning": "Đây KHÔNG phải backup dữ liệu. Backup thật là cron pg_dump hằng đêm. "
+                       "File này chỉ là schema snapshot (schema + dữ liệu bảng <=1000 dòng), "
+                       f"KHÔNG có dữ liệu của {len(large_tables_skipped)} bảng lớn.",
+        }, "message": f"Đã tạo schema snapshot (KHÔNG phải backup đầy đủ): {len(tables)} bảng, "
+                       f"{total_rows:,} dòng (đếm), {len(large_tables_skipped)} bảng lớn bị bỏ qua dữ liệu"}
 
     except Exception as exc:
         await conn.execute(

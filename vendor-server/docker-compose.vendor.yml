@@ -1,0 +1,80 @@
+# ============================================================================
+# Vendor stack — server MỚI 45.124.95.32 (dành riêng cổng đấu thầu NCC)
+# Dùng CHUNG Postgres/Redis/data của server cũ (103.56.158.129) QUA TUNNEL.
+#   - DB/Redis: systemd `vendor-tunnel.service` (autossh -L) trên host new.
+#     -> deploy: đổi bind tunnel sang docker gateway 172.17.0.1 (thay 127.0.0.1)
+#        để container chạm được; ở đây container dùng extra_hosts host-gateway.
+#   - /data: systemd `erp-data.service` (sshfs) mount old:/data -> /mnt/erp-data.
+# Chưa deploy — CHỜ domain của Thang để cấu hình nginx + TLS (certbot).
+# ============================================================================
+services:
+  # ─── Backend API chỉ phục vụ NCC (cùng image ./backend, khác env) ───────
+  vendor-api:
+    build:
+      context: ../backend        # bê nguyên backend sang new (rsync)
+      dockerfile: Dockerfile
+    container_name: sc-vendor-api
+    restart: unless-stopped
+    env_file: .env               # .env COPY từ server cũ — GIỮ NGUYÊN SECRET_KEY/JWT
+    environment:
+      # Postgres/Redis của server CŨ qua tunnel (host new bind docker gateway).
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@erp-tunnel:15432/${POSTGRES_DB}
+      REDIS_URL: redis://erp-tunnel:16379/0
+      # Chỉ bật router vendor (không chạy scraper/worker BQMS ở máy này).
+      SC_ROLE: vendor
+    extra_hosts:
+      - "erp-tunnel:host-gateway"   # -> host new; tunnel bind docker gateway
+    volumes:
+      # /data dùng chung qua sshfs mount (đọc file NCC + báo giá tập trung).
+      - /mnt/erp-data/files:/data/files
+      - /mnt/erp-data/public-bid-uploads:/data/public-bid-uploads
+      - /mnt/erp-data/quote-overrides:/data/quote-overrides
+    networks: [vnet]
+    deploy:
+      resources:
+        limits: { memory: 1G }
+        reservations: { memory: 384M }
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # ─── Web cổng NCC (Next.js) ─────────────────────────────────────────────
+  vendor-portal:
+    build:
+      context: ../vendor-portal
+      dockerfile: Dockerfile
+    container_name: sc-vendor-portal
+    restart: unless-stopped
+    environment:
+      NEXT_PUBLIC_API_URL: /api    # nginx proxy /api -> vendor-api
+      NODE_ENV: production
+    networks: [vnet]
+    depends_on: [vendor-api]
+    deploy:
+      resources:
+        limits: { memory: 256M }
+        reservations: { memory: 128M }
+
+  # ─── Reverse proxy + TLS (hoàn thiện khi có domain) ─────────────────────
+  nginx:
+    image: nginx:1.26-alpine
+    container_name: sc-vendor-nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/conf.d:/etc/nginx/conf.d:ro
+      - /var/www/certbot:/var/www/certbot:ro
+      - /etc/letsencrypt:/etc/letsencrypt:ro
+    networks: [vnet]
+    depends_on: [vendor-api, vendor-portal]
+    deploy:
+      resources:
+        limits: { memory: 64M }
+
+networks:
+  vnet:
+    driver: bridge

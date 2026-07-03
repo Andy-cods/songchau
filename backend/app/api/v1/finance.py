@@ -78,6 +78,10 @@ class CashBookEntryRequest(BaseModel):
 async def list_payables(
     supplier_id: int | None = Query(None),
     status: str | None = Query(None),
+    source: str | None = Query(
+        None,
+        description="Lọc theo nguồn AP: 'procurement' | 'manual' | 'all' (mặc định all)",
+    ),
     overdue: bool | None = Query(None, description="Chỉ lọc công nợ quá hạn"),
     date_from: date | None = Query(None),
     date_to: date | None = Query(None),
@@ -98,6 +102,13 @@ async def list_payables(
         conditions.append(f"ap.status = ${idx}::payment_status")
         params.append(status)
         idx += 1
+    # Source filter — AP rows linked to a procurement PO are 'procurement',
+    # everything else (manual / legacy purchase_orders) is 'manual'. Default
+    # 'all' (or None / unknown value) applies no source predicate.
+    if source == "procurement":
+        conditions.append("ap.procurement_po_id IS NOT NULL")
+    elif source == "manual":
+        conditions.append("ap.procurement_po_id IS NULL")
     if overdue is True:
         conditions.append("ap.due_date < CURRENT_DATE AND ap.status NOT IN ('paid')")
     if date_from:
@@ -118,9 +129,18 @@ async def list_payables(
     params.extend([limit, offset])
     rows = await conn.fetch(
         f"""
-        SELECT ap.*, s.name AS supplier_name
+        SELECT ap.*,
+               s.name AS supplier_name,
+               CASE WHEN ap.procurement_po_id IS NOT NULL
+                    THEN 'procurement' ELSE 'manual' END AS source,
+               ppo.po_no       AS po_no,
+               pdel.delivery_no AS delivery_no,
+               COALESCE(va.company_name, s.name) AS company_name
         FROM accounts_payable ap
         LEFT JOIN suppliers s ON s.id = ap.supplier_id
+        LEFT JOIN procurement_pos ppo ON ppo.id = ap.procurement_po_id
+        LEFT JOIN procurement_deliveries pdel ON pdel.id = ap.delivery_id
+        LEFT JOIN vendor_accounts va ON va.id = ap.vendor_id
         WHERE {where}
         ORDER BY ap.due_date ASC
         LIMIT ${idx} OFFSET ${idx + 1}
@@ -166,6 +186,70 @@ async def create_payable(
         token_data.user_id,
     )
     return {"data": dict(row), "message": "Đã tạo công nợ phải trả"}
+
+
+@router.get("/payables/summary")
+async def payables_summary(
+    token_data: TokenData = Depends(require_role("accountant", "manager", "admin")),
+    conn: asyncpg.Connection = Depends(get_db),
+):
+    """Phase 3 / Đợt 5 — Công nợ phải trả summary: outstanding + aging PER CURRENCY.
+
+    Mirrors ``/receivables/summary`` but grouped by ``currency`` because AP holds
+    mixed currencies (USD / RMB / VND) and there is NO FX conversion here — we
+    MUST NOT sum across currencies. Each list entry is one currency bucket.
+
+    Aging buckets are by days-past-due on the OUTSTANDING balance
+    (amount - paid_amount), only for not-yet-paid AP:
+      current   : not yet due (due_date >= today)
+      b_0_30    : 1-30 days overdue
+      b_31_60   : 31-60 days overdue
+      b_60_plus : 60+ days overdue
+    Read-only.
+    """
+    rows = await conn.fetch(
+        """
+        WITH ap AS (
+            SELECT
+                currency::text                       AS currency,
+                (amount - paid_amount)               AS outstanding,
+                (CURRENT_DATE - due_date)            AS days_overdue
+            FROM accounts_payable
+            WHERE status <> 'paid'
+              AND (amount - paid_amount) > 0
+        )
+        SELECT
+            currency,
+            COUNT(*)                                                          AS open_count,
+            COALESCE(SUM(outstanding), 0)                                     AS total_outstanding,
+            COALESCE(SUM(outstanding) FILTER (WHERE days_overdue <= 0), 0)    AS current_amount,
+            COALESCE(SUM(outstanding) FILTER (WHERE days_overdue BETWEEN 1 AND 30), 0)  AS bucket_0_30,
+            COALESCE(SUM(outstanding) FILTER (WHERE days_overdue BETWEEN 31 AND 60), 0) AS bucket_31_60,
+            COALESCE(SUM(outstanding) FILTER (WHERE days_overdue > 60), 0)    AS bucket_60_plus,
+            COALESCE(SUM(outstanding) FILTER (WHERE days_overdue > 0), 0)     AS overdue_amount,
+            COUNT(*) FILTER (WHERE days_overdue > 0)                          AS overdue_count
+        FROM ap
+        GROUP BY currency
+        ORDER BY currency
+        """
+    )
+    by_currency = [
+        {
+            "currency": r["currency"],
+            "total_outstanding": float(r["total_outstanding"] or 0),
+            "overdue_amount": float(r["overdue_amount"] or 0),
+            "open_count": int(r["open_count"] or 0),
+            "overdue_count": int(r["overdue_count"] or 0),
+            "aging": {
+                "current": float(r["current_amount"] or 0),
+                "b_0_30": float(r["bucket_0_30"] or 0),
+                "b_31_60": float(r["bucket_31_60"] or 0),
+                "b_60_plus": float(r["bucket_60_plus"] or 0),
+            },
+        }
+        for r in rows
+    ]
+    return {"data": {"by_currency": by_currency}}
 
 
 # ---------------------------------------------------------------------------
@@ -226,6 +310,60 @@ async def list_receivables(
         *params,
     )
     return {"data": [dict(r) for r in rows], "total": total}
+
+
+@router.get("/receivables/summary")
+async def receivables_summary(
+    token_data: TokenData = Depends(require_role("accountant", "manager", "admin")),
+    conn: asyncpg.Connection = Depends(get_db),
+):
+    """Phase 3 — Công nợ phải thu summary: total outstanding + aging buckets.
+
+    Aging buckets are by days-past-due on the OUTSTANDING balance
+    (amount - paid_amount), only for not-yet-paid AR:
+      current   : not yet due (due_date >= today)
+      b_0_30    : 1-30 days overdue
+      b_31_60   : 31-60 days overdue
+      b_60_plus : 60+ days overdue
+    Read-only.
+    """
+    row = await conn.fetchrow(
+        """
+        WITH ar AS (
+            SELECT
+                (amount - paid_amount)               AS outstanding,
+                (CURRENT_DATE - due_date)            AS days_overdue
+            FROM accounts_receivable
+            WHERE status <> 'paid'
+              AND (amount - paid_amount) > 0
+        )
+        SELECT
+            COUNT(*)                                                          AS open_count,
+            COALESCE(SUM(outstanding), 0)                                     AS total_outstanding,
+            COALESCE(SUM(outstanding) FILTER (WHERE days_overdue <= 0), 0)    AS current_amount,
+            COALESCE(SUM(outstanding) FILTER (WHERE days_overdue BETWEEN 1 AND 30), 0)  AS bucket_0_30,
+            COALESCE(SUM(outstanding) FILTER (WHERE days_overdue BETWEEN 31 AND 60), 0) AS bucket_31_60,
+            COALESCE(SUM(outstanding) FILTER (WHERE days_overdue > 60), 0)    AS bucket_60_plus,
+            COALESCE(SUM(outstanding) FILTER (WHERE days_overdue > 0), 0)     AS overdue_amount,
+            COUNT(*) FILTER (WHERE days_overdue > 0)                          AS overdue_count
+        FROM ar
+        """
+    )
+    data = dict(row) if row else {}
+    return {
+        "data": {
+            "total_outstanding": float(data.get("total_outstanding", 0) or 0),
+            "overdue_amount": float(data.get("overdue_amount", 0) or 0),
+            "open_count": int(data.get("open_count", 0) or 0),
+            "overdue_count": int(data.get("overdue_count", 0) or 0),
+            "aging": {
+                "current": float(data.get("current_amount", 0) or 0),
+                "b_0_30": float(data.get("bucket_0_30", 0) or 0),
+                "b_31_60": float(data.get("bucket_31_60", 0) or 0),
+                "b_60_plus": float(data.get("bucket_60_plus", 0) or 0),
+            },
+        }
+    }
 
 
 @router.post("/receivables", status_code=201)

@@ -11,6 +11,7 @@ Endpoints:
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import uuid
 from datetime import datetime
@@ -316,7 +317,11 @@ async def export_to_excel(
     exported_at = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
     export_meta = {"exported_at": exported_at, "exported_by": token_data.email}
 
-    wb = _build_excel(
+    # W2-12: build workbook (~50k dòng) chạy ĐỒNG BỘ (openpyxl) → chặn event loop
+    # nếu gọi trực tiếp trong handler async. Đưa ra thread pool qua asyncio.to_thread,
+    # KHÔNG đổi logic build (_build_excel không đổi).
+    wb = await asyncio.to_thread(
+        _build_excel,
         rows=data_rows,
         columns=requested_columns,
         sheet_label=config["label"],
@@ -329,7 +334,8 @@ async def export_to_excel(
     file_path = EXPORTS_DIR / filename
 
     try:
-        wb.save(str(file_path))
+        # wb.save() cũng đồng bộ (ghi + nén zip XML) — đưa ra thread luôn cho nhất quán.
+        await asyncio.to_thread(wb.save, str(file_path))
     except Exception as exc:
         logger.error("Failed to save Excel file: %s", exc)
         raise HTTPException(status_code=500, detail="Lỗi tạo file Excel")

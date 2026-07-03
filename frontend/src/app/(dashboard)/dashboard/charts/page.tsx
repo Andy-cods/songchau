@@ -1,5 +1,6 @@
 'use client';
 
+import { useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import {
   TrendingUp,
@@ -34,31 +35,31 @@ import {
 } from 'recharts';
 import { api } from '@/lib/api';
 import { cn } from '@/lib/utils';
+import { useIsReadOnly } from '@/hooks/use-permissions';
+import { CHART, CATEGORICAL } from '@/lib/chart-colors';
 
 /* ================================================================
-   DESIGN SYSTEM
+   DESIGN SYSTEM — màu lấy từ '@/lib/chart-colors' (brand + status + slate)
    ================================================================ */
 
 const COLORS = {
-  blue:      '#2563eb',
-  blueLight: '#60a5fa',
-  blueFade:  '#eff6ff',
-  emerald:   '#059669',
-  emeraldLt: '#34d399',
+  blue:      CHART.brand,
+  blueLight: CHART.brand,
+  blueFade:  '#eef2ff',
+  emerald:   CHART.success,
+  emeraldLt: CHART.success,
   emeraldFd: '#ecfdf5',
-  amber:     '#d97706',
+  amber:     CHART.warning,
   amberFade: '#fffbeb',
-  red:       '#dc2626',
+  red:       CHART.danger,
   redFade:   '#fef2f2',
-  violet:    '#7c3aed',
-  violetFd:  '#f5f3ff',
+  // "violet" giữ tên key nhưng map về brand (nhấn thương hiệu duy nhất)
+  violet:    CHART.brand,
+  violetFd:  '#eef2ff',
   slate900:  '#0f172a',
 
-  // Chart palette — 8 colors, carefully curated
-  donut: [
-    '#2563eb', '#059669', '#d97706', '#7c3aed',
-    '#dc2626', '#0891b2', '#ea580c', '#65a30d',
-  ],
+  // Chart palette categorical (brand + slate ramp, KHÔNG cầu vồng)
+  donut: [...CATEGORICAL],
 };
 
 const MONTH_SHORT = ['T1','T2','T3','T4','T5','T6','T7','T8','T9','T10','T11','T12'];
@@ -90,7 +91,7 @@ function daysSince(dateStr: string): number {
 }
 
 function convPct(from: number, to: number): string {
-  if (!from) return '0%';
+  if (!from || from <= 0) return '—';
   return `${((to / from) * 100).toFixed(1)}%`;
 }
 
@@ -136,13 +137,21 @@ function Skeleton({ className }: { className?: string }) {
 
 export default function DashboardPage() {
   const router = useRouter();
+  const isReadOnly = useIsReadOnly();
+
+  useEffect(() => {
+    if (isReadOnly) router.replace('/reports/daily');
+  }, [isReadOnly, router]);
 
   const { data: raw, isLoading } = useQuery({
     queryKey: ['dashboard-v2'],
     queryFn: () => api.get<any>('/api/v1/dashboard/kpis-v2'),
     refetchInterval: 30_000,
     retry: 2,
+    enabled: !isReadOnly,
   });
+
+  if (isReadOnly) return null;
 
   const d = raw?.data ?? {};
 
@@ -204,11 +213,11 @@ export default function DashboardPage() {
   }));
 
   const funnelStages = [
-    { key: 'rfq',       label: 'RFQ nhận',    value: funnel.rfq_received ?? 0, icon: <FileText className="w-4 h-4" />, color: COLORS.blue },
-    { key: 'quoted',    label: 'Đã báo giá', value: funnel.quoted       ?? 0, icon: <BarChart3 className="w-4 h-4" />, color: COLORS.violet },
-    { key: 'won',       label: 'Đã thắng',   value: funnel.won          ?? 0, icon: <Target className="w-4 h-4" />,   color: COLORS.emerald },
-    { key: 'delivered', label: 'Giao hàng',   value: funnel.delivered    ?? 0, icon: <Truck className="w-4 h-4" />,    color: COLORS.amber },
-    { key: 'invoiced',  label: 'Xuất HĐ',    value: funnel.invoiced     ?? 0, icon: <ArrowRight className="w-4 h-4" />, color: '#64748b' },
+    { key: 'rfq',       label: 'RFQ nhận',    value: funnel.rfq_received ?? 0, icon: <FileText className="w-4 h-4" />, color: COLORS.violet, group: 'sales' },
+    { key: 'quoted',    label: 'Đã báo giá', value: funnel.quoted       ?? 0, icon: <BarChart3 className="w-4 h-4" />, color: CHART.brand, group: 'sales' },
+    { key: 'won',       label: 'Đã thắng',   value: funnel.won          ?? 0, icon: <Target className="w-4 h-4" />,   color: COLORS.emerald, group: 'sales' },
+    { key: 'delivered', label: 'Giao hàng',   value: funnel.delivered    ?? 0, icon: <Truck className="w-4 h-4" />,    color: COLORS.amber, group: 'ops' },
+    { key: 'invoiced',  label: 'Xuất HĐ',    value: funnel.invoiced     ?? 0, icon: <ArrowRight className="w-4 h-4" />, color: CHART.neutral, group: 'ops' },
   ];
   const funnelMax = funnelStages[0]?.value || 1;
 
@@ -328,7 +337,7 @@ export default function DashboardPage() {
                 <div className="flex items-center justify-between mb-4">
                   <span className="text-[13px] font-medium text-slate-500">Tổng RFQ pipeline</span>
                   {revenueProxy > 0 && (
-                    <span className="text-xs font-medium text-blue-600 bg-blue-50 px-2 py-0.5 rounded-md">
+                    <span className="text-xs font-medium text-brand-600 bg-brand-50 px-2 py-0.5 rounded-md">
                       {fmtVnd(revenueProxy)} quoted
                     </span>
                   )}
@@ -394,7 +403,7 @@ export default function DashboardPage() {
               </div>
               <div className="flex items-center gap-4">
                 <span className="flex items-center gap-1.5 text-[11px] text-slate-400">
-                  <span className="w-2.5 h-2.5 rounded-[3px] bg-blue-500" /> Báo giá
+                  <span className="w-2.5 h-2.5 rounded-[3px] bg-brand-500" /> Báo giá
                 </span>
                 <span className="flex items-center gap-1.5 text-[11px] text-slate-400">
                   <span className="w-2.5 h-2.5 rounded-[3px] bg-emerald-500" /> Chốt được
@@ -417,7 +426,7 @@ export default function DashboardPage() {
                     width={50}
                   />
                   <Tooltip content={<ChartTooltip valueFormatter={fmtVnd} />} />
-                  <Bar dataKey="quoted" name="Báo giá" fill={COLORS.blue} radius={[4,4,0,0]} />
+                  <Bar dataKey="quoted" name="Báo giá" fill={COLORS.violet} radius={[4,4,0,0]} />
                   <Bar dataKey="won" name="Chốt được" fill={COLORS.emerald} radius={[4,4,0,0]} />
                 </BarChart>
               </ResponsiveContainer>
@@ -433,7 +442,7 @@ export default function DashboardPage() {
               </div>
               <div className="flex items-center gap-4">
                 <span className="flex items-center gap-1.5 text-[11px] text-slate-400">
-                  <span className="w-2.5 h-2.5 rounded-full bg-blue-500" /> {currentYear}
+                  <span className="w-2.5 h-2.5 rounded-full bg-brand-500" /> {currentYear}
                 </span>
                 <span className="flex items-center gap-1.5 text-[11px] text-slate-400">
                   <span className="w-2.5 h-2.5 rounded-full border-2 border-slate-300" /> {currentYear - 1}
@@ -445,8 +454,8 @@ export default function DashboardPage() {
                 <AreaChart data={yoyChartData}>
                   <defs>
                     <linearGradient id="grad-this-year" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="0%" stopColor={COLORS.blue} stopOpacity={0.12} />
-                      <stop offset="100%" stopColor={COLORS.blue} stopOpacity={0} />
+                      <stop offset="0%" stopColor={COLORS.violet} stopOpacity={0.12} />
+                      <stop offset="100%" stopColor={COLORS.violet} stopOpacity={0} />
                     </linearGradient>
                   </defs>
                   <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
@@ -465,10 +474,10 @@ export default function DashboardPage() {
                     type="monotone"
                     dataKey="thisYear"
                     name={`${currentYear}`}
-                    stroke={COLORS.blue}
+                    stroke={COLORS.violet}
                     strokeWidth={2.5}
                     fill="url(#grad-this-year)"
-                    dot={{ r: 3, fill: COLORS.blue, strokeWidth: 0 }}
+                    dot={{ r: 3, fill: COLORS.violet, strokeWidth: 0 }}
                     activeDot={{ r: 5, stroke: '#fff', strokeWidth: 2 }}
                   />
                   <Line
@@ -501,8 +510,11 @@ export default function DashboardPage() {
               <div className="hidden md:block">
                 <div className="flex items-stretch gap-0">
                   {funnelStages.map((stage, idx) => {
-                    const prevVal = idx > 0 ? funnelStages[idx - 1].value : null;
-                    const conv = prevVal !== null ? convPct(prevVal, stage.value) : null;
+                    const prev = idx > 0 ? funnelStages[idx - 1] : null;
+                    // Conversion % only inside the sales funnel; won→delivered
+                    // mixes denominators (was showing a bogus 673.8%).
+                    const conv = prev && prev.group === 'sales' && stage.group === 'sales'
+                      ? convPct(prev.value, stage.value) : null;
                     const widthPct = Math.max((stage.value / funnelMax) * 100, 8);
 
                     return (
@@ -511,7 +523,7 @@ export default function DashboardPage() {
                         {idx > 0 && (
                           <div className="flex flex-col items-center px-2 shrink-0">
                             <ArrowRight className="w-4 h-4 text-slate-300" />
-                            <span className="text-[10px] font-medium text-slate-400 mt-0.5 whitespace-nowrap">
+                            <span className="text-[11px] font-medium text-slate-400 mt-0.5 whitespace-nowrap">
                               {conv}
                             </span>
                           </div>
@@ -540,8 +552,9 @@ export default function DashboardPage() {
               {/* Mobile: vertical funnel */}
               <div className="md:hidden space-y-3">
                 {funnelStages.map((stage, idx) => {
-                  const prevVal = idx > 0 ? funnelStages[idx - 1].value : null;
-                  const conv = prevVal !== null ? convPct(prevVal, stage.value) : null;
+                  const prev = idx > 0 ? funnelStages[idx - 1] : null;
+                  const conv = prev && prev.group === 'sales' && stage.group === 'sales'
+                    ? convPct(prev.value, stage.value) : null;
                   const widthPct = Math.max((stage.value / funnelMax) * 100, 8);
 
                   return (
@@ -549,7 +562,7 @@ export default function DashboardPage() {
                       {conv && (
                         <div className="flex items-center gap-1.5 ml-3 mb-1">
                           <ChevronRight className="w-3 h-3 text-slate-300" />
-                          <span className="text-[10px] font-medium text-slate-400">{conv}</span>
+                          <span className="text-[11px] font-medium text-slate-400">{conv}</span>
                         </div>
                       )}
                       <div className="flex items-center gap-3">
@@ -626,7 +639,7 @@ export default function DashboardPage() {
                     <span className="text-2xl font-bold text-slate-800">
                       {fmtNum(makersDonut.reduce((s, m) => s + m.value, 0))}
                     </span>
-                    <span className="text-[10px] text-slate-400 uppercase tracking-wider font-medium">RFQ</span>
+                    <span className="text-[11px] text-slate-400 uppercase tracking-wider font-medium">RFQ</span>
                   </div>
                 </div>
 
@@ -641,7 +654,7 @@ export default function DashboardPage() {
                       <span className="text-xs text-slate-600 truncate flex-1">{m.name}</span>
                       <span className="text-xs text-slate-400 font-mono tabular-nums">{fmtNum(m.value)}</span>
                       <span className={cn(
-                        'text-[10px] font-semibold px-1.5 py-0.5 rounded',
+                        'text-[11px] font-semibold px-1.5 py-0.5 rounded',
                         m.rate >= 30 ? 'bg-emerald-50 text-emerald-600' : 'bg-amber-50 text-amber-600',
                       )}>
                         {m.rate?.toFixed(0)}%
@@ -668,7 +681,7 @@ export default function DashboardPage() {
               </div>
               <button
                 onClick={() => router.push('/bqms/quotation?filter=overdue')}
-                className="text-xs font-medium text-blue-600 hover:text-blue-800 transition-colors flex items-center gap-0.5"
+                className="text-xs font-medium text-brand-600 hover:text-brand-700 transition-colors flex items-center gap-0.5"
               >
                 Xem tất cả <ChevronRight className="w-3.5 h-3.5" />
               </button>
@@ -683,19 +696,19 @@ export default function DashboardPage() {
                 <div className="w-12 h-12 rounded-xl bg-slate-50 flex items-center justify-center mb-3">
                   <Target className="w-6 h-6 text-slate-300" />
                 </div>
-                <p className="text-sm font-medium text-slate-400">Không có RFQ khẩn cấp</p>
-                <p className="text-xs text-slate-300 mt-1">Tất cả RFQ đang được xử lý tốt</p>
+                <p className="text-sm font-medium text-slate-500">Không có RFQ khẩn cấp</p>
+                <p className="text-xs text-slate-500 mt-1">Tất cả RFQ đang được xử lý tốt</p>
               </div>
             ) : (
               <div className="overflow-x-auto flex-1">
                 <table className="w-full text-left">
                   <thead>
                     <tr className="border-b border-slate-100 bg-slate-50/50">
-                      <th className="px-6 py-3 text-[11px] uppercase tracking-wider text-slate-400 font-semibold">Số RFQ</th>
-                      <th className="px-6 py-3 text-[11px] uppercase tracking-wider text-slate-400 font-semibold">Maker</th>
-                      <th className="px-6 py-3 text-[11px] uppercase tracking-wider text-slate-400 font-semibold">Phụ trách</th>
-                      <th className="px-6 py-3 text-[11px] uppercase tracking-wider text-slate-400 font-semibold">Ngày nhận</th>
-                      <th className="px-6 py-3 text-[11px] uppercase tracking-wider text-slate-400 font-semibold">Trạng thái</th>
+                      <th className="px-6 py-3 text-[11px] uppercase tracking-wider text-slate-500 font-semibold">Số RFQ</th>
+                      <th className="px-6 py-3 text-[11px] uppercase tracking-wider text-slate-500 font-semibold">Maker</th>
+                      <th className="px-6 py-3 text-[11px] uppercase tracking-wider text-slate-500 font-semibold">Phụ trách</th>
+                      <th className="px-6 py-3 text-[11px] uppercase tracking-wider text-slate-500 font-semibold">Ngày nhận</th>
+                      <th className="px-6 py-3 text-[11px] uppercase tracking-wider text-slate-500 font-semibold">Trạng thái</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -715,7 +728,7 @@ export default function DashboardPage() {
                           )}
                         >
                           <td className="px-6 py-3">
-                            <span className="text-sm font-mono font-semibold text-slate-800 hover:text-blue-600 transition-colors">
+                            <span className="text-sm font-mono font-semibold text-slate-800 hover:text-brand-600 transition-colors">
                               {rfq.rfq_number ?? '--'}
                             </span>
                           </td>
@@ -765,7 +778,7 @@ export default function DashboardPage() {
                 </div>
                 <button
                   onClick={() => router.push('/bqms/quotation?filter=overdue')}
-                  className="text-xs font-semibold px-3 py-1.5 rounded-lg bg-slate-900 text-white hover:bg-slate-800 transition-colors"
+                  className="text-xs font-semibold px-3 py-1.5 rounded-lg bg-brand-600 text-white hover:bg-brand-700 transition-colors"
                 >
                   Xử lý RFQ quá hạn
                 </button>
@@ -887,7 +900,7 @@ export default function DashboardPage() {
                         <span className={cn(
                           'text-[11px] font-semibold px-2 py-0.5 rounded-md shrink-0',
                           rate >= 50 ? 'bg-emerald-50 text-emerald-600' :
-                          rate >= 20 ? 'bg-blue-50 text-blue-600' :
+                          rate >= 20 ? 'bg-brand-50 text-brand-600' :
                           'bg-slate-50 text-slate-400',
                         )}>
                           {rate.toFixed(0)}%
@@ -951,7 +964,7 @@ export default function DashboardPage() {
                       <span className="text-[11px] font-semibold text-red-600">{fmtNum(delivery.overdue)} đơn quá hạn</span>
                     </div>
                     {deliveryOverdue.slice(0, 3).map((dd: any, i: number) => (
-                      <p key={i} className="text-[10px] text-red-500/80 truncate">{dd.po_number} — {dd.spec}</p>
+                      <p key={i} className="text-[11px] text-red-500/80 truncate">{dd.po_number} — {dd.spec}</p>
                     ))}
                   </div>
                 )}
@@ -991,7 +1004,7 @@ export default function DashboardPage() {
                       <div key={i} className="flex items-center justify-between gap-2 py-1 border-b border-slate-50 last:border-0">
                         <div className="min-w-0">
                           <p className="text-[11px] text-slate-700 truncate font-medium">{p.spec}</p>
-                          <p className="text-[10px] text-slate-400 font-mono">{p.po_number}</p>
+                          <p className="text-[11px] text-slate-400 font-mono">{p.po_number}</p>
                         </div>
                         <span className="text-[11px] font-mono text-slate-600 shrink-0">{fmtVnd(p.amount ?? 0)}</span>
                       </div>
@@ -1005,8 +1018,8 @@ export default function DashboardPage() {
             <div className="bg-white rounded-2xl border border-slate-200/60 shadow-[0_1px_3px_rgba(0,0,0,0.04)] flex flex-col">
               <div className="px-5 py-3.5 border-b border-slate-100 flex items-center justify-between">
                 <div className="flex items-center gap-2">
-                  <div className="w-7 h-7 rounded-lg bg-purple-100 flex items-center justify-center">
-                    <Target className="w-3.5 h-3.5 text-purple-600" />
+                  <div className="w-7 h-7 rounded-lg bg-brand-100 flex items-center justify-center">
+                    <Target className="w-3.5 h-3.5 text-brand-600" />
                   </div>
                   <h3 className="text-[13px] font-semibold text-slate-800">Cổng Nhà Cung Cấp</h3>
                 </div>
@@ -1016,24 +1029,24 @@ export default function DashboardPage() {
                 <div className="grid grid-cols-2 gap-3">
                   <div className="text-center py-3 bg-emerald-50/70 rounded-xl">
                     <p className="text-xl font-bold text-emerald-700">{vendorPortal.approved_vendors ?? 0}</p>
-                    <p className="text-[10px] text-emerald-600 font-medium mt-0.5">NCC đã duyệt</p>
+                    <p className="text-[11px] text-emerald-600 font-medium mt-0.5">NCC đã duyệt</p>
                   </div>
                   <div className={cn('text-center py-3 rounded-xl', (vendorPortal.pending_vendors ?? 0) > 0 ? 'bg-amber-50/70' : 'bg-slate-50')}>
                     <p className={cn('text-xl font-bold', (vendorPortal.pending_vendors ?? 0) > 0 ? 'text-amber-700' : 'text-slate-300')}>{vendorPortal.pending_vendors ?? 0}</p>
-                    <p className="text-[10px] text-slate-500 font-medium mt-0.5">Chờ duyệt</p>
+                    <p className="text-[11px] text-slate-500 font-medium mt-0.5">Chờ duyệt</p>
                   </div>
-                  <div className="text-center py-3 bg-blue-50/70 rounded-xl">
-                    <p className="text-xl font-bold text-blue-700">{vendorPortal.open_batches ?? 0}</p>
-                    <p className="text-[10px] text-blue-600 font-medium mt-0.5">Đợt đang mở</p>
+                  <div className="text-center py-3 bg-slate-50 rounded-xl">
+                    <p className="text-xl font-bold text-slate-700">{vendorPortal.open_batches ?? 0}</p>
+                    <p className="text-[11px] text-slate-500 font-medium mt-0.5">Đợt đang mở</p>
                   </div>
-                  <div className="text-center py-3 bg-purple-50/70 rounded-xl">
-                    <p className="text-xl font-bold text-purple-700">{vendorPortal.total_quotes ?? 0}</p>
-                    <p className="text-[10px] text-purple-600 font-medium mt-0.5">Báo giá nhận</p>
+                  <div className="text-center py-3 bg-brand-50/70 rounded-xl">
+                    <p className="text-xl font-bold text-brand-700">{vendorPortal.total_quotes ?? 0}</p>
+                    <p className="text-[11px] text-brand-600 font-medium mt-0.5">Báo giá nhận</p>
                   </div>
                 </div>
-                <div className="text-center py-3 bg-gradient-to-r from-slate-50 to-slate-100/50 rounded-xl">
+                <div className="text-center py-3 bg-slate-100/60 rounded-xl">
                   <p className="text-lg font-bold text-slate-800">{vendorPortal.awarded_batches ?? 0}</p>
-                  <p className="text-[10px] text-slate-500 font-medium">Đợt đã chọn NCC</p>
+                  <p className="text-[11px] text-slate-500 font-medium">Đợt đã chọn NCC</p>
                 </div>
               </div>
             </div>

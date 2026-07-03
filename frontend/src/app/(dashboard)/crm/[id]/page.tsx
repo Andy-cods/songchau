@@ -1,11 +1,25 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useMemo, useEffect, useCallback } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useParams, useRouter } from 'next/navigation';
+import {
+  ChevronLeft, ChevronRight, Pencil, Building2, User2, X, MessageSquare,
+  Plus, Send, PanelRightClose, PanelRightOpen,
+} from 'lucide-react';
 import { api } from '@/lib/api';
 import { cn, formatDate, formatRelativeTime } from '@/lib/utils';
+import { useUserRole } from '@/hooks/use-permissions';
 import { toast } from 'sonner';
+import {
+  PageShellHeader, CockpitTabs, DataPanel, StatusPill, StatStrip,
+  SkeletonBlock, TrackingRail, RailCard,
+  TYPE, BUTTON, SHELL, ELEVATION, DEPTH, ROW_PADDING, BADGE,
+  type StatChip, type BadgeTone,
+} from '@/components/cockpit';
+import { Pagination } from '../_components/Pagination';
+import { HoSoTab } from '../_components/HoSoTab';
+import { QuoteBatchModal } from '@/components/sourcing/QuoteBatchModal';
 
 // ─── Types ──────────────────────────────────────────────────────
 
@@ -19,6 +33,9 @@ interface CustomerDetail {
   phone?: string;
   email?: string;
   business_system?: string;
+  owner_id?: string | null;
+  owner_name?: string | null;
+  notes?: string;
   total_orders: number;
   total_revenue: number;
   last_order_date?: string;
@@ -92,6 +109,7 @@ interface ContactItem {
   email?: string;
   phone?: string;
   last_contacted?: string;
+  last_contacted_at?: string;
 }
 
 interface InteractionItem {
@@ -103,10 +121,13 @@ interface InteractionItem {
 }
 
 interface TimelineEvent {
-  type: string;
-  date: string;
+  type?: string;
+  event_type?: string;
+  date?: string;
+  created_at?: string;
   title: string;
   details?: string;
+  detail?: string;
 }
 
 interface POItem {
@@ -185,6 +206,8 @@ interface AddInteractionForm {
 
 // ─── Helpers ────────────────────────────────────────────────────
 
+const MANAGER_ROLES = new Set(['manager', 'admin']);
+
 function fmtVnd(value: number | null | undefined): string {
   if (value == null || isNaN(value)) return '—';
   if (value >= 1_000_000_000)
@@ -194,12 +217,12 @@ function fmtVnd(value: number | null | undefined): string {
   return new Intl.NumberFormat('vi-VN').format(value) + '₫';
 }
 
-function lastContactedColor(dateStr?: string): string {
-  if (!dateStr) return 'text-slate-400';
+function recencyTone(dateStr?: string): BadgeTone {
+  if (!dateStr) return 'slate';
   const diff = (Date.now() - new Date(dateStr).getTime()) / 86_400_000;
-  if (diff < 7) return 'text-emerald-600';
-  if (diff < 30) return 'text-amber-600';
-  return 'text-red-600';
+  if (diff < 7) return 'emerald';
+  if (diff < 30) return 'amber';
+  return 'rose';
 }
 
 function lastContactedLabel(dateStr?: string): string {
@@ -251,155 +274,72 @@ const EXTERNAL_MAP_LABELS: Record<string, string> = Object.fromEntries(
   ])
 );
 
+const RESULT_TONE: Record<string, BadgeTone> = { won: 'emerald', lost: 'rose', pending: 'amber' };
+const RESULT_LABEL: Record<string, string> = { won: 'Trúng', lost: 'Thua', pending: 'Chờ' };
+
+const STATUS_TONE: Record<string, BadgeTone> = {
+  completed: 'emerald', delivered: 'emerald', pending: 'amber',
+  cancelled: 'rose', processing: 'sky',
+};
+const STATUS_LABEL: Record<string, string> = {
+  completed: 'Hoàn thành', delivered: 'Đã giao', pending: 'Chờ',
+  cancelled: 'Hủy', processing: 'Đang xử lý',
+};
+
 function resultBadge(result?: string) {
-  if (!result) return <span className="text-xs text-slate-400">—</span>;
-  const map: Record<string, string> = {
-    won: 'bg-emerald-100 text-emerald-700',
-    lost: 'bg-red-100 text-red-600',
-    pending: 'bg-amber-100 text-amber-700',
-  };
-  const labelMap: Record<string, string> = {
-    won: 'Trúng',
-    lost: 'Thua',
-    pending: 'Chờ',
-  };
-  const cls = map[result] ?? 'bg-slate-100 text-slate-500';
-  const label = labelMap[result] ?? result;
+  if (!result) return <span className="text-[12px] text-slate-300">—</span>;
   return (
-    <span className={cn('inline-block px-2 py-0.5 rounded text-xs font-medium', cls)}>
-      {label}
-    </span>
+    <StatusPill
+      label={RESULT_LABEL[result] ?? result}
+      tone={RESULT_TONE[result] ?? 'slate'}
+      variant="bare"
+      size="sm"
+    />
   );
 }
 
 function statusBadge(status?: string) {
-  if (!status) return <span className="text-xs text-slate-400">—</span>;
-  const map: Record<string, string> = {
-    completed: 'bg-emerald-100 text-emerald-700',
-    delivered: 'bg-emerald-100 text-emerald-700',
-    pending: 'bg-amber-100 text-amber-700',
-    cancelled: 'bg-red-100 text-red-600',
-    processing: 'bg-blue-100 text-blue-700',
-  };
-  const labelMap: Record<string, string> = {
-    completed: 'Hoàn thành',
-    delivered: 'Đã giao',
-    pending: 'Chờ',
-    cancelled: 'Hủy',
-    processing: 'Đang xử lý',
-  };
-  const cls = map[status] ?? 'bg-slate-100 text-slate-500';
-  const label = labelMap[status] ?? status;
+  if (!status) return <span className="text-[12px] text-slate-300">—</span>;
   return (
-    <span className={cn('inline-block px-2 py-0.5 rounded text-xs font-medium', cls)}>
-      {label}
-    </span>
+    <StatusPill
+      label={STATUS_LABEL[status] ?? status}
+      tone={STATUS_TONE[status] ?? 'slate'}
+      variant="bare"
+      size="sm"
+    />
   );
 }
 
-// ─── Skeleton ───────────────────────────────────────────────────
+// ─── Dense table shells ─────────────────────────────────────────
 
-function SkeletonRow({ rows = 5, cols = 5 }: { rows?: number; cols?: number }) {
+function Th({ children, alignEnd }: { children: React.ReactNode; alignEnd?: boolean }) {
   return (
-    <div className="p-4 space-y-3">
+    <th className={cn(TYPE.th, 'whitespace-nowrap px-3 py-2', alignEnd ? 'text-right' : 'text-left')}>
+      {children}
+    </th>
+  );
+}
+
+function EmptyLine({ children }: { children: React.ReactNode }) {
+  return <div className="px-3 py-3 text-[12px] text-slate-400">{children}</div>;
+}
+
+function TableSkeleton({ cols, rows = 6 }: { cols: number; rows?: number }) {
+  return (
+    <div className="space-y-px p-3">
       {Array.from({ length: rows }).map((_, i) => (
-        <div key={i} className="flex items-center gap-4">
+        <div key={i} className="flex items-center gap-3 py-1">
           {Array.from({ length: cols }).map((__, j) => (
             <div
               key={j}
               className={cn(
-                'h-4 bg-slate-200 rounded animate-pulse',
-                j === 0 ? 'w-40' : j === cols - 1 ? 'ml-auto w-20' : 'w-28'
+                'h-3 animate-pulse rounded bg-slate-200',
+                j === 0 ? 'w-32' : j === cols - 1 ? 'ml-auto w-16' : 'w-24'
               )}
             />
           ))}
         </div>
       ))}
-    </div>
-  );
-}
-
-function SkeletonKpi() {
-  return (
-    <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-      {Array.from({ length: 4 }).map((_, i) => (
-        <div key={i} className="bg-white rounded-lg border border-slate-200 p-4 space-y-2">
-          <div className="h-3 w-20 bg-slate-200 rounded animate-pulse" />
-          <div className="h-7 w-28 bg-slate-200 rounded animate-pulse" />
-          <div className="h-3 w-16 bg-slate-200 rounded animate-pulse" />
-        </div>
-      ))}
-    </div>
-  );
-}
-
-// ─── KPI Card ────────────────────────────────────────────────────
-
-function KpiCard({
-  label,
-  value,
-  sub,
-  highlight,
-  warn,
-}: {
-  label: string;
-  value: string;
-  sub?: string;
-  highlight?: boolean;
-  warn?: boolean;
-}) {
-  return (
-    <div className="bg-white rounded-lg border border-slate-200 p-4">
-      <p className="text-xs font-medium text-slate-500 uppercase tracking-wide mb-1">{label}</p>
-      <p
-        className={cn(
-          'text-2xl font-bold font-mono',
-          highlight ? 'text-brand-700' : warn ? 'text-red-600' : 'text-slate-900'
-        )}
-      >
-        {value}
-      </p>
-      {sub && <p className="text-xs text-slate-400 mt-1">{sub}</p>}
-    </div>
-  );
-}
-
-// ─── Pagination ──────────────────────────────────────────────────
-
-function Pagination({
-  page,
-  total,
-  limit,
-  onChange,
-}: {
-  page: number;
-  total: number;
-  limit: number;
-  onChange: (p: number) => void;
-}) {
-  const totalPages = Math.ceil(total / limit);
-  if (totalPages <= 1) return null;
-  return (
-    <div className="flex items-center justify-between px-4 py-3 border-t border-slate-100">
-      <span className="text-xs text-slate-400">
-        Trang {page}/{totalPages} — {total} bản ghi
-      </span>
-      <div className="flex gap-1">
-        <button
-          onClick={() => onChange(page - 1)}
-          disabled={page <= 1}
-          className="px-2.5 py-1 text-xs border border-slate-200 rounded hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-        >
-          Trước
-        </button>
-        <button
-          onClick={() => onChange(page + 1)}
-          disabled={page >= totalPages}
-          className="px-2.5 py-1 text-xs border border-slate-200 rounded hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-        >
-          Tiếp
-        </button>
-      </div>
     </div>
   );
 }
@@ -422,7 +362,7 @@ function AddContactModal({
   });
 
   const mutation = useMutation({
-    mutationFn: (payload: AddContactForm & { customer_id: string }) =>
+    mutationFn: (payload: AddContactForm & { customer_id: number }) =>
       api.post('/api/v1/crm/contacts', payload),
     onSuccess: () => {
       toast.success('Thêm liên hệ thành công');
@@ -440,121 +380,63 @@ function AddContactModal({
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!form.full_name.trim()) return;
-    mutation.mutate({ ...form, customer_id: customerId });
+    mutation.mutate({ ...form, customer_id: Number(customerId) });
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-      <div className="bg-white rounded-xl shadow-xl w-full max-w-md">
-        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
-          <h3 className="text-base font-semibold text-slate-900">Thêm người liên hệ</h3>
-          <button
-            onClick={onClose}
-            className="text-slate-400 hover:text-slate-600 transition-colors text-lg leading-none px-1"
-          >
-            ×
+    <ModalShell icon={<User2 className="h-5 w-5 text-white" />} title="Thêm người liên hệ"
+      subtitle="Bổ sung đầu mối liên hệ cho khách hàng" onClose={onClose}>
+      <form onSubmit={handleSubmit} className="px-6 py-4 space-y-4">
+        <Field label="Họ tên" required>
+          <input type="text" name="full_name" value={form.full_name} onChange={handleChange}
+            required placeholder="Nguyễn Văn A" className={INPUT_CLS} />
+        </Field>
+        <Field label="Chức vụ">
+          <input type="text" name="position" value={form.position} onChange={handleChange}
+            placeholder="Giám đốc mua hàng" className={INPUT_CLS} />
+        </Field>
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Email">
+            <input type="email" name="email" value={form.email} onChange={handleChange}
+              placeholder="email@company.com" className={INPUT_CLS} />
+          </Field>
+          <Field label="Điện thoại">
+            <input type="tel" name="phone" value={form.phone} onChange={handleChange}
+              placeholder="0901234567" className={INPUT_CLS} />
+          </Field>
+        </div>
+        {mutation.isError && <ErrorLine />}
+        <div className="flex justify-end gap-2 pt-1">
+          <button type="button" onClick={onClose} className={BUTTON.secondary}>Hủy</button>
+          <button type="submit" disabled={mutation.isPending} className={BUTTON.primary}>
+            {mutation.isPending ? 'Đang lưu…' : 'Thêm liên hệ'}
           </button>
         </div>
-
-        <form onSubmit={handleSubmit} className="px-6 py-4 space-y-4">
-          <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">
-              Họ tên <span className="text-red-500">*</span>
-            </label>
-            <input
-              type="text"
-              name="full_name"
-              value={form.full_name}
-              onChange={handleChange}
-              required
-              placeholder="Nguyễn Văn A"
-              className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-300"
-            />
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">Chức vụ</label>
-            <input
-              type="text"
-              name="position"
-              value={form.position}
-              onChange={handleChange}
-              placeholder="Giám đốc mua hàng"
-              className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-300"
-            />
-          </div>
-
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1">Email</label>
-              <input
-                type="email"
-                name="email"
-                value={form.email}
-                onChange={handleChange}
-                placeholder="email@company.com"
-                className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-300"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1">Điện thoại</label>
-              <input
-                type="tel"
-                name="phone"
-                value={form.phone}
-                onChange={handleChange}
-                placeholder="0901234567"
-                className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-300"
-              />
-            </div>
-          </div>
-
-          {mutation.isError && (
-            <p className="text-sm text-red-600 bg-red-50 px-3 py-2 rounded-lg">
-              Có lỗi xảy ra. Vui lòng thử lại.
-            </p>
-          )}
-
-          <div className="flex justify-end gap-3 pt-1">
-            <button
-              type="button"
-              onClick={onClose}
-              className="px-4 py-2 text-sm text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors"
-            >
-              Hủy
-            </button>
-            <button
-              type="submit"
-              disabled={mutation.isPending}
-              className="px-4 py-2 bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium rounded-lg transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
-            >
-              {mutation.isPending ? 'Đang lưu...' : 'Thêm liên hệ'}
-            </button>
-          </div>
-        </form>
-      </div>
-    </div>
+      </form>
+    </ModalShell>
   );
 }
 
-// ─── Modal: Ghi nhận tương tác ───────────────────────────────────
+// ─── Modal: Ghi nhận tương tác (also used by Ghi nhanh) ──────────
 
 function AddInteractionModal({
   customerId,
+  initialSubject,
   onClose,
 }: {
   customerId: string;
+  initialSubject?: string;
   onClose: () => void;
 }) {
   const queryClient = useQueryClient();
   const [form, setForm] = useState<AddInteractionForm>({
     interaction_type: 'call',
-    subject: '',
+    subject: initialSubject ?? '',
     notes: '',
   });
 
   const mutation = useMutation({
-    mutationFn: (payload: AddInteractionForm & { customer_id: string }) =>
+    mutationFn: (payload: AddInteractionForm & { customer_id: number }) =>
       api.post('/api/v1/crm/interactions', payload),
     onSuccess: () => {
       toast.success('Đã ghi nhận tương tác');
@@ -575,99 +457,195 @@ function AddInteractionModal({
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!form.subject.trim()) return;
-    mutation.mutate({ ...form, customer_id: customerId });
+    mutation.mutate({ ...form, customer_id: Number(customerId) });
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-      <div className="bg-white rounded-xl shadow-xl w-full max-w-md">
-        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
-          <h3 className="text-base font-semibold text-slate-900">Ghi nhận tương tác</h3>
-          <button
-            onClick={onClose}
-            className="text-slate-400 hover:text-slate-600 transition-colors text-lg leading-none px-1"
-          >
-            ×
+    <ModalShell icon={<MessageSquare className="h-5 w-5 text-white" />} title="Ghi nhận tương tác"
+      subtitle="Lưu lại lần liên hệ với khách hàng" onClose={onClose}>
+      <form onSubmit={handleSubmit} className="px-6 py-4 space-y-4">
+        <Field label="Loại tương tác" required>
+          <select name="interaction_type" value={form.interaction_type} onChange={handleChange}
+            className={cn(INPUT_CLS, 'text-slate-700')}>
+            {INTERACTION_TYPES.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
+          </select>
+        </Field>
+        <Field label="Chủ đề" required>
+          <input type="text" name="subject" value={form.subject} onChange={handleChange}
+            required placeholder="Thảo luận về đơn hàng..." className={INPUT_CLS} />
+        </Field>
+        <Field label="Ghi chú">
+          <textarea name="notes" value={form.notes} onChange={handleChange} rows={3}
+            placeholder="Nội dung chi tiết..." className={cn(INPUT_CLS, 'resize-none')} />
+        </Field>
+        {mutation.isError && <ErrorLine />}
+        <div className="flex justify-end gap-2 pt-1">
+          <button type="button" onClick={onClose} className={BUTTON.secondary}>Hủy</button>
+          <button type="submit" disabled={mutation.isPending} className={BUTTON.primary}>
+            {mutation.isPending ? 'Đang lưu…' : 'Ghi nhận'}
+          </button>
+        </div>
+      </form>
+    </ModalShell>
+  );
+}
+
+// ─── Slide-over: Sửa khách hàng (REAL inline edit) ───────────────
+
+interface EditCustomerForm {
+  company_name: string;
+  short_name: string;
+  tax_code: string;
+  address: string;
+  notes: string;
+  contact_name: string;
+  contact_role: string;
+  contact_email: string;
+  contact_phone: string;
+}
+
+function EditCustomerSlideOver({
+  customer,
+  customerId,
+  canEditTax,
+  onClose,
+}: {
+  customer: CustomerDetail;
+  customerId: string;
+  canEditTax: boolean;
+  onClose: () => void;
+}) {
+  const queryClient = useQueryClient();
+  const primaryContact = (customer.contacts ?? [])[0];
+  const [form, setForm] = useState<EditCustomerForm>({
+    company_name: customer.company_name ?? '',
+    short_name: customer.short_name ?? '',
+    tax_code: customer.tax_code ?? '',
+    address: customer.address ?? '',
+    notes: customer.notes ?? '',
+    contact_name: primaryContact?.full_name ?? '',
+    contact_role: primaryContact?.position ?? '',
+    contact_email: primaryContact?.email ?? customer.email ?? '',
+    contact_phone: primaryContact?.phone ?? customer.phone ?? '',
+  });
+
+  const mutation = useMutation({
+    mutationFn: (payload: Partial<EditCustomerForm>) =>
+      api.put(`/api/v1/crm/customers/${customerId}`, payload),
+    onSuccess: () => {
+      toast.success('Đã cập nhật khách hàng');
+      queryClient.invalidateQueries({ queryKey: ['crm-customer', customerId] });
+      queryClient.invalidateQueries({ queryKey: ['crm-board'] });
+      onClose();
+    },
+    onError: () => toast.error('Không thể cập nhật khách hàng'),
+  });
+
+  const set = (k: keyof EditCustomerForm) => (
+    e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>
+  ) => setForm((prev) => ({ ...prev, [k]: e.target.value }));
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!form.company_name.trim()) {
+      toast.error('Tên công ty không được trống');
+      return;
+    }
+    const payload: Partial<EditCustomerForm> = {
+      company_name: form.company_name.trim(),
+      short_name: form.short_name.trim(),
+      address: form.address.trim(),
+      notes: form.notes.trim(),
+      contact_name: form.contact_name.trim(),
+      contact_role: form.contact_role.trim(),
+      contact_email: form.contact_email.trim(),
+      contact_phone: form.contact_phone.trim(),
+    };
+    // tax_code chỉ manager/admin được sửa (staff không gửi để không đổi giá trị)
+    if (canEditTax) payload.tax_code = form.tax_code.trim();
+    mutation.mutate(payload);
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex justify-end bg-slate-900/40 backdrop-blur-sm" onClick={onClose}>
+      <div
+        className={cn('h-full w-full max-w-md bg-white ring-1 ring-slate-200 flex flex-col', ELEVATION.modal)}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between gap-3 border-b border-slate-100 px-5 py-3">
+          <div className="min-w-0">
+            <div className={cn(TYPE.eyebrow, 'leading-none')}>Sửa khách hàng</div>
+            <h3 className={cn(TYPE.h2, 'truncate mt-0.5')}>{customer.company_name}</h3>
+          </div>
+          <button onClick={onClose} aria-label="Đóng" className={BUTTON.icon}>
+            <X className="h-4.5 w-4.5" />
           </button>
         </div>
 
-        <form onSubmit={handleSubmit} className="px-6 py-4 space-y-4">
-          <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">
-              Loại tương tác <span className="text-red-500">*</span>
-            </label>
-            <select
-              name="interaction_type"
-              value={form.interaction_type}
-              onChange={handleChange}
-              className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-brand-300"
-            >
-              {INTERACTION_TYPES.map((t) => (
-                <option key={t.value} value={t.value}>
-                  {t.label}
-                </option>
-              ))}
-            </select>
+        <form onSubmit={handleSubmit} className="flex-1 space-y-4 overflow-y-auto px-5 py-4">
+          <Field label="Tên công ty" required>
+            <input value={form.company_name} onChange={set('company_name')} required className={INPUT_CLS} />
+          </Field>
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="Tên rút gọn">
+              <input value={form.short_name} onChange={set('short_name')} className={INPUT_CLS} />
+            </Field>
+            <Field label={canEditTax ? 'MST' : 'MST (chỉ quản lý)'}>
+              <input value={form.tax_code} onChange={set('tax_code')} disabled={!canEditTax}
+                className={cn(INPUT_CLS, !canEditTax && 'bg-slate-50 text-slate-400 cursor-not-allowed')} />
+            </Field>
+          </div>
+          <Field label="Địa chỉ">
+            <input value={form.address} onChange={set('address')} className={INPUT_CLS} />
+          </Field>
+          <Field label="Ghi chú">
+            <textarea value={form.notes} onChange={set('notes')} rows={2} className={cn(INPUT_CLS, 'resize-none')} />
+          </Field>
+
+          <div className="pt-1">
+            <div className={cn(TYPE.eyebrow, 'mb-2')}>Người liên hệ chính</div>
+            <div className="space-y-3">
+              <div className="grid grid-cols-2 gap-3">
+                <Field label="Họ tên">
+                  <input value={form.contact_name} onChange={set('contact_name')} className={INPUT_CLS} />
+                </Field>
+                <Field label="Chức vụ">
+                  <input value={form.contact_role} onChange={set('contact_role')} className={INPUT_CLS} />
+                </Field>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <Field label="Email">
+                  <input type="email" value={form.contact_email} onChange={set('contact_email')} className={INPUT_CLS} />
+                </Field>
+                <Field label="Điện thoại">
+                  <input type="tel" value={form.contact_phone} onChange={set('contact_phone')} className={INPUT_CLS} />
+                </Field>
+              </div>
+            </div>
           </div>
 
-          <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">
-              Chủ đề <span className="text-red-500">*</span>
-            </label>
-            <input
-              type="text"
-              name="subject"
-              value={form.subject}
-              onChange={handleChange}
-              required
-              placeholder="Thảo luận về đơn hàng..."
-              className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-300"
-            />
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">Ghi chú</label>
-            <textarea
-              name="notes"
-              value={form.notes}
-              onChange={handleChange}
-              rows={3}
-              placeholder="Nội dung chi tiết..."
-              className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-300 resize-none"
-            />
-          </div>
-
-          {mutation.isError && (
-            <p className="text-sm text-red-600 bg-red-50 px-3 py-2 rounded-lg">
-              Có lỗi xảy ra. Vui lòng thử lại.
+          {!canEditTax && (
+            <p className="rounded-lg bg-slate-50 ring-1 ring-inset ring-slate-200 px-3 py-2 text-[12px] text-slate-500">
+              Bạn có thể chỉnh tên, địa chỉ, ghi chú và người liên hệ. MST và người phụ trách do quản lý cập nhật.
             </p>
           )}
-
-          <div className="flex justify-end gap-3 pt-1">
-            <button
-              type="button"
-              onClick={onClose}
-              className="px-4 py-2 text-sm text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors"
-            >
-              Hủy
-            </button>
-            <button
-              type="submit"
-              disabled={mutation.isPending}
-              className="px-4 py-2 bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium rounded-lg transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
-            >
-              {mutation.isPending ? 'Đang lưu...' : 'Ghi nhận'}
-            </button>
-          </div>
+          {mutation.isError && <ErrorLine />}
         </form>
+
+        <div className="flex justify-end gap-2 border-t border-slate-100 px-5 py-3">
+          <button type="button" onClick={onClose} className={BUTTON.secondary}>Hủy</button>
+          <button onClick={handleSubmit} disabled={mutation.isPending} className={BUTTON.primary}>
+            {mutation.isPending ? 'Đang lưu…' : 'Lưu thay đổi'}
+          </button>
+        </div>
       </div>
     </div>
   );
 }
 
-// ─── Tab 1: Tổng quan ────────────────────────────────────────────
+// ─── Liên kết dữ liệu (External maps) ────────────────────────────
 
-function ExternalMapsCard({ customerId }: { customerId: string }) {
+function ExternalMapsCard({ customerId, canManage }: { customerId: string; canManage: boolean }) {
   const queryClient = useQueryClient();
   const [showForm, setShowForm] = useState(false);
   const [preview, setPreview] = useState<ExternalMapPreviewResult | null>(null);
@@ -794,117 +772,73 @@ function ExternalMapsCard({ customerId }: { customerId: string }) {
 
   const previewTone =
     preview?.risk_level === 'ok'
-      ? 'border-emerald-200 bg-emerald-50 text-emerald-800'
+      ? 'ring-emerald-200 bg-emerald-50 text-emerald-800'
       : preview?.risk_level === 'duplicate' || preview?.risk_level === 'conflict'
-        ? 'border-amber-200 bg-amber-50 text-amber-800'
-        : 'border-red-200 bg-red-50 text-red-700';
+        ? 'ring-amber-200 bg-amber-50 text-amber-800'
+        : 'ring-rose-200 bg-rose-50 text-rose-700';
 
   return (
-    <div className="bg-white rounded-lg border border-slate-200 p-5">
-      <div className="flex items-start justify-between gap-3 mb-4">
-        <div>
-          <h3 className="text-sm font-semibold text-slate-700">Liên kết dữ liệu</h3>
-          <p className="text-xs text-slate-400 mt-1">
-            Mapping dùng để nối khách hàng này với PO, giao hàng và RFQ thực tế.
-          </p>
-        </div>
-        <button
-          type="button"
-          onClick={() => setShowForm((prev) => !prev)}
-          className="px-3 py-1.5 text-sm border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors"
-        >
-          {showForm ? 'Đóng' : 'Thêm mapping'}
-        </button>
-      </div>
-
-      {showForm && (
-        <form
-          onSubmit={handleSubmit}
-          className="mb-4 rounded-xl border border-slate-200 bg-slate-50/70 p-4 space-y-3"
-        >
+    <DataPanel
+      title="Liên kết dữ liệu"
+      eyebrow="Nối PO · giao hàng · RFQ thực tế"
+      actions={
+        canManage && (
+          <button type="button" onClick={() => setShowForm((p) => !p)} className={BUTTON.secondary}>
+            {showForm ? 'Đóng' : 'Thêm mapping'}
+          </button>
+        )
+      }
+    >
+      {showForm && canManage && (
+        <form onSubmit={handleSubmit} className="mb-4 rounded-lg ring-1 ring-slate-200 bg-slate-50/70 p-3 space-y-3">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            <div>
-              <label className="block text-xs font-medium text-slate-600 mb-1">Nguồn dữ liệu</label>
-              <select
-                value={`${form.source_system}:${form.match_field}`}
-                onChange={(e) => handlePresetChange(e.target.value)}
-                className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-brand-300"
-              >
+            <Field label="Nguồn dữ liệu" small>
+              <select value={`${form.source_system}:${form.match_field}`}
+                onChange={(e) => handlePresetChange(e.target.value)} className={cn(INPUT_CLS, 'bg-white')}>
                 {EXTERNAL_MAP_PRESETS.map((item) => (
-                  <option
-                    key={`${item.source_system}:${item.match_field}`}
-                    value={`${item.source_system}:${item.match_field}`}
-                  >
-                    {item.label}
-                  </option>
+                  <option key={`${item.source_system}:${item.match_field}`}
+                    value={`${item.source_system}:${item.match_field}`}>{item.label}</option>
                 ))}
               </select>
               <p className="text-[11px] text-slate-400 mt-1">
                 {EXTERNAL_MAP_PRESETS.find(
-                  (item) =>
-                    item.source_system === form.source_system &&
-                    item.match_field === form.match_field
+                  (item) => item.source_system === form.source_system && item.match_field === form.match_field
                 )?.hint ?? 'Chọn đúng nguồn để tránh nối nhầm dữ liệu.'}
               </p>
-            </div>
-
-            <div>
-              <label className="block text-xs font-medium text-slate-600 mb-1">Giá trị match</label>
-              <input
-                type="text"
-                value={form.match_value}
-                onChange={(e) => {
-                  setPreview(null);
-                  setForm((prev) => ({ ...prev, match_value: e.target.value }));
-                }}
-                placeholder="Ví dụ: Canon VN"
-                className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-brand-300"
-              />
-            </div>
+            </Field>
+            <Field label="Giá trị match" small>
+              <input type="text" value={form.match_value}
+                onChange={(e) => { setPreview(null); setForm((prev) => ({ ...prev, match_value: e.target.value })); }}
+                placeholder="Ví dụ: Canon VN" className={cn(INPUT_CLS, 'bg-white')} />
+            </Field>
           </div>
-
           <div className="grid grid-cols-1 md:grid-cols-[1fr_auto] gap-3 items-end">
-            <div>
-              <label className="block text-xs font-medium text-slate-600 mb-1">Ghi chú</label>
-              <input
-                type="text"
-                value={form.notes}
+            <Field label="Ghi chú" small>
+              <input type="text" value={form.notes}
                 onChange={(e) => setForm((prev) => ({ ...prev, notes: e.target.value }))}
-                placeholder="Ví dụ: Alias PO Samsung đang dùng"
-                className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-brand-300"
-              />
-            </div>
-            <label className="inline-flex items-center gap-2 text-sm text-slate-600 whitespace-nowrap">
-              <input
-                type="checkbox"
-                checked={form.is_primary}
+                placeholder="Ví dụ: Alias PO Samsung đang dùng" className={cn(INPUT_CLS, 'bg-white')} />
+            </Field>
+            <label className="inline-flex items-center gap-2 text-[13px] text-slate-600 whitespace-nowrap pb-2">
+              <input type="checkbox" checked={form.is_primary}
                 onChange={(e) => setForm((prev) => ({ ...prev, is_primary: e.target.checked }))}
-                className="rounded border-slate-300 text-brand-600 focus:ring-brand-300"
-              />
+                className="rounded border-slate-300 text-brand-600 focus:ring-brand-300" />
               Đặt làm chính
             </label>
           </div>
-
-          <div className="rounded-lg bg-amber-50 border border-amber-100 px-3 py-2 text-xs text-amber-800">
-            Chỉ thêm mapping đã được xác nhận từ dữ liệu thật. Mapping sai sẽ làm lệch PO, giao hàng và RFQ của khách hàng này.
+          <div className="rounded-lg bg-amber-50 ring-1 ring-inset ring-amber-100 px-3 py-2 text-[12px] text-amber-800">
+            Chỉ thêm mapping đã xác nhận từ dữ liệu thật. Mapping sai sẽ làm lệch PO, giao hàng và RFQ.
           </div>
-
           {preview && (
-            <div className={cn('rounded-lg border px-3 py-3 text-xs', previewTone)}>
+            <div className={cn('rounded-lg ring-1 ring-inset px-3 py-3 text-[12px]', previewTone)}>
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div className="font-medium">
                   Preview: {preview.matched_count} dòng khớp với "{preview.normalized_value}"
                 </div>
                 <div className="uppercase tracking-wide">
-                  {preview.risk_level === 'ok'
-                    ? 'Ổn'
-                    : preview.risk_level === 'duplicate'
-                      ? 'Trùng'
-                      : preview.risk_level === 'conflict'
-                        ? 'Xung đột'
-                        : preview.risk_level === 'too_wide'
-                          ? 'Quá rộng'
-                          : 'Không khớp'}
+                  {preview.risk_level === 'ok' ? 'Ổn'
+                    : preview.risk_level === 'duplicate' ? 'Trùng'
+                    : preview.risk_level === 'conflict' ? 'Xung đột'
+                    : preview.risk_level === 'too_wide' ? 'Quá rộng' : 'Không khớp'}
                 </div>
               </div>
               {preview.warning && <p className="mt-2">{preview.warning}</p>}
@@ -941,28 +875,13 @@ function ExternalMapsCard({ customerId }: { customerId: string }) {
               )}
             </div>
           )}
-
           <div className="flex justify-end gap-2">
-            <button
-              type="button"
-              onClick={runPreview}
-              disabled={previewMutation.isPending || !form.match_value.trim()}
-              className="px-3 py-2 text-sm text-brand-700 border border-brand-200 rounded-lg hover:bg-brand-50 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
-            >
+            <button type="button" onClick={runPreview} disabled={previewMutation.isPending || !form.match_value.trim()}
+              className={BUTTON.secondary}>
               {previewMutation.isPending ? 'Đang preview...' : 'Xem preview'}
             </button>
-            <button
-              type="button"
-              onClick={() => setShowForm(false)}
-              className="px-3 py-2 text-sm text-slate-600 border border-slate-200 rounded-lg hover:bg-white transition-colors"
-            >
-              Hủy
-            </button>
-            <button
-              type="submit"
-              disabled={saveDisabled}
-              className="px-3 py-2 bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium rounded-lg transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
-            >
+            <button type="button" onClick={() => setShowForm(false)} className={BUTTON.ghost}>Hủy</button>
+            <button type="submit" disabled={saveDisabled} className={BUTTON.primary}>
               {createMutation.isPending ? 'Đang lưu...' : 'Lưu mapping'}
             </button>
           </div>
@@ -970,11 +889,9 @@ function ExternalMapsCard({ customerId }: { customerId: string }) {
       )}
 
       {isLoading ? (
-        <SkeletonRow rows={3} cols={4} />
+        <TableSkeleton cols={3} rows={3} />
       ) : mappings.length === 0 ? (
-        <div className="rounded-xl border border-dashed border-slate-200 py-8 text-center">
-          <p className="text-sm text-slate-400">Chưa có mapping nào cho khách hàng này</p>
-        </div>
+        <EmptyLine>Chưa có mapping nào cho khách hàng này.</EmptyLine>
       ) : (
         <div className="space-y-2">
           {mappings.map((mapping) => {
@@ -982,210 +899,254 @@ function ExternalMapsCard({ customerId }: { customerId: string }) {
               EXTERNAL_MAP_LABELS[`${mapping.source_system}:${mapping.match_field}`] ??
               `${mapping.source_system} / ${mapping.match_field}`;
             return (
-              <div
-                key={mapping.id}
-                className="flex items-start justify-between gap-3 rounded-xl border border-slate-200 px-4 py-3"
-              >
+              <div key={mapping.id}
+                className="flex items-start justify-between gap-3 rounded-lg ring-1 ring-slate-200 px-3 py-2">
                 <div className="min-w-0">
                   <div className="flex flex-wrap items-center gap-2">
-                    <p className="text-sm font-medium text-slate-800">{label}</p>
-                    {mapping.is_primary && (
-                      <span className="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700 text-[11px] font-medium">
-                        Chính
-                      </span>
-                    )}
+                    <p className="text-[13px] font-medium text-slate-800">{label}</p>
+                    {mapping.is_primary && <StatusPill label="Chính" tone="emerald" variant="bare" size="sm" />}
                   </div>
-                  <p className="text-sm font-mono text-brand-700 mt-1 break-all">{mapping.match_value}</p>
-                  {mapping.notes && <p className="text-xs text-slate-500 mt-1">{mapping.notes}</p>}
+                  <p className={cn(TYPE.code, 'mt-1 break-all')}>{mapping.match_value}</p>
+                  {mapping.notes && <p className="text-[12px] text-slate-500 mt-1">{mapping.notes}</p>}
                 </div>
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (!window.confirm(`Xóa mapping "${mapping.match_value}"?`)) return;
-                    deleteMutation.mutate(mapping.id);
-                  }}
-                  disabled={deleteMutation.isPending}
-                  className="px-2.5 py-1.5 text-xs text-red-600 border border-red-200 rounded-lg hover:bg-red-50 transition-colors disabled:opacity-50"
-                >
-                  Xóa
-                </button>
+                {canManage && (
+                  <button type="button"
+                    onClick={() => {
+                      if (!window.confirm(`Xóa mapping "${mapping.match_value}"?`)) return;
+                      deleteMutation.mutate(mapping.id);
+                    }}
+                    disabled={deleteMutation.isPending}
+                    className="px-2 py-1 text-[12px] text-rose-700 ring-1 ring-inset ring-rose-200 rounded-md hover:bg-rose-50 transition-colors disabled:opacity-50">
+                    Xóa
+                  </button>
+                )}
               </div>
             );
           })}
         </div>
       )}
-    </div>
+    </DataPanel>
   );
 }
+
+// ─── Tab: Tổng quan (info + finance + báo-giá folded in) ─────────
 
 function TabTongQuan({
   customer,
   customerId,
+  canManageMaps,
 }: {
   customer: CustomerDetail;
   customerId: string;
+  canManageMaps: boolean;
 }) {
-  const { data: timelineData, isLoading: timelineLoading } = useQuery<{
-    data: { events: TimelineEvent[] };
-  }>({
-    queryKey: ['crm-timeline', customerId],
-    queryFn: () => api.get(`/api/v1/crm/customers/${customerId}/timeline?limit=10`),
-    retry: 1,
-  });
-
-  const events = (timelineData?.data?.events ?? []).slice(0, 5);
-  const interactions = (customer.interactions ?? []).slice(0, 3);
-
   return (
-    <div className="space-y-6">
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+    <div className="space-y-4">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         {/* Quick info */}
-        <div className="bg-white rounded-lg border border-slate-200 p-5">
-          <h3 className="text-sm font-semibold text-slate-700 mb-4">Thông tin nhanh</h3>
-          <dl className="space-y-3">
-            {customer.address && (
-              <div className="flex gap-3">
-                <dt className="text-xs text-slate-400 w-24 flex-shrink-0 pt-0.5">Địa chỉ</dt>
-                <dd className="text-sm text-slate-700">{customer.address}</dd>
-              </div>
-            )}
+        <DataPanel title="Thông tin nhanh">
+          <dl className="space-y-2.5">
+            {customer.address && <InfoRow label="Địa chỉ" value={customer.address} />}
             {customer.phone && (
-              <div className="flex gap-3">
-                <dt className="text-xs text-slate-400 w-24 flex-shrink-0">Điện thoại</dt>
-                <dd className="text-sm text-slate-700">
-                  <a href={`tel:${customer.phone}`} className="text-brand-600 hover:underline">
-                    {customer.phone}
-                  </a>
-                </dd>
-              </div>
+              <InfoRow label="Điện thoại" value={
+                <a href={`tel:${customer.phone}`} className="text-brand-600 hover:underline">{customer.phone}</a>
+              } />
             )}
             {customer.email && (
-              <div className="flex gap-3">
-                <dt className="text-xs text-slate-400 w-24 flex-shrink-0">Email</dt>
-                <dd className="text-sm text-slate-700">
-                  <a href={`mailto:${customer.email}`} className="text-brand-600 hover:underline">
-                    {customer.email}
-                  </a>
-                </dd>
-              </div>
+              <InfoRow label="Email" value={
+                <a href={`mailto:${customer.email}`} className="text-brand-600 hover:underline">{customer.email}</a>
+              } />
             )}
-            {customer.business_system && (
-              <div className="flex gap-3">
-                <dt className="text-xs text-slate-400 w-24 flex-shrink-0">Hệ thống</dt>
-                <dd className="text-sm text-slate-700">{customer.business_system}</dd>
-              </div>
-            )}
-            {customer.last_order_date && (
-              <div className="flex gap-3">
-                <dt className="text-xs text-slate-400 w-24 flex-shrink-0">Đơn gần nhất</dt>
-                <dd className="text-sm text-slate-700">{formatDate(customer.last_order_date)}</dd>
-              </div>
+            {customer.business_system && <InfoRow label="Hệ thống" value={customer.business_system} />}
+            {customer.owner_name && <InfoRow label="Phụ trách" value={customer.owner_name} />}
+            {customer.last_order_date && <InfoRow label="Đơn gần nhất" value={formatDate(customer.last_order_date)} />}
+            {customer.notes && <InfoRow label="Ghi chú" value={customer.notes} />}
+            {!customer.address && !customer.phone && !customer.email && (
+              <p className="text-[12px] text-slate-400">Chưa có thông tin chi tiết. Bấm "Sửa" để bổ sung.</p>
             )}
           </dl>
-        </div>
+        </DataPanel>
 
-        {/* Recent interactions */}
-        <div className="bg-white rounded-lg border border-slate-200 p-5">
-          <h3 className="text-sm font-semibold text-slate-700 mb-4">Tương tác gần đây</h3>
-          {interactions.length === 0 ? (
-            <p className="text-sm text-slate-400 py-6 text-center">Chưa có tương tác nào</p>
-          ) : (
-            <div className="space-y-3">
-              {interactions.map((item) => (
-                <div
-                  key={item.id}
-                  className="flex items-start gap-3 py-2 border-b border-slate-100 last:border-0"
-                >
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium text-slate-800 truncate">{item.subject}</p>
-                    <div className="flex items-center gap-2 mt-0.5">
-                      <span className="text-xs text-slate-400">
-                        {INTERACTION_TYPE_LABEL[item.interaction_type] ?? item.interaction_type}
-                      </span>
-                      <span className="text-xs text-slate-300">·</span>
-                      <span className="text-xs text-slate-400">
-                        {formatRelativeTime(item.created_at)}
-                      </span>
-                    </div>
-                    {item.notes && (
-                      <p className="text-xs text-slate-500 mt-1 line-clamp-1">{item.notes}</p>
-                    )}
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
+        {/* Báo giá summary (folded from old Báo-giá tab) */}
+        <BaoGiaSummaryPanel customerId={customerId} />
       </div>
 
-      <ExternalMapsCard customerId={customerId} />
+      {/* Tài chính (folded from old Tài-chính tab) */}
+      <TaiChinhPanel customerId={customerId} />
 
-      {/* Timeline */}
-      <div className="bg-white rounded-lg border border-slate-200 p-5">
-        <h3 className="text-sm font-semibold text-slate-700 mb-4">
-          Hoạt động gần đây (5 sự kiện)
-        </h3>
-        {timelineLoading ? (
-          <div className="space-y-3">
-            {Array.from({ length: 4 }).map((_, i) => (
-              <div key={i} className="flex gap-3 animate-pulse">
-                <div className="h-2 w-2 rounded-full bg-slate-200 mt-2 flex-shrink-0" />
-                <div className="flex-1 space-y-1.5">
-                  <div className="h-4 w-56 bg-slate-200 rounded" />
-                  <div className="h-3 w-32 bg-slate-100 rounded" />
-                </div>
-              </div>
-            ))}
-          </div>
-        ) : events.length === 0 ? (
-          <p className="text-sm text-slate-400 py-6 text-center">Chưa có hoạt động nào</p>
-        ) : (
-          <div className="space-y-0">
-            {events.map((event, idx) => (
-              <div key={idx} className="flex gap-4">
-                <div className="flex flex-col items-center">
-                  <div className="h-2 w-2 rounded-full bg-brand-500 mt-2 flex-shrink-0" />
-                  {idx < events.length - 1 && (
-                    <div className="w-px flex-1 bg-slate-200 mt-1 mb-0 min-h-[16px]" />
-                  )}
-                </div>
-                <div className="flex-1 pb-3">
-                  <div className="flex items-start justify-between gap-2">
-                    <p className="text-sm text-slate-800">{event.title}</p>
-                    <span className="text-xs text-slate-400 flex-shrink-0">
-                      {formatDate(event.date)}
-                    </span>
-                  </div>
-                  {event.details && (
-                    <p className="text-xs text-slate-500 mt-0.5">{event.details}</p>
-                  )}
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
+      <ExternalMapsCard customerId={customerId} canManage={canManageMaps} />
     </div>
   );
 }
 
-// ─── Tab 2: Đơn hàng ─────────────────────────────────────────────
+function BaoGiaSummaryPanel({ customerId }: { customerId: string }) {
+  const [page, setPage] = useState(1);
+  const limit = 15;
+
+  const { data, isLoading } = useQuery<{
+    data: { stats: QuoteStats; rfqs: RFQItem[]; total: number };
+  }>({
+    queryKey: ['crm-quotes', customerId, page],
+    queryFn: () => api.get(`/api/v1/crm/customers/${customerId}/quotes?page=${page}&limit=${limit}`),
+    retry: 1,
+  });
+
+  const stats = data?.data?.stats;
+  const rfqs = data?.data?.rfqs ?? [];
+  const total = data?.data?.total ?? 0;
+  const winRate = Number(stats?.win_rate ?? 0);
+
+  return (
+    <DataPanel
+      title="Báo giá"
+      eyebrow="RFQ · tỷ lệ trúng"
+      flush
+      actions={stats ? (
+        <div className="flex items-center gap-3 text-[12px]">
+          <StatusPill label={`Trúng ${stats.won}`} tone="emerald" variant="bare" size="sm" />
+          <StatusPill label={`Thua ${stats.lost}`} tone="rose" variant="bare" size="sm" />
+          <StatusPill label={`Chờ ${stats.pending}`} tone="amber" variant="bare" size="sm" />
+          <span className="font-semibold tabular-nums text-slate-900">{winRate.toFixed(0)}%</span>
+        </div>
+      ) : null}
+    >
+      {isLoading ? (
+        <TableSkeleton cols={4} />
+      ) : rfqs.length === 0 ? (
+        <EmptyLine>Chưa có báo giá nào cho khách hàng này.</EmptyLine>
+      ) : (
+        <>
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead className="bg-slate-50/60">
+                <tr><Th>Số RFQ</Th><Th>BQMS</Th><Th>Kết quả</Th><Th>Ngày hỏi</Th></tr>
+              </thead>
+              <tbody className={DEPTH.divider}>
+                {rfqs.map((rfq) => (
+                  <tr key={rfq.id} className={cn(DEPTH.rowHover, 'transition-colors')}>
+                    <td className={cn(ROW_PADDING.compact, TYPE.code, 'whitespace-nowrap')}>{rfq.rfq_number}</td>
+                    <td className={cn(ROW_PADDING.compact, 'font-mono text-[12px] text-slate-500 whitespace-nowrap')}>{rfq.bqms_code ?? '—'}</td>
+                    <td className={ROW_PADDING.compact}>{resultBadge(rfq.result)}</td>
+                    <td className={cn(ROW_PADDING.compact, 'text-[12px] text-slate-500 whitespace-nowrap')}>{formatDate(rfq.inquiry_date)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          {total > limit && (
+            <div className="border-t border-slate-100 px-3 py-2">
+              <Pagination page={page} pageSize={limit} total={total} onPageChange={setPage} />
+            </div>
+          )}
+        </>
+      )}
+    </DataPanel>
+  );
+}
+
+function TaiChinhPanel({ customerId }: { customerId: string }) {
+  const { data, isLoading } = useQuery<{ data: FinancialData }>({
+    queryKey: ['crm-financials', customerId],
+    queryFn: () => api.get(`/api/v1/crm/customers/${customerId}/financials`),
+    retry: 1,
+  });
+
+  const fin = data?.data;
+
+  if (isLoading) return <DataPanel title="Tài chính"><TableSkeleton cols={3} /></DataPanel>;
+  if (!fin) return <DataPanel title="Tài chính"><EmptyLine>Không tải được dữ liệu tài chính.</EmptyLine></DataPanel>;
+
+  const aging = fin.ar_aging;
+  const totalAging =
+    (aging?.current_amount ?? 0) + (aging?.days_1_30 ?? 0) +
+    (aging?.days_31_60 ?? 0) + (aging?.days_over_60 ?? 0) || 1;
+
+  const agingBuckets: { label: string; value: number; tone: BadgeTone }[] = [
+    { label: 'Hiện tại', value: aging?.current_amount ?? 0, tone: 'emerald' },
+    { label: '1–30 ngày', value: aging?.days_1_30 ?? 0, tone: 'amber' },
+    { label: '31–60 ngày', value: aging?.days_31_60 ?? 0, tone: 'amber' },
+    { label: '>60 ngày', value: aging?.days_over_60 ?? 0, tone: 'rose' },
+  ];
+
+  return (
+    <DataPanel
+      title="Tài chính"
+      eyebrow="Doanh thu · công nợ"
+      actions={
+        <span className="text-[13px] font-semibold tabular-nums text-slate-800">
+          Công nợ: {fmtVnd(aging?.total_outstanding)}
+        </span>
+      }
+    >
+      <div className="grid grid-cols-1 lg:grid-cols-[1fr_1px_1fr] gap-4">
+        {/* AR aging bars */}
+        <div className="space-y-2.5">
+          <div className={cn(TYPE.eyebrow, 'mb-1')}>Phân tích công nợ (AR Aging)</div>
+          {agingBuckets.map((bucket) => {
+            const pct = (bucket.value / totalAging) * 100;
+            return (
+              <div key={bucket.label}>
+                <div className="flex items-center justify-between mb-1">
+                  <span className="text-[12px] text-slate-500">{bucket.label}</span>
+                  <span className={cn('text-[12px] font-mono font-medium tabular-nums', BADGE[bucket.tone].text)}>
+                    {fmtVnd(bucket.value)}
+                  </span>
+                </div>
+                <div className="h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                  <div className={cn('h-full rounded-full transition-all', BADGE[bucket.tone].dot)}
+                    style={{ width: `${Math.max(pct, 0)}%` }} />
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        <div className="hidden lg:block bg-slate-100" />
+
+        {/* Revenue + payments */}
+        <div className="space-y-3">
+          <div className="grid grid-cols-2 gap-3">
+            <MiniStat label="Tổng doanh thu" value={fmtVnd(fin.revenue?.total_revenue)} tone="emerald" sub={`${fin.revenue?.total_pos ?? 0} PO`} />
+            <MiniStat label="Tháng này" value={fmtVnd(fin.revenue?.revenue_this_month)} tone="slate" />
+          </div>
+          <div>
+            <div className={cn(TYPE.eyebrow, 'mb-1')}>Thanh toán gần đây</div>
+            {!fin.recent_payments?.length ? (
+              <p className="text-[12px] text-slate-400">Chưa có thanh toán nào.</p>
+            ) : (
+              <table className="w-full">
+                <thead className="bg-slate-50/60"><tr><Th>Ngày</Th><Th>Tham chiếu</Th><Th alignEnd>Số tiền</Th></tr></thead>
+                <tbody className={DEPTH.divider}>
+                  {fin.recent_payments.slice(0, 15).map((p) => (
+                    <tr key={p.id} className={cn(DEPTH.rowHover, 'transition-colors')}>
+                      <td className={cn(ROW_PADDING.compact, 'text-[12px] text-slate-600 whitespace-nowrap')}>{formatDate(p.payment_date)}</td>
+                      <td className={cn(ROW_PADDING.compact, 'font-mono text-[12px] text-slate-500')}>{p.reference ?? '—'}</td>
+                      <td className={cn(ROW_PADDING.compact, 'font-mono text-[12px] font-semibold text-emerald-700 text-right whitespace-nowrap')}>{fmtVnd(p.amount)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+        </div>
+      </div>
+    </DataPanel>
+  );
+}
+
+// ─── Tab: 📁 Hồ sơ → see ../_components/HoSoTab.tsx (Quote Hub D4-6) ──
+
+// ─── Tab: Đơn hàng (PO + deliveries, dense + paged) ──────────────
 
 function TabDonHang({ customerId }: { customerId: string }) {
   const [page, setPage] = useState(1);
-  const limit = 5;
+  const limit = 15;
 
   const { data, isLoading } = useQuery<{
-    data: {
-      pos: POItem[];
-      total_pos: number;
-      deliveries: DeliveryItem[];
-      total_deliveries: number;
-    };
+    data: { pos: POItem[]; total_pos: number; deliveries: DeliveryItem[]; total_deliveries: number };
   }>({
     queryKey: ['crm-orders', customerId, page],
-    queryFn: () =>
-      api.get(`/api/v1/crm/customers/${customerId}/orders?page=${page}&limit=${limit}`),
+    queryFn: () => api.get(`/api/v1/crm/customers/${customerId}/orders?page=${page}&limit=${limit}`),
     retry: 1,
   });
 
@@ -1195,679 +1156,637 @@ function TabDonHang({ customerId }: { customerId: string }) {
   const totalDeliveries = data?.data?.total_deliveries ?? 0;
 
   return (
-    <div className="space-y-6">
-      {/* PO Table */}
-      <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
-        <div className="px-4 py-3 border-b border-slate-100 flex items-center justify-between">
-          <h3 className="text-sm font-semibold text-slate-700">PO Samsung</h3>
-          <span className="text-xs text-slate-400">{totalPos} đơn hàng</span>
-        </div>
-
-        {isLoading ? (
-          <SkeletonRow rows={5} cols={5} />
-        ) : pos.length === 0 ? (
-          <div className="py-12 text-center text-sm text-slate-400">Chưa có đơn hàng nào</div>
+    <div className="space-y-4">
+      <DataPanel title="PO Samsung" eyebrow={`${totalPos} đơn hàng`} flush>
+        {isLoading ? <TableSkeleton cols={5} /> : pos.length === 0 ? (
+          <EmptyLine>Chưa có đơn hàng nào.</EmptyLine>
         ) : (
           <>
             <div className="overflow-x-auto">
               <table className="w-full">
-                <thead>
-                  <tr className="bg-slate-50/60">
-                    <th className="text-left text-xs font-medium text-slate-400 px-4 py-2.5 whitespace-nowrap">
-                      Số PO
-                    </th>
-                    <th className="text-left text-xs font-medium text-slate-400 px-4 py-2.5 whitespace-nowrap">
-                      Mã BQMS
-                    </th>
-                    <th className="text-left text-xs font-medium text-slate-400 px-4 py-2.5 whitespace-nowrap">
-                      Thông số
-                    </th>
-                    <th className="text-left text-xs font-medium text-slate-400 px-4 py-2.5 whitespace-nowrap">
-                      Ngày PO
-                    </th>
-                    <th className="text-right text-xs font-medium text-slate-400 px-4 py-2.5 whitespace-nowrap">
-                      Giá trị
-                    </th>
-                    <th className="text-left text-xs font-medium text-slate-400 px-4 py-2.5 whitespace-nowrap">
-                      Trạng thái
-                    </th>
-                  </tr>
+                <thead className="bg-slate-50/60">
+                  <tr><Th>Số PO</Th><Th>BQMS</Th><Th>Thông số</Th><Th>Ngày PO</Th><Th alignEnd>Giá trị</Th><Th>Trạng thái</Th></tr>
                 </thead>
-                <tbody className="divide-y divide-slate-100">
+                <tbody className={DEPTH.divider}>
                   {pos.map((po) => (
-                    <tr key={po.id} className="hover:bg-slate-50/50 transition-colors">
-                      <td className="px-4 py-2.5 text-sm font-mono text-slate-800 whitespace-nowrap">
-                        {po.po_number}
-                      </td>
-                      <td className="px-4 py-2.5 text-sm font-mono text-slate-500 whitespace-nowrap">
-                        {po.bqms_code ?? '—'}
-                      </td>
-                      <td className="px-4 py-2.5 text-sm text-slate-600 max-w-[200px] truncate">
-                        {po.spec ?? '—'}
-                      </td>
-                      <td className="px-4 py-2.5 text-sm text-slate-500 whitespace-nowrap">
-                        {formatDate(po.po_date)}
-                      </td>
-                      <td className="px-4 py-2.5 text-sm font-mono font-medium text-emerald-700 text-right whitespace-nowrap">
-                        {fmtVnd(po.amount ?? 0)}
-                      </td>
-                      <td className="px-4 py-2.5 whitespace-nowrap">{statusBadge(po.status)}</td>
+                    <tr key={po.id} className={cn(DEPTH.rowHover, 'transition-colors')}>
+                      <td className={cn(ROW_PADDING.compact, TYPE.code, 'whitespace-nowrap')}>{po.po_number}</td>
+                      <td className={cn(ROW_PADDING.compact, 'font-mono text-[12px] text-slate-500 whitespace-nowrap')}>{po.bqms_code ?? '—'}</td>
+                      <td className={cn(ROW_PADDING.compact, 'text-[12px] text-slate-600 max-w-[220px] truncate')}>{po.spec ?? '—'}</td>
+                      <td className={cn(ROW_PADDING.compact, 'text-[12px] text-slate-500 whitespace-nowrap')}>{formatDate(po.po_date)}</td>
+                      <td className={cn(ROW_PADDING.compact, 'font-mono text-[12px] font-medium text-emerald-700 text-right whitespace-nowrap')}>{fmtVnd(po.amount ?? 0)}</td>
+                      <td className={cn(ROW_PADDING.compact, 'whitespace-nowrap')}>{statusBadge(po.status)}</td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
-            <Pagination
-              page={page}
-              total={totalPos}
-              limit={limit}
-              onChange={(p) => setPage(p)}
-            />
+            {totalPos > limit && (
+              <div className="border-t border-slate-100 px-3 py-2">
+                <Pagination page={page} pageSize={limit} total={totalPos} onPageChange={setPage} />
+              </div>
+            )}
           </>
         )}
-      </div>
+      </DataPanel>
 
-      {/* Deliveries Table */}
-      <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
-        <div className="px-4 py-3 border-b border-slate-100 flex items-center justify-between">
-          <h3 className="text-sm font-semibold text-slate-700">Giao hàng</h3>
-          <span className="text-xs text-slate-400">{totalDeliveries} lô hàng</span>
-        </div>
-
-        {isLoading ? (
-          <SkeletonRow rows={5} cols={4} />
-        ) : deliveries.length === 0 ? (
-          <div className="py-12 text-center text-sm text-slate-400">Chưa có dữ liệu giao hàng</div>
+      <DataPanel title="Giao hàng" eyebrow={`${totalDeliveries} lô hàng`} flush>
+        {isLoading ? <TableSkeleton cols={4} /> : deliveries.length === 0 ? (
+          <EmptyLine>Chưa có dữ liệu giao hàng.</EmptyLine>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full">
-              <thead>
-                <tr className="bg-slate-50/60">
-                  <th className="text-left text-xs font-medium text-slate-400 px-4 py-2.5 whitespace-nowrap">
-                    Số PO
-                  </th>
-                  <th className="text-left text-xs font-medium text-slate-400 px-4 py-2.5 whitespace-nowrap">
-                    Mã BQMS
-                  </th>
-                  <th className="text-left text-xs font-medium text-slate-400 px-4 py-2.5 whitespace-nowrap">
-                    Ngày giao
-                  </th>
-                  <th className="text-right text-xs font-medium text-slate-400 px-4 py-2.5 whitespace-nowrap">
-                    Số lượng
-                  </th>
-                  <th className="text-left text-xs font-medium text-slate-400 px-4 py-2.5 whitespace-nowrap">
-                    Trạng thái
-                  </th>
-                </tr>
+              <thead className="bg-slate-50/60">
+                <tr><Th>Số PO</Th><Th>BQMS</Th><Th>Ngày giao</Th><Th alignEnd>Số lượng</Th><Th>Trạng thái</Th></tr>
               </thead>
-              <tbody className="divide-y divide-slate-100">
+              <tbody className={DEPTH.divider}>
                 {deliveries.map((d) => (
-                  <tr key={d.id} className="hover:bg-slate-50/50 transition-colors">
-                    <td className="px-4 py-2.5 text-sm font-mono text-slate-800 whitespace-nowrap">
-                      {d.po_number}
-                    </td>
-                    <td className="px-4 py-2.5 text-sm font-mono text-slate-500 whitespace-nowrap">
-                      {d.bqms_code ?? '—'}
-                    </td>
-                    <td className="px-4 py-2.5 text-sm text-slate-500 whitespace-nowrap">
-                      {formatDate(d.delivery_date)}
-                    </td>
-                    <td className="px-4 py-2.5 text-sm font-mono text-slate-700 text-right whitespace-nowrap">
-                      {d.quantity ?? '—'}
-                    </td>
-                    <td className="px-4 py-2.5 whitespace-nowrap">{statusBadge(d.status)}</td>
+                  <tr key={d.id} className={cn(DEPTH.rowHover, 'transition-colors')}>
+                    <td className={cn(ROW_PADDING.compact, TYPE.code, 'whitespace-nowrap')}>{d.po_number}</td>
+                    <td className={cn(ROW_PADDING.compact, 'font-mono text-[12px] text-slate-500 whitespace-nowrap')}>{d.bqms_code ?? '—'}</td>
+                    <td className={cn(ROW_PADDING.compact, 'text-[12px] text-slate-500 whitespace-nowrap')}>{formatDate(d.delivery_date)}</td>
+                    <td className={cn(ROW_PADDING.compact, 'font-mono text-[12px] text-slate-700 text-right whitespace-nowrap')}>{d.quantity ?? '—'}</td>
+                    <td className={cn(ROW_PADDING.compact, 'whitespace-nowrap')}>{statusBadge(d.status)}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
         )}
-      </div>
+      </DataPanel>
     </div>
   );
 }
 
-// ─── Tab 3: Tài chính ─────────────────────────────────────────────
-
-function TabTaiChinh({ customerId }: { customerId: string }) {
-  const { data, isLoading } = useQuery<{ data: FinancialData }>({
-    queryKey: ['crm-financials', customerId],
-    queryFn: () => api.get(`/api/v1/crm/customers/${customerId}/financials`),
-    retry: 1,
-  });
-
-  const fin = data?.data;
-
-  if (isLoading) {
-    return (
-      <div className="space-y-6">
-        <SkeletonKpi />
-        <SkeletonRow rows={5} cols={3} />
-      </div>
-    );
-  }
-
-  if (!fin) {
-    return (
-      <div className="py-16 text-center text-sm text-slate-400">Không tải được dữ liệu tài chính</div>
-    );
-  }
-
-  const aging = fin.ar_aging;
-  const totalAging =
-    (aging?.current_amount ?? 0) +
-    (aging?.days_1_30 ?? 0) +
-    (aging?.days_31_60 ?? 0) +
-    (aging?.days_over_60 ?? 0) || 1;
-
-  const agingBuckets = [
-    {
-      label: 'Hiện tại',
-      value: aging?.current_amount ?? 0,
-      barColor: 'bg-emerald-500',
-      textColor: 'text-emerald-700',
-    },
-    {
-      label: '1–30 ngày',
-      value: aging?.days_1_30 ?? 0,
-      barColor: 'bg-amber-400',
-      textColor: 'text-amber-700',
-    },
-    {
-      label: '31–60 ngày',
-      value: aging?.days_31_60 ?? 0,
-      barColor: 'bg-orange-500',
-      textColor: 'text-orange-700',
-    },
-    {
-      label: '>60 ngày',
-      value: aging?.days_over_60 ?? 0,
-      barColor: 'bg-red-500',
-      textColor: 'text-red-700',
-    },
-  ];
-
-  return (
-    <div className="space-y-6">
-      {/* Revenue summary */}
-      <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
-        <KpiCard
-          label="Tổng doanh thu"
-          value={fmtVnd(fin.revenue?.total_revenue)}
-          sub={`${fin.revenue?.total_pos ?? 0} PO`}
-          highlight
-        />
-        <KpiCard
-          label="Doanh thu tháng này"
-          value={fmtVnd(fin.revenue?.revenue_this_month)}
-        />
-        <KpiCard
-          label="Tổng công nợ"
-          value={fmtVnd(aging?.total_outstanding)}
-          warn={(aging?.total_outstanding ?? 0) > 0}
-        />
-      </div>
-
-      {/* AR Aging */}
-      <div className="bg-white rounded-lg border border-slate-200 p-5">
-        <div className="flex items-center justify-between mb-4">
-          <h3 className="text-sm font-semibold text-slate-700">Phân tích công nợ (AR Aging)</h3>
-          <span className="text-sm font-mono font-semibold text-slate-800">
-            Tổng: {fmtVnd(aging?.total_outstanding)}
-          </span>
-        </div>
-        <div className="space-y-3">
-          {agingBuckets.map((bucket) => {
-            const pct = (bucket.value / totalAging) * 100;
-            return (
-              <div key={bucket.label}>
-                <div className="flex items-center justify-between mb-1">
-                  <span className="text-xs text-slate-500">{bucket.label}</span>
-                  <span className={cn('text-xs font-mono font-medium', bucket.textColor)}>
-                    {fmtVnd(bucket.value)}
-                  </span>
-                </div>
-                <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
-                  <div
-                    className={cn('h-full rounded-full transition-all', bucket.barColor)}
-                    style={{ width: `${Math.max(pct, 0)}%` }}
-                  />
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      </div>
-
-      {/* Recent payments */}
-      <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
-        <div className="px-4 py-3 border-b border-slate-100">
-          <h3 className="text-sm font-semibold text-slate-700">Thanh toán gần đây</h3>
-        </div>
-        {!fin.recent_payments?.length ? (
-          <div className="py-10 text-center text-sm text-slate-400">Chưa có thanh toán nào</div>
-        ) : (
-          <table className="w-full">
-            <thead>
-              <tr className="bg-slate-50/60">
-                <th className="text-left text-xs font-medium text-slate-400 px-4 py-2.5">
-                  Ngày thanh toán
-                </th>
-                <th className="text-left text-xs font-medium text-slate-400 px-4 py-2.5">
-                  Tham chiếu
-                </th>
-                <th className="text-right text-xs font-medium text-slate-400 px-4 py-2.5">
-                  Số tiền
-                </th>
-                <th className="text-left text-xs font-medium text-slate-400 px-4 py-2.5">
-                  Ghi chú
-                </th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
-              {fin.recent_payments.slice(0, 5).map((payment) => (
-                <tr key={payment.id} className="hover:bg-slate-50/50 transition-colors">
-                  <td className="px-4 py-2.5 text-sm text-slate-600 whitespace-nowrap">
-                    {formatDate(payment.payment_date)}
-                  </td>
-                  <td className="px-4 py-2.5 text-sm font-mono text-slate-500">
-                    {payment.reference ?? '—'}
-                  </td>
-                  <td className="px-4 py-2.5 text-sm font-mono font-semibold text-emerald-700 text-right whitespace-nowrap">
-                    {fmtVnd(payment.amount)}
-                  </td>
-                  <td className="px-4 py-2.5 text-sm text-slate-400 truncate max-w-[180px]">
-                    {payment.notes ?? '—'}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-      </div>
-    </div>
-  );
-}
-
-// ─── Tab 4: Liên hệ ──────────────────────────────────────────────
+// ─── Tab: Liên hệ ────────────────────────────────────────────────
 
 function TabLienHe({
   customer,
   customerId,
+  onQuickLog,
 }: {
   customer: CustomerDetail;
   customerId: string;
+  onQuickLog: () => void;
 }) {
   const [showContactModal, setShowContactModal] = useState(false);
-  const [showInteractionModal, setShowInteractionModal] = useState(false);
-
   const contacts: ContactItem[] = customer.contacts ?? [];
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-3">
       {showContactModal && (
         <AddContactModal customerId={customerId} onClose={() => setShowContactModal(false)} />
       )}
-      {showInteractionModal && (
-        <AddInteractionModal
-          customerId={customerId}
-          onClose={() => setShowInteractionModal(false)}
-        />
-      )}
 
-      {/* Actions */}
-      <div className="flex items-center justify-between">
-        <p className="text-sm text-slate-500">{contacts.length} người liên hệ</p>
-        <div className="flex gap-2">
-          <button
-            onClick={() => setShowInteractionModal(true)}
-            className="px-3 py-1.5 text-sm text-slate-700 border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors"
-          >
-            Thêm tương tác
-          </button>
-          <button
-            onClick={() => setShowContactModal(true)}
-            className="px-3 py-1.5 bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium rounded-lg transition-colors"
-          >
-            Thêm liên hệ
-          </button>
-        </div>
-      </div>
-
-      {/* Contact cards */}
-      {contacts.length === 0 ? (
-        <div className="bg-white rounded-lg border border-slate-200 py-14 text-center">
-          <p className="text-sm text-slate-400">Chưa có người liên hệ nào</p>
-          <button
-            onClick={() => setShowContactModal(true)}
-            className="mt-3 text-sm text-brand-600 hover:text-brand-700 underline"
-          >
-            Thêm ngay
-          </button>
-        </div>
-      ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-          {contacts.map((contact) => (
-            <div
-              key={contact.id}
-              className="bg-white rounded-lg border border-slate-200 p-4 hover:shadow-sm transition-shadow"
-            >
-              <div className="flex items-start justify-between gap-2 mb-2">
-                <div>
-                  <p className="text-sm font-semibold text-slate-900">{contact.full_name}</p>
-                  {contact.position && (
-                    <p className="text-xs text-slate-500 mt-0.5">{contact.position}</p>
-                  )}
-                  {contact.department && (
-                    <p className="text-xs text-slate-400">{contact.department}</p>
-                  )}
-                </div>
-                <span
-                  className={cn('text-xs flex-shrink-0', lastContactedColor(contact.last_contacted))}
-                >
-                  {lastContactedLabel(contact.last_contacted)}
-                </span>
-              </div>
-
-              <div className="space-y-1 border-t border-slate-100 pt-2 mt-2">
-                {contact.email && (
-                  <p className="text-xs text-slate-600">
-                    <a href={`mailto:${contact.email}`} className="hover:text-brand-600 transition-colors">
-                      {contact.email}
-                    </a>
-                  </p>
-                )}
-                {contact.phone && (
-                  <p className="text-xs text-slate-600">
-                    <a href={`tel:${contact.phone}`} className="hover:text-brand-600 transition-colors">
-                      {contact.phone}
-                    </a>
-                  </p>
-                )}
-                {!contact.email && !contact.phone && (
-                  <p className="text-xs text-slate-400">Chưa có thông tin liên lạc</p>
-                )}
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
+      <DataPanel title="Người liên hệ" eyebrow={`${contacts.length} đầu mối`} flush
+        actions={
+          <div className="flex gap-2">
+            <button onClick={onQuickLog} className={BUTTON.secondary}>Ghi tương tác</button>
+            <button onClick={() => setShowContactModal(true)} className={BUTTON.primary}>
+              <Plus className="h-4 w-4" /> Thêm liên hệ
+            </button>
+          </div>
+        }
+      >
+        {contacts.length === 0 ? (
+          <EmptyLine>
+            Chưa có người liên hệ nào.{' '}
+            <button onClick={() => setShowContactModal(true)} className="text-brand-600 hover:underline">Thêm ngay</button>
+          </EmptyLine>
+        ) : (
+          <table className="w-full">
+            <thead className="bg-slate-50/60">
+              <tr><Th>Họ tên</Th><Th>Chức vụ</Th><Th>Email</Th><Th>Điện thoại</Th><Th alignEnd>Lần cuối</Th></tr>
+            </thead>
+            <tbody className={DEPTH.divider}>
+              {contacts.map((c) => {
+                const last = c.last_contacted_at ?? c.last_contacted;
+                return (
+                  <tr key={c.id} className={cn(DEPTH.rowHover, 'transition-colors')}>
+                    <td className={cn(ROW_PADDING.compact, 'text-[13px] font-semibold text-slate-900 whitespace-nowrap')}>{c.full_name}</td>
+                    <td className={cn(ROW_PADDING.compact, 'text-[12px] text-slate-500 whitespace-nowrap')}>{c.position ?? '—'}</td>
+                    <td className={cn(ROW_PADDING.compact, 'text-[12px]')}>
+                      {c.email ? <a href={`mailto:${c.email}`} className="text-slate-600 hover:text-brand-600">{c.email}</a> : <span className="text-slate-300">—</span>}
+                    </td>
+                    <td className={cn(ROW_PADDING.compact, 'text-[12px]')}>
+                      {c.phone ? <a href={`tel:${c.phone}`} className="text-slate-600 hover:text-brand-600">{c.phone}</a> : <span className="text-slate-300">—</span>}
+                    </td>
+                    <td className={cn(ROW_PADDING.compact, 'text-right whitespace-nowrap')}>
+                      <StatusPill label={lastContactedLabel(last)} tone={recencyTone(last)} variant="bare" size="sm" />
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        )}
+      </DataPanel>
     </div>
   );
 }
 
-// ─── Tab 5: Báo giá ──────────────────────────────────────────────
+// ─── Activity Rail (full timeline + inline Ghi nhanh composer) ───
 
-function TabBaoGia({ customerId }: { customerId: string }) {
-  const [page, setPage] = useState(1);
-  const limit = 5;
+interface InlineLogForm { interaction_type: string; subject: string }
 
-  const { data, isLoading } = useQuery<{
-    data: { stats: QuoteStats; rfqs: RFQItem[]; total: number };
+function ActivityRail({
+  customerId,
+  collapsed,
+  onToggleCollapse,
+  onOpenFullLog,
+}: {
+  customerId: string;
+  collapsed: boolean;
+  onToggleCollapse: () => void;
+  onOpenFullLog: () => void;
+}) {
+  const queryClient = useQueryClient();
+  const PAGE = 15;
+  const [limit, setLimit] = useState(PAGE);
+  const [composer, setComposer] = useState<InlineLogForm>({ interaction_type: 'call', subject: '' });
+
+  const { data, isLoading, isFetching } = useQuery<{
+    data: { events: TimelineEvent[]; total: number; has_more: boolean };
   }>({
-    queryKey: ['crm-quotes', customerId, page],
-    queryFn: () =>
-      api.get(`/api/v1/crm/customers/${customerId}/quotes?page=${page}&limit=${limit}`),
+    queryKey: ['crm-timeline', customerId, limit],
+    queryFn: () => api.get(`/api/v1/crm/customers/${customerId}/timeline?limit=${limit}&offset=0`),
     retry: 1,
   });
 
-  const stats = data?.data?.stats;
-  const rfqs = data?.data?.rfqs ?? [];
-  const total = data?.data?.total ?? 0;
-  const winRateValue = Number(stats?.win_rate ?? 0);
+  const events = data?.data?.events ?? [];
+  const total = data?.data?.total ?? events.length;
+  const hasMore = data?.data?.has_more ?? false;
+
+  const quickLog = useMutation({
+    mutationFn: (payload: { interaction_type: string; subject: string; customer_id: number }) =>
+      api.post('/api/v1/crm/interactions', payload),
+    onSuccess: () => {
+      toast.success('Đã ghi nhanh');
+      setComposer((p) => ({ ...p, subject: '' }));
+      queryClient.invalidateQueries({ queryKey: ['crm-timeline', customerId] });
+      queryClient.invalidateQueries({ queryKey: ['crm-customer', customerId] });
+    },
+    onError: () => toast.error('Không thể ghi nhanh'),
+  });
+
+  const submitComposer = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!composer.subject.trim()) return;
+    quickLog.mutate({ ...composer, subject: composer.subject.trim(), customer_id: Number(customerId) });
+  };
+
+  if (collapsed) {
+    return (
+      <aside className="flex w-11 flex-col items-center gap-2 bg-white ring-1 ring-slate-200 rounded-lg py-2">
+        <button onClick={onToggleCollapse} aria-label="Mở thanh hoạt động" title="Hoạt động"
+          className={cn(BUTTON.icon)}>
+          <PanelRightOpen className="h-4.5 w-4.5" />
+        </button>
+        <div className="rotate-180 [writing-mode:vertical-rl] text-[11px] font-semibold uppercase tracking-wider text-slate-400 select-none">
+          Hoạt động
+        </div>
+        <span className="mt-1 inline-flex min-w-[20px] items-center justify-center rounded-full bg-slate-100 px-1 text-[11px] font-bold tabular-nums text-slate-600">
+          {total}
+        </span>
+      </aside>
+    );
+  }
 
   return (
-    <div className="space-y-6">
-      {/* Stats */}
-      {stats && (
-        <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
-          <KpiCard
-            label="Tổng RFQ"
-            value={String(stats.total_rfqs)}
-          />
-          <KpiCard
-            label="Trúng thầu"
-            value={String(stats.won)}
-            highlight
-          />
-          <KpiCard
-            label="Thua thầu"
-            value={String(stats.lost)}
-            warn={stats.lost > 0}
-          />
-          <KpiCard
-            label="Đang chờ"
-            value={String(stats.pending)}
-          />
-          <KpiCard
-            label="Tỷ lệ trúng"
-            value={`${Number(winRateValue ?? 0).toFixed(1)}%`}
-            highlight={Number(winRateValue ?? 0) >= 50}
-          />
+    <TrackingRail
+      title={
+        <div className="flex items-center justify-between gap-2">
+          <span>Hoạt động · {total}</span>
+          <button onClick={onToggleCollapse} aria-label="Thu gọn thanh hoạt động" title="Thu gọn"
+            className="text-slate-400 hover:text-slate-700 transition-colors">
+            <PanelRightClose className="h-4 w-4" />
+          </button>
         </div>
+      }
+      className="rounded-lg ring-1 ring-slate-200 max-h-[calc(100vh-7rem)] sticky top-[4.75rem]"
+    >
+      {/* Inline Ghi nhanh composer */}
+      <RailCard title="Ghi nhanh" actions={
+        <button onClick={onOpenFullLog} className="text-[11px] font-semibold text-brand-700 hover:underline">Chi tiết</button>
+      }>
+        <form onSubmit={submitComposer} className="space-y-2">
+          <div className="flex gap-1.5">
+            <select value={composer.interaction_type}
+              onChange={(e) => setComposer((p) => ({ ...p, interaction_type: e.target.value }))}
+              className="rounded-md ring-1 ring-inset ring-slate-200 bg-white px-2 py-1.5 text-[12px] text-slate-700 focus:outline-none focus:ring-2 focus:ring-brand-400">
+              {INTERACTION_TYPES.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
+            </select>
+          </div>
+          <div className="flex gap-1.5">
+            <input value={composer.subject}
+              onChange={(e) => setComposer((p) => ({ ...p, subject: e.target.value }))}
+              placeholder="Nội dung liên hệ…"
+              className="min-w-0 flex-1 rounded-md ring-1 ring-inset ring-slate-200 px-2 py-1.5 text-[12px] focus:outline-none focus:ring-2 focus:ring-brand-400" />
+            <button type="submit" disabled={quickLog.isPending || !composer.subject.trim()}
+              className={cn(BUTTON.primary, 'px-2.5 py-1.5')} aria-label="Ghi">
+              <Send className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        </form>
+      </RailCard>
+
+      {/* Full timeline */}
+      {isLoading ? (
+        <div className="space-y-3 px-1 py-1">
+          {Array.from({ length: 6 }).map((_, i) => (
+            <div key={i} className="flex gap-2">
+              <div className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-slate-200" />
+              <div className="flex-1 space-y-1">
+                <SkeletonBlock className="h-3 w-3/4" />
+                <SkeletonBlock className="h-2.5 w-1/3" />
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : events.length === 0 ? (
+        <p className="px-1 py-2 text-[12px] text-slate-400">Chưa có hoạt động nào.</p>
+      ) : (
+        <ol className="space-y-0 px-0.5">
+          {events.map((ev, idx) => {
+            const date = ev.date ?? ev.created_at;
+            const detail = ev.details ?? ev.detail;
+            const tone = eventTone(ev.event_type ?? ev.type);
+            return (
+              <li key={idx} className="flex gap-2.5">
+                <div className="flex flex-col items-center">
+                  <span className={cn('mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full', BADGE[tone].dot)} />
+                  {idx < events.length - 1 && <span className="w-px flex-1 bg-slate-200 my-0.5 min-h-[12px]" />}
+                </div>
+                <div className="flex-1 pb-2.5 min-w-0">
+                  <div className="flex items-start justify-between gap-2">
+                    <p className="text-[12px] text-slate-800 leading-snug">{ev.title}</p>
+                    <span className="shrink-0 text-[11px] text-slate-400 tabular-nums">{formatRelativeTime(date)}</span>
+                  </div>
+                  {detail && <p className="text-[11px] text-slate-400 mt-0.5 truncate">{detail}</p>}
+                </div>
+              </li>
+            );
+          })}
+        </ol>
       )}
 
-      {/* RFQ table */}
-      <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
-        <div className="px-4 py-3 border-b border-slate-100 flex items-center justify-between">
-          <h3 className="text-sm font-semibold text-slate-700">Danh sách báo giá</h3>
-          <span className="text-xs text-slate-400">{total} RFQ</span>
-        </div>
+      {hasMore && (
+        <button onClick={() => setLimit((l) => l + PAGE)} disabled={isFetching}
+          className={cn(BUTTON.ghost, 'w-full justify-center text-[12px]')}>
+          {isFetching ? 'Đang tải…' : 'Xem thêm'}
+        </button>
+      )}
+    </TrackingRail>
+  );
+}
 
-        {isLoading ? (
-          <SkeletonRow rows={5} cols={5} />
-        ) : rfqs.length === 0 ? (
-          <div className="py-12 text-center text-sm text-slate-400">Chưa có báo giá nào</div>
-        ) : (
-          <>
-            <div className="overflow-x-auto">
-              <table className="w-full">
-                <thead>
-                  <tr className="bg-slate-50/60">
-                    <th className="text-left text-xs font-medium text-slate-400 px-4 py-2.5 whitespace-nowrap">
-                      Số RFQ
-                    </th>
-                    <th className="text-left text-xs font-medium text-slate-400 px-4 py-2.5 whitespace-nowrap">
-                      Mã BQMS
-                    </th>
-                    <th className="text-left text-xs font-medium text-slate-400 px-4 py-2.5 whitespace-nowrap">
-                      Thông số
-                    </th>
-                    <th className="text-left text-xs font-medium text-slate-400 px-4 py-2.5 whitespace-nowrap">
-                      Kết quả
-                    </th>
-                    <th className="text-left text-xs font-medium text-slate-400 px-4 py-2.5 whitespace-nowrap">
-                      Ngày hỏi giá
-                    </th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {rfqs.map((rfq) => (
-                    <tr key={rfq.id} className="hover:bg-slate-50/50 transition-colors">
-                      <td className="px-4 py-2.5 text-sm font-mono text-slate-800 whitespace-nowrap">
-                        {rfq.rfq_number}
-                      </td>
-                      <td className="px-4 py-2.5 text-sm font-mono text-slate-500 whitespace-nowrap">
-                        {rfq.bqms_code ?? '—'}
-                      </td>
-                      <td className="px-4 py-2.5 text-sm text-slate-600 max-w-[200px] truncate">
-                        {rfq.spec ?? '—'}
-                      </td>
-                      <td className="px-4 py-2.5">{resultBadge(rfq.result)}</td>
-                      <td className="px-4 py-2.5 text-sm text-slate-500 whitespace-nowrap">
-                        {formatDate(rfq.inquiry_date)}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+function eventTone(type?: string): BadgeTone {
+  switch (type) {
+    case 'order': return 'emerald';
+    case 'invoice': return 'sky';
+    case 'interaction': return 'slate';
+    default: return 'slate';
+  }
+}
+
+// ─── Shared small primitives ─────────────────────────────────────
+
+const INPUT_CLS =
+  'w-full rounded-lg ring-1 ring-inset ring-slate-200 px-3 py-2 text-[13px] focus:outline-none focus:ring-2 focus:ring-brand-400';
+
+function Field({ label, required, small, children }: {
+  label: React.ReactNode; required?: boolean; small?: boolean; children: React.ReactNode;
+}) {
+  return (
+    <div>
+      <label className={cn('block mb-1 font-medium text-slate-600', small ? 'text-[11px]' : 'text-[12px]')}>
+        {label}{required && <span className="text-rose-500"> *</span>}
+      </label>
+      {children}
+    </div>
+  );
+}
+
+function InfoRow({ label, value }: { label: string; value: React.ReactNode }) {
+  return (
+    <div className="flex gap-3">
+      <dt className="w-24 shrink-0 pt-0.5 text-[12px] text-slate-400">{label}</dt>
+      <dd className="text-[13px] text-slate-700 min-w-0">{value}</dd>
+    </div>
+  );
+}
+
+function MiniStat({ label, value, tone, sub }: { label: string; value: string; tone: BadgeTone; sub?: string }) {
+  return (
+    <div className={cn('rounded-lg ring-1 ring-slate-200 p-3 border-l-2', BADGE[tone].dot.replace('bg-', 'border-'))}>
+      <p className={cn(TYPE.eyebrow, 'leading-none')}>{label}</p>
+      <p className="mt-1.5 text-[18px] font-bold font-display tabular-nums text-slate-900">{value}</p>
+      {sub && <p className="text-[11px] text-slate-400 mt-0.5">{sub}</p>}
+    </div>
+  );
+}
+
+function ModalShell({ icon, title, subtitle, onClose, children }: {
+  icon: React.ReactNode; title: string; subtitle: string; onClose: () => void; children: React.ReactNode;
+}) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4" onClick={onClose}>
+      <div className={cn('w-full max-w-md overflow-hidden rounded-xl bg-white', ELEVATION.modal)} onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-start justify-between gap-4 border-b border-slate-100 px-6 py-4">
+          <div className="flex items-start gap-3 min-w-0">
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-brand-600">{icon}</div>
+            <div className="min-w-0">
+              <h3 className={TYPE.h2}>{title}</h3>
+              <p className="text-[11px] text-slate-500 mt-0.5">{subtitle}</p>
             </div>
-            <Pagination
-              page={page}
-              total={total}
-              limit={limit}
-              onChange={(p) => setPage(p)}
-            />
-          </>
-        )}
+          </div>
+          <button onClick={onClose} aria-label="Đóng" className={BUTTON.icon}><X className="h-4.5 w-4.5" /></button>
+        </div>
+        {children}
       </div>
+    </div>
+  );
+}
+
+function ErrorLine() {
+  return (
+    <p className="rounded-lg bg-rose-50 ring-1 ring-inset ring-rose-100 px-3 py-2 text-[13px] text-rose-700">
+      Có lỗi xảy ra. Vui lòng thử lại.
+    </p>
+  );
+}
+
+function EmptyState({ title, hint }: { title: string; hint?: string }) {
+  return (
+    <div className="mx-auto max-w-md space-y-3 text-center">
+      <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-lg bg-slate-100">
+        <Building2 className="h-8 w-8 text-slate-400" />
+      </div>
+      <p className={TYPE.h2}>{title}</p>
+      {hint && <p className="text-[13px] text-slate-500">{hint}</p>}
+    </div>
+  );
+}
+
+// ─── Quick-record dropdown (Ghi nhanh ▾) ─────────────────────────
+
+function QuickRecordMenu({ onLogInteraction, onAddContact }: {
+  onLogInteraction: () => void; onAddContact: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  useEffect(() => {
+    if (!open) return;
+    const close = () => setOpen(false);
+    window.addEventListener('click', close);
+    return () => window.removeEventListener('click', close);
+  }, [open]);
+  return (
+    <div className="relative" onClick={(e) => e.stopPropagation()}>
+      <button onClick={() => setOpen((o) => !o)} className={BUTTON.secondary}>
+        Ghi nhanh <ChevronRight className={cn('h-3.5 w-3.5 transition-transform', open ? 'rotate-90' : 'rotate-90 opacity-60')} />
+      </button>
+      {open && (
+        <div className={cn('absolute right-0 z-40 mt-1 w-44 overflow-hidden rounded-lg bg-white ring-1 ring-slate-200', ELEVATION.floating)}>
+          <button onClick={() => { setOpen(false); onLogInteraction(); }}
+            className="flex w-full items-center gap-2 px-3 py-2 text-[13px] text-slate-700 hover:bg-slate-50">
+            <MessageSquare className="h-4 w-4 text-slate-400" /> Ghi tương tác
+          </button>
+          <button onClick={() => { setOpen(false); onAddContact(); }}
+            className="flex w-full items-center gap-2 px-3 py-2 text-[13px] text-slate-700 hover:bg-slate-50">
+            <User2 className="h-4 w-4 text-slate-400" /> Thêm liên hệ
+          </button>
+        </div>
+      )}
     </div>
   );
 }
 
 // ─── Main Page ───────────────────────────────────────────────────
 
-type TabKey = 'tongquan' | 'donhang' | 'taichinh' | 'lienhe' | 'baogía';
+type TabKey = 'tongquan' | 'hoso' | 'donhang' | 'lienhe';
 
-const TABS: { key: TabKey; label: string }[] = [
-  { key: 'tongquan', label: 'Tổng quan' },
-  { key: 'donhang', label: 'Đơn hàng' },
-  { key: 'taichinh', label: 'Tài chính' },
-  { key: 'lienhe', label: 'Liên hệ' },
-  { key: 'baogía', label: 'Báo giá' },
-];
+const RAIL_COLLAPSE_KEY = 'crm-detail-rail-collapsed';
 
 export default function CustomerDetailPage() {
   const params = useParams();
   const router = useRouter();
   const customerId = params.id as string;
-  const [activeTab, setActiveTab] = useState<TabKey>('tongquan');
+  const role = useUserRole();
+  const isManager = MANAGER_ROLES.has(role);
 
-  const { data, isLoading } = useQuery<{ data: CustomerDetailResponse }>({
+  const [activeTab, setActiveTab] = useState<TabKey>('tongquan');
+  const [showEdit, setShowEdit] = useState(false);
+  const [showContact, setShowContact] = useState(false);
+  const [interactionSubject, setInteractionSubject] = useState<string | null>(null); // null = closed
+  const [showQuote, setShowQuote] = useState(false);
+  const [railCollapsed, setRailCollapsed] = useState(false);
+
+  // Persist rail collapse in localStorage.
+  useEffect(() => {
+    try {
+      const v = localStorage.getItem(RAIL_COLLAPSE_KEY);
+      if (v != null) setRailCollapsed(v === '1');
+    } catch { /* ignore */ }
+  }, []);
+  const toggleRail = useCallback(() => {
+    setRailCollapsed((prev) => {
+      const next = !prev;
+      try { localStorage.setItem(RAIL_COLLAPSE_KEY, next ? '1' : '0'); } catch { /* ignore */ }
+      return next;
+    });
+  }, []);
+
+  const { data, isLoading, isFetching } = useQuery<{ data: CustomerDetailResponse }>({
     queryKey: ['crm-customer', customerId],
     queryFn: () => api.get(`/api/v1/crm/customers/${customerId}`),
     retry: 1,
   });
 
   const customerPayload = data?.data;
-  const customer = customerPayload
-    ? {
-        ...customerPayload.customer,
-        contacts: customerPayload.contacts ?? [],
-        interactions: customerPayload.recent_interactions ?? [],
-        ar_summary: customerPayload.ar_summary ?? customerPayload.customer.ar_summary,
-      }
-    : undefined;
+  const customer = useMemo(() => (
+    customerPayload
+      ? {
+          ...customerPayload.customer,
+          contacts: customerPayload.contacts ?? [],
+          interactions: customerPayload.recent_interactions ?? [],
+          ar_summary: customerPayload.ar_summary ?? customerPayload.customer.ar_summary,
+        }
+      : undefined
+  ), [customerPayload]);
 
-  // KPI values derived from customer data
+  // Win-rate is loaded per-customer from the quotes endpoint (LIVE).
+  const { data: quoteData } = useQuery<{ data: { stats: QuoteStats; total: number } }>({
+    queryKey: ['crm-quotes', customerId, 1],
+    queryFn: () => api.get(`/api/v1/crm/customers/${customerId}/quotes?page=1&limit=15`),
+    enabled: !!customerId,
+    retry: 1,
+  });
+  const quoteStats = quoteData?.data?.stats;
+
+  // Counts for tab badges.
+  const { data: ordersData } = useQuery<{ data: { total_pos: number } }>({
+    queryKey: ['crm-orders', customerId, 1],
+    queryFn: () => api.get(`/api/v1/crm/customers/${customerId}/orders?page=1&limit=15`),
+    enabled: !!customerId,
+    retry: 1,
+  });
+
   const arOutstanding = customer?.ar_summary?.outstanding ?? 0;
-  const winRateDisplay = '—'; // loaded per-tab in Báo giá
+  const overdueCount = customer?.ar_summary?.overdue_count ?? 0;
+  const openQuotes = quoteStats?.pending ?? 0;
+  const winRate = Number(quoteStats?.win_rate ?? 0);
+  const hasWinRate = !!quoteStats && (quoteStats.won + quoteStats.lost) > 0;
+
+  const eyebrow = useMemo(() => {
+    if (!customer) return 'Khách hàng';
+    const parts = [
+      customer.customer_code,
+      customer.tax_code ? `MST ${customer.tax_code}` : null,
+      customer.owner_name ?? (customer.owner_id ? null : 'Chưa có phụ trách'),
+    ].filter(Boolean);
+    return parts.length ? parts.join(' · ') : 'Khách hàng';
+  }, [customer]);
+
+  const statItems: StatChip[] = useMemo(() => {
+    if (!customer) return [];
+    return [
+      { label: 'Doanh thu kỳ', value: fmtVnd(customer.total_revenue), tone: 'emerald', emphasizeValue: true, title: 'Tổng doanh thu' },
+      { label: 'PO', value: customer.total_orders, divider: true, tone: 'sky', onClick: () => setActiveTab('donhang') },
+      {
+        label: 'Công nợ',
+        value: fmtVnd(arOutstanding),
+        divider: true,
+        tone: arOutstanding > 0 ? 'rose' : 'slate',
+        pulse: overdueCount > 0,
+        emphasizeValue: arOutstanding > 0,
+        title: overdueCount > 0 ? `${overdueCount} khoản quá hạn` : 'Không có quá hạn',
+      },
+      {
+        label: 'Báo giá mở',
+        value: openQuotes,
+        divider: true,
+        tone: openQuotes > 0 ? 'amber' : 'slate',
+        onClick: () => setActiveTab('hoso'),
+      },
+      {
+        label: 'Tỷ lệ trúng',
+        value: hasWinRate ? `${winRate.toFixed(0)}%` : '—',
+        divider: true,
+        tone: hasWinRate ? (winRate >= 50 ? 'emerald' : 'amber') : 'slate',
+        emphasizeValue: hasWinRate,
+        title: 'Tỷ lệ trúng thầu (LIVE)',
+      },
+    ];
+  }, [customer, arOutstanding, overdueCount, openQuotes, winRate, hasWinRate]);
+
+  const tabs = useMemo(() => [
+    { id: 'tongquan' as TabKey, label: 'Tổng quan' },
+    { id: 'hoso' as TabKey, label: '📁 Hồ sơ', count: (ordersData?.data?.total_pos ?? 0) + (quoteData?.data?.total ?? 0) || undefined },
+    { id: 'donhang' as TabKey, label: 'Đơn hàng', count: ordersData?.data?.total_pos || undefined },
+    { id: 'lienhe' as TabKey, label: 'Liên hệ', count: customer?.contacts?.length || undefined },
+  ], [ordersData, quoteData, customer]);
+
+  const openLog = useCallback((subject?: string) => setInteractionSubject(subject ?? ''), []);
 
   return (
-    <div>
-      {/* Back button */}
-      <button
-        onClick={() => router.push('/crm')}
-        className="inline-flex items-center gap-1.5 text-sm text-slate-500 hover:text-slate-700 mb-4 transition-colors"
-      >
-        <span className="text-base leading-none">&#8592;</span>
-        Quay lại
-      </button>
+    <div className={cn(SHELL.page, '-m-6')}>
+      <PageShellHeader
+        title={customer?.company_name ?? 'Khách hàng'}
+        eyebrow={eyebrow}
+        isFetching={isFetching}
+        leading={
+          <button onClick={() => router.push('/crm')} aria-label="Quay lại"
+            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-slate-500 ring-1 ring-slate-200 bg-white hover:bg-slate-50 hover:text-slate-700 transition-colors">
+            <ChevronLeft className="h-4.5 w-4.5" />
+          </button>
+        }
+        actions={customer && (
+          <>
+            <button onClick={() => setShowEdit(true)} className={BUTTON.secondary}>
+              <Pencil className="h-4 w-4" /> Sửa
+            </button>
+            <button onClick={() => setShowQuote(true)} className={BUTTON.primary}>
+              <Plus className="h-4 w-4" /> Báo giá
+            </button>
+            <QuickRecordMenu onLogInteraction={() => openLog()} onAddContact={() => setShowContact(true)} />
+          </>
+        )}
+      />
 
-      {isLoading ? (
-        <div className="space-y-4 animate-pulse">
-          <div className="h-24 bg-white rounded-lg border border-slate-200" />
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-            {Array.from({ length: 4 }).map((_, i) => (
-              <div key={i} className="h-20 bg-white rounded-lg border border-slate-200" />
-            ))}
-          </div>
-        </div>
-      ) : !customer ? (
-        <div className="flex flex-col items-center justify-center py-16">
-          <p className="text-sm text-slate-400">Không tìm thấy khách hàng</p>
-        </div>
-      ) : (
-        <>
-          {/* Header */}
-          <div className="bg-white rounded-lg shadow-sm border border-slate-200 p-5 mb-4">
-            <div className="flex items-start gap-4">
-              <div className="h-12 w-12 rounded-xl bg-brand-100 flex items-center justify-center flex-shrink-0">
-                <span className="text-xl font-bold text-brand-700">
-                  {customer.company_name.charAt(0).toUpperCase()}
-                </span>
-              </div>
-              <div className="flex-1 min-w-0">
-                <h2 className="text-xl font-bold text-slate-900 leading-tight">
-                  {customer.company_name}
-                </h2>
-                <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-1">
-                  {customer.short_name && (
-                    <span className="text-sm text-slate-500">{customer.short_name}</span>
-                  )}
-                  {customer.customer_code && (
-                    <span className="text-xs font-mono bg-slate-100 text-slate-500 px-2 py-0.5 rounded">
-                      {customer.customer_code}
-                    </span>
-                  )}
-                  {customer.tax_code && (
-                    <span className="text-xs text-slate-400">MST: {customer.tax_code}</span>
-                  )}
-                </div>
-              </div>
+      {customer && <StatStrip items={statItems} sticky />}
+
+      <div className={cn(SHELL.content, 'pt-4 pb-8')}>
+        {isLoading ? (
+          <div className="space-y-4">
+            <SkeletonBlock className="h-11" />
+            <div className="grid grid-cols-1 xl:grid-cols-[1fr_300px] gap-4">
+              <SkeletonBlock className="h-72" />
+              <SkeletonBlock className="h-72" />
             </div>
           </div>
-
-          {/* KPI Cards */}
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-5">
-            <KpiCard
-              label="Doanh thu"
-              value={fmtVnd(customer.total_revenue)}
-              sub={`Đơn gần nhất: ${formatDate(customer.last_order_date)}`}
-              highlight
-            />
-            <KpiCard
-              label="Số PO"
-              value={String(customer.total_orders)}
-              sub="Tổng đơn hàng"
-            />
-            <KpiCard
-              label="Công nợ"
-              value={fmtVnd(arOutstanding)}
-              sub={
-                (customer.ar_summary?.overdue_count ?? 0) > 0
-                  ? `${customer.ar_summary?.overdue_count} khoản quá hạn`
-                  : 'Không có quá hạn'
-              }
-              warn={arOutstanding > 0}
-            />
-            <KpiCard
-              label="Tỷ lệ trúng"
-              value={winRateDisplay}
-              sub="Xem trong tab Báo giá"
-            />
+        ) : !customer ? (
+          <div className="py-16">
+            <EmptyState title="Không tìm thấy khách hàng" hint="Khách hàng có thể đã bị xoá hoặc đường dẫn không đúng." />
           </div>
+        ) : (
+          <>
+            {showEdit && (
+              <EditCustomerSlideOver customer={customer} customerId={customerId}
+                canEditTax={isManager} onClose={() => setShowEdit(false)} />
+            )}
+            {showContact && (
+              <AddContactModal customerId={customerId} onClose={() => setShowContact(false)} />
+            )}
+            {interactionSubject !== null && (
+              <AddInteractionModal customerId={customerId} initialSubject={interactionSubject || undefined}
+                onClose={() => setInteractionSubject(null)} />
+            )}
+            {showQuote && (
+              <QuoteBatchModal
+                initialCustomerId={Number(customerId)}
+                onClose={() => setShowQuote(false)}
+                onCreated={() => setActiveTab('hoso')}
+              />
+            )}
 
-          {/* Tab bar */}
-          <div className="flex border-b border-slate-200 mb-6">
-            {TABS.map((tab) => (
-              <button
-                key={tab.key}
-                onClick={() => setActiveTab(tab.key)}
-                className={cn(
-                  'px-4 py-2.5 text-sm font-medium border-b-2 transition-colors -mb-px',
-                  activeTab === tab.key
-                    ? 'border-brand-600 text-brand-700'
-                    : 'border-transparent text-slate-500 hover:text-slate-700'
+            {/* Tabs */}
+            <div className="mb-4">
+              <CockpitTabs<TabKey>
+                layoutGroup="crm-detail-tabs"
+                value={activeTab}
+                onChange={setActiveTab}
+                tabs={tabs}
+              />
+            </div>
+
+            {/* Split-pane: center tab + collapsible right activity rail */}
+            <div className={cn(
+              'grid gap-4',
+              railCollapsed ? 'xl:grid-cols-[1fr_44px]' : 'xl:grid-cols-[1fr_300px]',
+            )}>
+              <div className="min-w-0">
+                {activeTab === 'tongquan' && (
+                  <TabTongQuan customer={customer} customerId={customerId} canManageMaps={isManager} />
                 )}
-              >
-                {tab.label}
-              </button>
-            ))}
-          </div>
+                {activeTab === 'hoso' && <HoSoTab customerId={Number(customerId)} />}
+                {activeTab === 'donhang' && <TabDonHang customerId={customerId} />}
+                {activeTab === 'lienhe' && (
+                  <TabLienHe customer={customer} customerId={customerId} onQuickLog={() => openLog()} />
+                )}
+              </div>
 
-          {/* Tab content */}
-          {activeTab === 'tongquan' && (
-            <TabTongQuan customer={customer} customerId={customerId} />
-          )}
-          {activeTab === 'donhang' && <TabDonHang customerId={customerId} />}
-          {activeTab === 'taichinh' && <TabTaiChinh customerId={customerId} />}
-          {activeTab === 'lienhe' && (
-            <TabLienHe customer={customer} customerId={customerId} />
-          )}
-          {activeTab === 'baogía' && <TabBaoGia customerId={customerId} />}
-        </>
-      )}
+              <div className="hidden xl:block">
+                <ActivityRail
+                  customerId={customerId}
+                  collapsed={railCollapsed}
+                  onToggleCollapse={toggleRail}
+                  onOpenFullLog={() => openLog()}
+                />
+              </div>
+            </div>
+          </>
+        )}
+      </div>
     </div>
   );
 }

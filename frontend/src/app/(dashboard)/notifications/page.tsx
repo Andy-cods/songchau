@@ -1,39 +1,80 @@
 'use client';
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useRouter } from 'next/navigation';
 import {
   Bell,
   BellOff,
   FileCheck,
+  CheckCircle2,
+  XCircle,
+  Clock,
+  Package,
   Truck,
-  AlertCircle,
-  AtSign,
+  FileText,
+  Boxes,
+  Gavel,
+  Quote,
+  FileSignature,
   CheckCheck,
 } from 'lucide-react';
-import { getNotifications, markAsRead, markAllAsRead } from '@/services/notifications';
+import {
+  getNotifications,
+  markAsRead,
+  markAllAsRead,
+  type NotificationListResult,
+} from '@/services/notifications';
 import { EmptyState } from '@/components/shared/empty-state';
+import { PageHeader } from '@/components/shared/page-header';
+import { Card } from '@/components/shared/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { cn, formatRelativeTime } from '@/lib/utils';
-import type { Notification, NotificationType, PaginatedResponse } from '@/types/models';
+import type { Notification, NotificationType } from '@/types/models';
 
 // ─── Notification type icons ───────────────────────────────────
+// Aligned to the real backend `notification_type` enum values
+// (init_v3.sql + migrations m41 + procurement_v2_004).
 
 const TYPE_ICON: Record<NotificationType, React.ElementType> = {
-  approval_request: FileCheck,
-  approval_result: FileCheck,
-  delivery_update: Truck,
-  system: AlertCircle,
-  mention: AtSign,
+  workflow_request: FileCheck,
+  workflow_approved: CheckCircle2,
+  workflow_rejected: XCircle,
+  deadline_reminder: Clock,
+  stock_alert: Boxes,
+  po_received: Package,
+  bqms_rfq_new: FileText,
+  report_ready: FileText,
+  leave_request: Clock,
+  leave_approved: CheckCircle2,
+  leave_rejected: XCircle,
+  leave_cancelled: XCircle,
+  procurement_award: Gavel,
+  procurement_quote: Quote,
+  procurement_contract: FileSignature,
+  procurement_po: Package,
+  procurement_delivery: Truck,
 };
 
 const TYPE_COLOR: Record<NotificationType, string> = {
-  approval_request: 'bg-amber-50 text-amber-600',
-  approval_result: 'bg-emerald-50 text-emerald-600',
-  delivery_update: 'bg-cyan-50 text-cyan-600',
-  system: 'bg-slate-50 text-slate-600',
-  mention: 'bg-brand-50 text-brand-600',
+  workflow_request: 'bg-amber-50 text-amber-600',
+  workflow_approved: 'bg-emerald-50 text-emerald-600',
+  workflow_rejected: 'bg-rose-50 text-rose-600',
+  deadline_reminder: 'bg-amber-50 text-amber-600',
+  stock_alert: 'bg-rose-50 text-rose-600',
+  po_received: 'bg-cyan-50 text-cyan-600',
+  bqms_rfq_new: 'bg-brand-50 text-brand-600',
+  report_ready: 'bg-slate-50 text-slate-600',
+  leave_request: 'bg-amber-50 text-amber-600',
+  leave_approved: 'bg-emerald-50 text-emerald-600',
+  leave_rejected: 'bg-rose-50 text-rose-600',
+  leave_cancelled: 'bg-slate-50 text-slate-600',
+  procurement_award: 'bg-brand-50 text-brand-600',
+  procurement_quote: 'bg-cyan-50 text-cyan-600',
+  procurement_contract: 'bg-brand-50 text-brand-600',
+  procurement_po: 'bg-cyan-50 text-cyan-600',
+  procurement_delivery: 'bg-emerald-50 text-emerald-600',
 };
 
 // ─── Loading skeleton ──────────────────────────────────────────
@@ -64,6 +105,7 @@ function NotificationItem({
   notification: Notification;
   onMarkRead: (id: string) => void;
 }) {
+  const router = useRouter();
   const Icon = TYPE_ICON[notification.type] || Bell;
   const iconColor = TYPE_COLOR[notification.type] || 'bg-slate-50 text-slate-600';
 
@@ -73,9 +115,8 @@ function NotificationItem({
         if (!notification.is_read) {
           onMarkRead(notification.id);
         }
-        if (notification.link) {
-          window.location.href = notification.link;
-        }
+        // Backend computes `link` (notifications.py _compute_notification_link).
+        router.push(notification.link || '/notifications');
       }}
       className={cn(
         'w-full flex items-start gap-3 p-4 rounded-lg border transition-colors text-left',
@@ -127,7 +168,7 @@ function NotificationItem({
 export default function NotificationsPage() {
   const queryClient = useQueryClient();
 
-  const { data, isLoading } = useQuery<PaginatedResponse<Notification>>({
+  const { data, isLoading } = useQuery<NotificationListResult>({
     queryKey: ['notifications'],
     queryFn: () => getNotifications({ page_size: 50 }),
   });
@@ -147,51 +188,53 @@ export default function NotificationsPage() {
   });
 
   const notifications = data?.items ?? [];
-  const unreadCount = notifications.filter((n) => !n.is_read).length;
+  // Use the authoritative server-side total (a separate COUNT query, independent
+  // of page_size) so the badge stays correct when there are >50 unread and
+  // agrees with the bell. Fall back to the local filter only before data loads.
+  const unreadCount =
+    data?.unread_count ?? notifications.filter((n) => !n.is_read).length;
 
   return (
     <div>
       {/* Header */}
-      <div className="flex items-center justify-between mb-6">
-        <div className="flex items-center gap-3">
-          <div>
-            <h2 className="text-xl font-display font-bold text-slate-900">
-              Thông báo
-            </h2>
-            <p className="text-sm text-slate-500 mt-0.5">
-              Cập nhật và thông báo hệ thống
-            </p>
-          </div>
-          {unreadCount > 0 && (
-            <Badge variant="danger">
-              {unreadCount} chưa đọc
-            </Badge>
-          )}
-        </div>
-        {unreadCount > 0 && (
-          <Button
-            variant="ghost"
-            size="sm"
-            loading={markAllMutation.isPending}
-            onClick={() => markAllMutation.mutate()}
-          >
-            <CheckCheck className="h-4 w-4" />
-            Đánh dấu tất cả đã đọc
-          </Button>
-        )}
-      </div>
+      <PageHeader
+        icon={Bell}
+        title={
+          <span className="flex items-center gap-3">
+            Thông báo
+            {unreadCount > 0 && (
+              <Badge variant="danger">{unreadCount} chưa đọc</Badge>
+            )}
+          </span>
+        }
+        subtitle="Cập nhật và thông báo hệ thống"
+        actions={
+          unreadCount > 0 ? (
+            <Button
+              variant="ghost"
+              size="sm"
+              loading={markAllMutation.isPending}
+              onClick={() => markAllMutation.mutate()}
+            >
+              <CheckCheck className="h-4 w-4" />
+              Đánh dấu tất cả đã đọc
+            </Button>
+          ) : undefined
+        }
+        className="mb-6"
+      />
 
       {/* Notification list */}
       {isLoading ? (
         <NotificationSkeleton />
       ) : notifications.length === 0 ? (
-        <div className="bg-white rounded-lg shadow-sm border border-slate-200">
+        <Card padded={false}>
           <EmptyState
             icon={BellOff}
             heading="Không có thông báo"
             description="Bạn sẽ nhận được thông báo khi có cập nhật mới"
           />
-        </div>
+        </Card>
       ) : (
         <div className="space-y-2">
           {notifications.map((notification) => (

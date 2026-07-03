@@ -3,6 +3,7 @@
 import { useState, useCallback, useEffect, useRef, KeyboardEvent } from 'react';
 import { createPortal } from 'react-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import {
   ClipboardList,
@@ -39,19 +40,28 @@ import {
   Pencil,
   RotateCcw,
   Send,
+  Gavel,
+  X,
 } from 'lucide-react';
+import { AnimatePresence, motion } from 'framer-motion';
 import { api } from '@/lib/api';
 import { toast } from 'sonner';
 // Disabled 2026-05-04 with Samsung portal scrape; uncomment when re-enabled.
 // import { SamsungSyncWidget } from '@/components/features/SamsungSyncWidget';
-import { SyncFreshnessChip } from '@/components/shared/sync-freshness-chip';
+// SyncFreshnessChip removed 2026-05-29 per Thang — chip "Đồng bộ N ngày trước" không cần ở /bqms
 import { cn, formatDate } from '@/lib/utils';
 // PR-2 (Thang 2026-05-13): BqmsImageThumb extracted to @/components/bqms-images
 import { BqmsImageThumb } from '@/components/bqms-images/BqmsImageThumb';
 import PushToSecModal from '@/components/bqms/PushToSecModal';
 import PushProgressPopup from '@/components/bqms/PushProgressPopup';
+import { BatchPushSecModal } from '@/components/bqms/BatchPushSecModal';
+// Issue B (Thang 2026-06-19): surface V-round push state in RFQ cell + drawer
+import PushRoundBadge from '@/components/bqms/PushRoundBadge';
+import RoundHistoryTimeline from '@/components/bqms/RoundHistoryTimeline';
 // Phase G (Thang 2026-05-13): Smart Code-Track panel
 import { SmartCodeTrackPanel } from '@/components/bqms-images/SmartCodeTrackPanel';
+import { useIsReadOnly, useUserRole } from '@/hooks/use-permissions';
+import { PushToBiddingModal } from '@/components/sourcing/PushToBiddingModal';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -93,6 +103,27 @@ interface RFQItem {
   created_at: string | null;
   version?: number | null;
   data_source?: string | null;
+  // Round-2 priority (Thang 2026-05-18 — auto-push to top when version≥2 + audit 7d)
+  round2_recent_at?: string | null;
+  is_round2_24h?: boolean;
+  is_round2_priority?: boolean;
+  // Smart quote scenario (Thang 2026-05-18 — TH1/TH2/TH3 classification)
+  scenario?: 'TH1' | 'TH2' | 'TH3';
+  scenario_default_round?: number;   // form-create default (when user clicks "Báo giá")
+  pushable_round?: number;            // PUSH default — highest filled V (Thang 2026-05-20)
+  // Thang 2026-06-04 (BUG B): push-to-SEC status surfaced on row so the
+  // re-push button stays available even if quote_unlocked re-locks after
+  // a later round lands. saved_temp = previously pushed → re-push allowed.
+  bqms_push_status?: string | null;
+  bqms_pushed_round?: number | null;
+  // Thang 2026-06-15 (Batch 2f): ngày đẩy báo giá lên SEC — hiển thị thay cột STT "#".
+  bqms_pushed_at?: string | null;
+  scenario_meta?: {
+    label: string;
+    tooltip: string;
+    badge_color: string;
+    wizard_intro: string;
+  };
   // Per Thang 2026-05-11: pending bidding rows merged into BQMS table.
   is_pending?: boolean;
   staging_id?: number;
@@ -224,7 +255,7 @@ function StatusDot({ item }: { item: RFQItem }) {
   let color = 'bg-slate-300';
   let title = 'Chưa xác định';
   if (item.is_pending) {
-    color = 'bg-violet-500'; title = 'Chờ báo (pending bidding)';
+    color = 'bg-amber-500'; title = 'Chờ báo (pending bidding)';
   } else {
     const r = (item.result ?? '').toLowerCase();
     if (r === 'won')      { color = 'bg-emerald-500'; title = 'Trúng thầu'; }
@@ -245,12 +276,13 @@ function fmtDateShort(iso?: string | null): string | null {
   if (!iso) return null;
   // Strip BQMS "(GMT+07:00) " prefix; keep d/m or full
   const s = iso.replace(/^\(GMT[^)]+\)\s*/, '').trim();
-  const m = s.match(/^(\d{4})-(\d{2})-(\d{2})/) || s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
-  if (!m) return s.slice(0, 8);
-  // Output dd/mm
-  const dd = (m[3] && m[3].length === 4 ? m[2] : m[1]).padStart(2, '0');
-  const mm = (m[3] && m[3].length === 4 ? m[1] : m[2]).padStart(2, '0');
-  return `${dd}/${mm}`;
+  // ISO 8601 (yyyy-mm-dd, incl. TIMESTAMPTZ .isoformat()): year=m[1] month=m[2] day=m[3].
+  const isoM = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (isoM) return `${isoM[3]}/${isoM[2]}`;
+  // Samsung text date is M/D/Y: month=m[1] day=m[2] → output dd/mm.
+  const vnM = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+  if (vnM) return `${vnM[2].padStart(2, '0')}/${vnM[1].padStart(2, '0')}`;
+  return s.slice(0, 8);
 }
 
 function fmtDeadline(s?: string | null): string {
@@ -265,17 +297,90 @@ function fmtDeadline(s?: string | null): string {
   return s.length > 14 ? s.slice(0, 14) : s;
 }
 
-function ddayBadge(s?: string | null) {
-  if (!s) return <span className="text-slate-300">—</span>;
-  // Strip HTML
-  const txt = s.replace(/<[^>]+>/g, '').trim();
-  if (!txt) return <span className="text-slate-300">—</span>;
+/** Parse a deadline string ("(GMT+07:00) 5/12/2026 17:00" M/D/Y, or ISO
+ *  yyyy-mm-dd) into a date-only Date (local midnight). null if unparseable. */
+function parseDeadlineDate(s?: string | null): Date | null {
+  if (!s) return null;
+  const str = s.replace(/^\(GMT[^)]+\)\s*/, '').trim();
+  let yy = 0, mm = 0, dd = 0;
+  const iso = str.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (iso) { yy = +iso[1]; mm = +iso[2]; dd = +iso[3]; }
+  else {
+    const v = str.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/); // Samsung M/D/Y
+    if (!v) return null;
+    mm = +v[1]; dd = +v[2]; yy = +v[3];
+  }
+  if (!yy || !mm || !dd) return null;
+  return new Date(yy, mm - 1, dd);
+}
+
+/** Whole calendar days from today until `deadline` (date-only). 0 = today. */
+function daysUntilDeadline(deadline: Date): number {
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  return Math.round((deadline.getTime() - today.getTime()) / 86400000);
+}
+
+/** Live D-N as plain text (for the detail panel): D-2 / D-1 / D-Day / Closed. */
+function ddayText(deadlineRaw?: string | null, fallback?: string | null): string {
+  const dl = parseDeadlineDate(deadlineRaw);
+  if (dl) {
+    const n = daysUntilDeadline(dl);
+    return n < 0 ? 'Closed' : n === 0 ? 'D-Day' : `D-${n}`;
+  }
+  return (fallback ?? '').replace(/<[^>]+>/g, '') || '—';
+}
+
+/** "Closed" must follow the LIVE deadline, not a stale result enum: closed only
+ *  when the deadline is actually past; if the deadline is unparseable, fall back
+ *  to the result flag. (Thang 2026-06-24: re-opened V2 RFQs kept stale result='closed'.) */
+function isLiveClosed(deadlineRaw?: string | null, result?: string | null): boolean {
+  const dl = parseDeadlineDate(deadlineRaw);
+  if (dl) return daysUntilDeadline(dl) < 0;
+  return (result ?? '').toLowerCase() === 'closed';
+}
+
+const _ddayCls = (n: number) =>
+  n <= 2 ? 'bg-red-100 text-red-700 border-red-200'
+  : n <= 4 ? 'bg-amber-100 text-amber-700 border-amber-200'
+           : 'bg-slate-100 text-slate-600 border-slate-200';
+
+/** D-N countdown badge — computed LIVE from the deadline vs TODAY (Thang
+ *  2026-06-17): D-2 = còn 2 ngày, D-1 = còn 1 ngày, D-Day = hết hạn hôm nay;
+ *  quá hạn (hôm sau) → Closed. Re-evaluates every render so it auto-counts-down
+ *  instead of showing the stale value frozen at scrape time. Falls back to the
+ *  scraped D-N string only when the deadline can't be parsed. */
+function ddayBadge(deadlineRaw?: string | null, result?: string | null, ddayHtmlFallback?: string | null) {
+  const closedBadge = (
+    <span className="inline-flex px-1.5 py-0 text-[11px] font-bold rounded border bg-slate-200 text-slate-700 border-slate-300">
+      Closed
+    </span>
+  );
+  const dl = parseDeadlineDate(deadlineRaw);
+  if (dl) {
+    const n = daysUntilDeadline(dl);
+    if (n < 0) return closedBadge; // quá hạn → đóng (hôm sau D-Day)
+    const label = n === 0 ? 'D-Day' : `D-${n}`;
+    return (
+      <span
+        className={cn('inline-flex px-1.5 py-0 text-[11px] font-bold rounded border', _ddayCls(n))}
+        title={deadlineRaw ?? ''}
+      >
+        {label}
+      </span>
+    );
+  }
+
+  // Deadline unparseable → only now trust the backend-finalized 'closed' flag.
+  if ((result ?? '').toLowerCase() === 'closed') return closedBadge;
+
+  // Fallback: stale scraped D-N string (only when no parseable deadline_dt).
+  if (!ddayHtmlFallback) return <span className="text-slate-500">—</span>;
+  const txt = ddayHtmlFallback.replace(/<[^>]+>/g, '').trim();
+  if (!txt) return <span className="text-slate-500">—</span>;
   const num = parseInt(txt.replace(/[^\d]/g, '') || '99', 10);
-  const cls = num <= 2 ? 'bg-red-100 text-red-700 border-red-200'
-            : num <= 4 ? 'bg-amber-100 text-amber-700 border-amber-200'
-                       : 'bg-slate-100 text-slate-600 border-slate-200';
   return (
-    <span className={cn('inline-flex px-1.5 py-0 text-[10px] font-bold rounded border', cls)}>
+    <span className={cn('inline-flex px-1.5 py-0 text-[11px] font-bold rounded border', _ddayCls(num))}>
       {txt}
     </span>
   );
@@ -423,6 +528,11 @@ function InlineCreateQuotation({ item, pageYear, pageMonth }: { item: RFQItem; p
   const [lookupMonth, setLookupMonth] = useState<number | null>(pageMonth ?? null);
   const [editedPrices, setEditedPrices] = useState<Record<string, string>>({});
   const [previewPdfUrl, setPreviewPdfUrl] = useState<string | null>(null);
+  // TM edit form: per-bqms field overrides + image cache-bust version
+  const [tmEditedFields, setTmEditedFields] = useState<Record<string, { spec?: string; maker?: string; so_luong?: string }>>({});
+  const [tmImageVer, setTmImageVer] = useState<Record<string, number>>({});
+  const [tmImageUploading, setTmImageUploading] = useState<Record<string, boolean>>({});
+  const tmImageInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
 
   // ─── GC-specific state ────────────────────────────────────
   const [gcStep, setGcStep] = useState<'detect' | 'scan' | 'edit' | 'generating' | 'done' | 'error'>('detect');
@@ -554,17 +664,71 @@ function InlineCreateQuotation({ item, pageYear, pageMonth }: { item: RFQItem; p
     setEditedPrices(prev => ({ ...prev, [bqmsCode]: value }));
   };
 
+  const handleTmFieldChange = (bqmsCode: string, field: 'spec' | 'maker' | 'so_luong', value: string) => {
+    setTmEditedFields(prev => ({
+      ...prev,
+      [bqmsCode]: { ...prev[bqmsCode], [field]: value },
+    }));
+  };
+
+  const handleTmImageReplace = async (bqmsCode: string, file: File) => {
+    const rfqNumber = item.rfq_number ?? '';
+    if (!rfqNumber || !bqmsCode) {
+      toast.error('Thiếu RFQ number hoặc mã BQMS');
+      return;
+    }
+    setTmImageUploading(p => ({ ...p, [bqmsCode]: true }));
+    try {
+      const fd = new FormData();
+      fd.append('rfq_number', rfqNumber);
+      fd.append('bqms_code', bqmsCode);
+      fd.append('slot', 'product_photo');
+      fd.append('file', file);
+      await api.upload('/api/v1/bqms/quote-image-override', fd);
+      // Bump version → cache-bust thumbnail
+      setTmImageVer(p => ({ ...p, [bqmsCode]: (p[bqmsCode] ?? 0) + 1 }));
+      toast.success(`Đã đổi ảnh cho ${bqmsCode}`);
+    } catch (err: any) {
+      toast.error(err?.detail ?? 'Đổi ảnh thất bại');
+    } finally {
+      setTmImageUploading(p => ({ ...p, [bqmsCode]: false }));
+    }
+  };
+
+  const handleTmImageReset = async (bqmsCode: string) => {
+    const rfqNumber = item.rfq_number ?? '';
+    if (!rfqNumber || !bqmsCode) return;
+    try {
+      await api.delete(
+        `/api/v1/bqms/quote-image-override?rfq_number=${encodeURIComponent(rfqNumber)}&bqms_code=${encodeURIComponent(bqmsCode)}&slot=product_photo`,
+      );
+      setTmImageVer(p => ({ ...p, [bqmsCode]: (p[bqmsCode] ?? 0) + 1 }));
+      toast.success(`Đã khôi phục ảnh gốc cho ${bqmsCode}`);
+    } catch (err: any) {
+      toast.error(err?.detail ?? 'Khôi phục ảnh thất bại');
+    }
+  };
+
   const handleGenerate = async () => {
     setStep('generating');
     try {
-      // Merge edited prices into items
+      // Merge edited fields + prices into items
       const itemsToSend = lookupItems.length > 0
-        ? lookupItems.map((li: any) => ({
-            ...li,
-            unit_price: editedPrices[li.bqms] !== undefined
-              ? (editedPrices[li.bqms] === '' ? null : Number(editedPrices[li.bqms]))
-              : li.suggested_price ?? null,
-          }))
+        ? lookupItems.map((li: any) => {
+            const code = li.bqms;
+            const edits = tmEditedFields[code] ?? {};
+            return {
+              ...li,
+              spec: edits.spec !== undefined ? edits.spec : li.spec,
+              maker: edits.maker !== undefined ? edits.maker : li.maker,
+              so_luong: edits.so_luong !== undefined && edits.so_luong !== ''
+                ? Number(edits.so_luong)
+                : li.so_luong,
+              unit_price: editedPrices[code] !== undefined
+                ? (editedPrices[code] === '' ? null : Number(editedPrices[code]))
+                : li.suggested_price ?? null,
+            };
+          })
         : [{
             bqms: item.bqms_code ?? '', spec: item.specification ?? '',
             maker: item.maker ?? '', so_luong: item.expected_qty ?? 1,
@@ -615,7 +779,7 @@ function InlineCreateQuotation({ item, pageYear, pageMonth }: { item: RFQItem; p
           Tạo báo giá — {item.rfq_number}
         </h4>
         {step !== 'config' && (
-          <button onClick={() => { setStep('config'); setResult(null); setPreviewPdfUrl(null); setGcStep('detect'); setGcResult(null); setGcSheets([]); setGcLevels([]); setGcEditedPrices({}); }}
+          <button onClick={() => { setStep('config'); setResult(null); setPreviewPdfUrl(null); setGcStep('detect'); setGcResult(null); setGcSheets([]); setGcLevels([]); setGcEditedPrices({}); setTmEditedFields({}); setTmImageVer({}); }}
             className="text-[11px] text-slate-400 hover:text-slate-600">
             Cấu hình lại
           </button>
@@ -739,7 +903,7 @@ function InlineCreateQuotation({ item, pageYear, pageMonth }: { item: RFQItem; p
                     {lv.excel_files?.map((f: string) => (
                       <button key={f}
                         onClick={() => setGcSelectedExcel(`${lv.folder}/${f}`)}
-                        className={`ml-2 px-2 py-0.5 rounded text-[10px] transition-colors ${
+                        className={`ml-2 px-2 py-0.5 rounded text-[11px] transition-colors ${
                           gcSelectedExcel.endsWith(f)
                             ? 'bg-orange-100 text-orange-700 font-bold border border-orange-300'
                             : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
@@ -825,7 +989,7 @@ function InlineCreateQuotation({ item, pageYear, pageMonth }: { item: RFQItem; p
                             {displayNewK != null ? fmtVnd(displayNewK) : '—'}
                           </td>
                           <td className="px-2 py-1 text-center">
-                            <span className={`inline-block px-1.5 py-0.5 rounded text-[10px] font-medium ${
+                            <span className={`inline-block px-1.5 py-0.5 rounded text-[11px] font-medium ${
                               s.status === 'ready' ? 'bg-green-100 text-green-700' :
                               s.status === 'no_price' ? 'bg-amber-100 text-amber-700' :
                               s.status === 'no_code' ? 'bg-red-100 text-red-700' :
@@ -899,7 +1063,7 @@ function InlineCreateQuotation({ item, pageYear, pageMonth }: { item: RFQItem; p
                             </div>
                             <div className="min-w-0">
                               <div className="text-xs font-semibold text-slate-800">{f.name || f.type}</div>
-                              <div className="text-[10px] text-slate-400 font-mono truncate">{f.path || '—'}</div>
+                              <div className="text-[11px] text-slate-400 font-mono truncate">{f.path || '—'}</div>
                             </div>
                           </div>
                           <div className="flex items-center gap-1.5 flex-shrink-0">
@@ -981,53 +1145,155 @@ function InlineCreateQuotation({ item, pageYear, pageMonth }: { item: RFQItem; p
                 </span>
               </div>
 
-              {/* Items table with editable prices */}
-              <div className="overflow-x-auto rounded-lg border border-slate-200 max-h-[300px] overflow-y-auto">
+              {/* TM edit form — image + editable spec/maker/qty/price per item */}
+              <div className="text-[11px] text-slate-500 italic pl-1">
+                Hàng TM: chỉnh sửa thông tin + đổi ảnh trước khi tạo file. Ảnh đổi áp dụng cho cả CAM KẾT và Quotation.
+              </div>
+              <div className="overflow-x-auto rounded-lg border border-slate-200 max-h-[420px] overflow-y-auto">
                 <table className="w-full text-[11px]">
-                  <thead className="bg-slate-50 sticky top-0">
+                  <thead className="bg-slate-50 sticky top-0 z-10">
                     <tr>
+                      <th className="text-center px-2 py-1.5 font-medium text-slate-500">Ảnh</th>
                       <th className="text-left px-2 py-1.5 font-medium text-slate-500">Loại</th>
                       <th className="text-left px-2 py-1.5 font-medium text-slate-500">BQMS Code</th>
-                      <th className="text-left px-2 py-1.5 font-medium text-slate-500">Spec</th>
-                      <th className="text-left px-2 py-1.5 font-medium text-slate-500">Maker</th>
-                      <th className="text-right px-2 py-1.5 font-medium text-slate-500">SL</th>
+                      <th className="text-left px-2 py-1.5 font-medium text-slate-500">Spec (sửa)</th>
+                      <th className="text-left px-2 py-1.5 font-medium text-slate-500">Maker (sửa)</th>
+                      <th className="text-right px-2 py-1.5 font-medium text-slate-500">SL (sửa)</th>
                       <th className="text-right px-2 py-1.5 font-medium text-slate-500">Giá gợi ý</th>
                       <th className="text-right px-2 py-1.5 font-medium text-slate-500">Giá báo (sửa)</th>
                       <th className="text-left px-2 py-1.5 font-medium text-slate-500">KQ</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
-                    {lookupItems.map((li: any, i: number) => (
-                      <tr key={i} className="hover:bg-slate-50/50">
-                        <td className="px-2 py-1">
-                          <span className={`inline-block px-1.5 py-0.5 rounded text-[10px] font-bold ${
-                            li.loai_hang === 'GC' ? 'bg-orange-100 text-orange-700' :
-                            li.loai_hang === 'TM' ? 'bg-blue-100 text-blue-700' :
-                            'bg-slate-100 text-slate-500'
-                          }`}>{li.loai_hang ?? '?'}</span>
-                        </td>
-                        <td className="px-2 py-1 font-mono text-slate-700">{li.bqms ?? '—'}</td>
-                        <td className="px-2 py-1 text-slate-600 max-w-[180px] truncate" title={li.spec}>{li.spec ?? '—'}</td>
-                        <td className="px-2 py-1 text-slate-600">{li.maker ?? '—'}</td>
-                        <td className="px-2 py-1 text-right font-mono">{li.so_luong ?? 0}</td>
-                        <td className="px-2 py-1 text-right font-mono text-emerald-600">
-                          {li.suggested_price ? Number(li.suggested_price).toLocaleString('vi-VN') : '—'}
-                        </td>
-                        <td className="px-2 py-1 text-right">
-                          <input
-                            type="number"
-                            step="0.01"
-                            placeholder={li.suggested_price ? String(li.suggested_price) : '—'}
-                            value={editedPrices[li.bqms] ?? ''}
-                            onChange={(e) => handlePriceChange(li.bqms, e.target.value)}
-                            className="w-24 text-xs text-right font-mono border border-slate-200 rounded px-1.5 py-0.5 outline-none focus:ring-1 focus:ring-brand-500 focus:border-brand-400"
-                          />
-                        </td>
-                        <td className="px-2 py-1">
-                          <ResultBadge result={li.result} />
-                        </td>
-                      </tr>
-                    ))}
+                    {lookupItems.map((li: any, i: number) => {
+                      const code = li.bqms ?? '';
+                      const edits = tmEditedFields[code] ?? {};
+                      const ver = tmImageVer[code] ?? 0;
+                      const uploading = tmImageUploading[code] ?? false;
+                      const imgSrc = code && item.rfq_number
+                        ? withToken(`/api/v1/bqms/rfq/image?bqms_code=${encodeURIComponent(code)}&rfq_number=${encodeURIComponent(item.rfq_number)}&_v=${ver}`)
+                        : null;
+                      return (
+                        <tr key={i} className="hover:bg-slate-50/50">
+                          <td className="px-2 py-1 text-center">
+                            <div className="flex flex-col items-center gap-1">
+                              {imgSrc ? (
+                                <a
+                                  href={imgSrc}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="block w-14 h-14 rounded border border-slate-200 bg-slate-50 overflow-hidden hover:ring-2 hover:ring-brand-400 transition-all"
+                                  title={`Xem ảnh ${code}`}
+                                >
+                                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                                  <img
+                                    key={`${code}-${ver}`}
+                                    src={imgSrc}
+                                    alt={code}
+                                    className="w-full h-full object-cover"
+                                    onError={(e) => {
+                                      (e.currentTarget as HTMLImageElement).style.display = 'none';
+                                      const parent = (e.currentTarget as HTMLImageElement).parentElement;
+                                      if (parent) parent.classList.add('items-center', 'justify-center', 'flex');
+                                      if (parent && !parent.querySelector('.no-img-label')) {
+                                        const lbl = document.createElement('span');
+                                        lbl.className = 'no-img-label text-[11px] text-slate-400';
+                                        lbl.textContent = 'no img';
+                                        parent.appendChild(lbl);
+                                      }
+                                    }}
+                                  />
+                                </a>
+                              ) : (
+                                <div className="w-14 h-14 rounded bg-slate-100 flex items-center justify-center text-[11px] text-slate-500">—</div>
+                              )}
+                              <input
+                                type="file"
+                                accept=".png,.jpg,.jpeg"
+                                className="hidden"
+                                ref={(el) => { tmImageInputRefs.current[code] = el; }}
+                                onChange={(e) => {
+                                  const f = e.target.files?.[0];
+                                  if (f) handleTmImageReplace(code, f);
+                                  e.target.value = '';
+                                }}
+                              />
+                              <div className="flex items-center gap-1">
+                                <button
+                                  type="button"
+                                  disabled={!code || uploading}
+                                  onClick={() => tmImageInputRefs.current[code]?.click()}
+                                  className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[11px] font-medium bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-40"
+                                  title="Tải ảnh thay thế">
+                                  {uploading ? <Loader2 className="h-2.5 w-2.5 animate-spin" /> : <Pencil className="h-2.5 w-2.5" />}
+                                  Đổi
+                                </button>
+                                {ver > 0 && (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleTmImageReset(code)}
+                                    className="inline-flex items-center px-1.5 py-0.5 rounded text-[11px] font-medium bg-slate-200 text-slate-600 hover:bg-slate-300"
+                                    title="Khôi phục ảnh gốc">
+                                    <RotateCcw className="h-2.5 w-2.5" />
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+                          </td>
+                          <td className="px-2 py-1">
+                            <span className={`inline-block px-1.5 py-0.5 rounded text-[11px] font-bold ${
+                              li.loai_hang === 'GC' ? 'bg-orange-100 text-orange-700' :
+                              li.loai_hang === 'TM' ? 'bg-blue-100 text-blue-700' :
+                              'bg-slate-100 text-slate-500'
+                            }`}>{li.loai_hang ?? '?'}</span>
+                          </td>
+                          <td className="px-2 py-1 font-mono text-slate-700">{code || '—'}</td>
+                          <td className="px-2 py-1">
+                            <input
+                              type="text"
+                              value={edits.spec !== undefined ? edits.spec : (li.spec ?? '')}
+                              onChange={(e) => handleTmFieldChange(code, 'spec', e.target.value)}
+                              className="w-44 text-[11px] border border-slate-200 rounded px-1.5 py-0.5 outline-none focus:ring-1 focus:ring-brand-500 focus:border-brand-400"
+                              title={edits.spec !== undefined ? edits.spec : li.spec}
+                            />
+                          </td>
+                          <td className="px-2 py-1">
+                            <input
+                              type="text"
+                              value={edits.maker !== undefined ? edits.maker : (li.maker ?? '')}
+                              onChange={(e) => handleTmFieldChange(code, 'maker', e.target.value)}
+                              className="w-24 text-[11px] border border-slate-200 rounded px-1.5 py-0.5 outline-none focus:ring-1 focus:ring-brand-500 focus:border-brand-400"
+                            />
+                          </td>
+                          <td className="px-2 py-1 text-right">
+                            <input
+                              type="number"
+                              min="1"
+                              step="1"
+                              value={edits.so_luong !== undefined ? edits.so_luong : (li.so_luong ?? '')}
+                              onChange={(e) => handleTmFieldChange(code, 'so_luong', e.target.value)}
+                              className="w-16 text-[11px] text-right font-mono border border-slate-200 rounded px-1.5 py-0.5 outline-none focus:ring-1 focus:ring-brand-500 focus:border-brand-400"
+                            />
+                          </td>
+                          <td className="px-2 py-1 text-right font-mono text-emerald-600">
+                            {li.suggested_price ? Number(li.suggested_price).toLocaleString('vi-VN') : '—'}
+                          </td>
+                          <td className="px-2 py-1 text-right">
+                            <input
+                              type="number"
+                              step="0.01"
+                              placeholder={li.suggested_price ? String(li.suggested_price) : '—'}
+                              value={editedPrices[code] ?? ''}
+                              onChange={(e) => handlePriceChange(code, e.target.value)}
+                              className="w-24 text-xs text-right font-mono border border-slate-200 rounded px-1.5 py-0.5 outline-none focus:ring-1 focus:ring-brand-500 focus:border-brand-400"
+                            />
+                          </td>
+                          <td className="px-2 py-1">
+                            <ResultBadge result={li.result} />
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
@@ -1119,7 +1385,7 @@ function InlineCreateQuotation({ item, pageYear, pageMonth }: { item: RFQItem; p
                         </div>
                         <div className="min-w-0">
                           <div className="text-xs font-semibold text-slate-800">{label} — {format}</div>
-                          <div className="text-[10px] text-slate-400 font-mono truncate">{f.path || '—'}</div>
+                          <div className="text-[11px] text-slate-400 font-mono truncate">{f.path || '—'}</div>
                         </div>
                       </div>
                       <div className="flex items-center gap-1.5 flex-shrink-0">
@@ -1146,8 +1412,8 @@ function InlineCreateQuotation({ item, pageYear, pageMonth }: { item: RFQItem; p
           {/* Inline PDF Preview */}
           {previewPdfUrl && (
             <div className="rounded-lg border border-slate-200 overflow-hidden">
-              <div className="bg-slate-800 px-3 py-2 flex items-center justify-between">
-                <span className="text-xs font-semibold text-white">Xem truoc PDF</span>
+              <div className="bg-slate-100 px-3 py-2 flex items-center justify-between">
+                <span className="text-xs font-semibold text-slate-700">Xem truoc PDF</span>
                 <div className="flex items-center gap-2">
                   <a href={previewPdfUrl} target="_blank" rel="noopener noreferrer"
                     className="text-[11px] text-blue-300 hover:text-blue-100">Mo tab moi</a>
@@ -1166,7 +1432,7 @@ function InlineCreateQuotation({ item, pageYear, pageMonth }: { item: RFQItem; p
 
           {/* Actions */}
           <div className="flex items-center gap-2">
-            <button onClick={() => { setStep('config'); setResult(null); setPreviewPdfUrl(null); setEditedPrices({}); }}
+            <button onClick={() => { setStep('config'); setResult(null); setPreviewPdfUrl(null); setEditedPrices({}); setTmEditedFields({}); setTmImageVer({}); }}
               className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-white border border-slate-200 text-slate-600 hover:bg-slate-50 transition-colors">
               Tao bao gia moi
             </button>
@@ -1232,66 +1498,66 @@ function RowDetailPanel({
           {/* Info grid */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs">
             <div>
-              <span className="text-slate-400 block">RFQ No.</span>
+              <span className="text-slate-500 block">RFQ No.</span>
               <span className="font-mono font-semibold text-brand-700">{item.rfq_number ?? '—'}</span>
             </div>
             <div>
-              <span className="text-slate-400 block">BQMS Code</span>
+              <span className="text-slate-500 block">BQMS Code</span>
               <span className="font-mono text-slate-700">{item.bqms_code ?? '—'}</span>
             </div>
             <div>
-              <span className="text-slate-400 block">Tên hàng / Spec</span>
+              <span className="text-slate-500 block">Tên hàng / Spec</span>
               <span className="text-slate-700 line-clamp-2">{item.specification ?? '—'}</span>
             </div>
             <div>
-              <span className="text-slate-400 block">Maker</span>
+              <span className="text-slate-500 block">Maker</span>
               <span className="text-slate-700">{item.maker ?? '—'}</span>
             </div>
             <div>
-              <span className="text-slate-400 block">Số lượng</span>
+              <span className="text-slate-500 block">Số lượng</span>
               <span className="font-mono text-slate-700">
                 {fmtNum(item.expected_qty)} {item.unit ?? ''}
               </span>
             </div>
             <div>
-              <span className="text-slate-400 block">Giá mua RMB</span>
+              <span className="text-slate-500 block">Giá mua RMB</span>
               <span className="font-mono text-slate-700">{fmtVnd(item.purchase_price_rmb)}</span>
             </div>
             <div>
-              <span className="text-slate-400 block">Giá mua VND</span>
+              <span className="text-slate-500 block">Giá mua VND</span>
               <span className="font-mono text-slate-700">{fmtVnd(item.purchase_price_vnd)}</span>
             </div>
             <div>
-              <span className="text-slate-400 block">Giá AMA</span>
+              <span className="text-slate-500 block">Giá AMA</span>
               <span className="font-mono text-slate-700">{fmtVnd(item.quoted_price_ama)}</span>
             </div>
             <div>
-              <span className="text-slate-400 block">Nhà cung cấp</span>
+              <span className="text-slate-500 block">Nhà cung cấp</span>
               <span className="text-slate-700">{item.supplier_name ?? '—'}</span>
             </div>
             <div>
-              <span className="text-slate-400 block">Người phụ trách</span>
+              <span className="text-slate-500 block">Người phụ trách</span>
               <span className="text-slate-700">{item.person_in_charge_name ?? '—'}</span>
             </div>
             <div>
-              <span className="text-slate-400 block">Ngày inquiry</span>
+              <span className="text-slate-500 block">Ngày inquiry</span>
               <span className="text-slate-700">
                 {item.inquiry_date ? formatDate(item.inquiry_date) : '—'}
               </span>
             </div>
             <div>
-              <span className="text-slate-400 block">Kết quả</span>
+              <span className="text-slate-500 block">Kết quả</span>
               <ResultBadge result={item.result} />
             </div>
             {item.notes && (
               <div className="col-span-2 md:col-span-4">
-                <span className="text-slate-400 block">Ghi chú</span>
+                <span className="text-slate-500 block">Ghi chú</span>
                 <span className="text-slate-700">{item.notes}</span>
               </div>
             )}
             {item.report && (
               <div className="col-span-2 md:col-span-4">
-                <span className="text-slate-400 block">Báo cáo</span>
+                <span className="text-slate-500 block">Báo cáo</span>
                 <span className="text-slate-700">{item.report}</span>
               </div>
             )}
@@ -1368,7 +1634,7 @@ function RowDetailPanel({
                       <div className="px-3 py-2 bg-slate-50 border-b border-slate-100 flex items-center justify-between">
                         <div className="flex items-center gap-3 text-xs">
                           <span className="font-mono font-bold text-brand-700">#{h.id}</span>
-                          <span className={`px-1.5 py-0.5 rounded text-[10px] font-semibold ${
+                          <span className={`px-1.5 py-0.5 rounded text-[11px] font-semibold ${
                             h.status === 'completed' ? 'bg-emerald-100 text-emerald-700' :
                             h.status === 'failed' ? 'bg-red-100 text-red-700' :
                             'bg-slate-100 text-slate-600'
@@ -1394,19 +1660,19 @@ function RowDetailPanel({
                                     <span className="text-xs font-medium text-slate-800">
                                       {isCamKet ? 'CAM KET' : 'QUOTATION'} {isPdf ? '.pdf' : '.xlsx'}
                                     </span>
-                                    <span className="text-[10px] text-slate-400 ml-2">{sizeKB} KB</span>
-                                    <div className="text-[9px] text-slate-400 font-mono truncate">{f.filename}</div>
+                                    <span className="text-[11px] text-slate-400 ml-2">{sizeKB} KB</span>
+                                    <div className="text-[11px] text-slate-400 font-mono truncate">{f.filename}</div>
                                   </div>
                                 </div>
                                 <div className="flex items-center gap-1 flex-shrink-0">
                                   {isPdf && f.preview_url && (
                                     <a href={withToken(f.preview_url)} target="_blank" rel="noopener noreferrer"
-                                      className="inline-flex items-center gap-1 px-2 py-1 rounded bg-red-600 text-white text-[10px] font-medium hover:bg-red-700">
+                                      className="inline-flex items-center gap-1 px-2 py-1 rounded bg-red-600 text-white text-[11px] font-medium hover:bg-red-700">
                                       <Eye className="h-3 w-3" /> Mo PDF
                                     </a>
                                   )}
                                   <a href={withToken(f.download_url)}
-                                    className="inline-flex items-center gap-1 px-2 py-1 rounded bg-brand-600 text-white text-[10px] font-medium hover:bg-brand-700">
+                                    className="inline-flex items-center gap-1 px-2 py-1 rounded bg-brand-600 text-white text-[11px] font-medium hover:bg-brand-700">
                                     <Download className="h-3 w-3" /> Tai ve
                                   </a>
                                 </div>
@@ -1435,10 +1701,20 @@ function MonthGroupHeader({
   summary,
   collapsed,
   onToggle,
+  canPushBidding,
+  pushableIds = [],
+  allChecked = false,
+  someChecked = false,
+  onToggleSelectMonth,
 }: {
   summary: MonthSummary;
   collapsed: boolean;
   onToggle: () => void;
+  canPushBidding?: boolean;
+  pushableIds?: number[];
+  allChecked?: boolean;
+  someChecked?: boolean;
+  onToggleSelectMonth?: (ids: number[], select: boolean) => void;
 }) {
   return (
     <tr
@@ -1447,6 +1723,22 @@ function MonthGroupHeader({
     >
       <td colSpan={15} className="px-4 py-2">
         <div className="flex items-center gap-2">
+          {/* QĐ-3: chọn tất cả mã gửi-được trong tháng — chỉ khi đủ quyền + có
+              mã gửi-được. stopPropagation để click checkbox KHÔNG toggle collapse. */}
+          {canPushBidding && pushableIds.length > 0 && (
+            <input
+              type="checkbox"
+              ref={(el) => {
+                if (el) el.indeterminate = someChecked;
+              }}
+              className="h-4 w-4 shrink-0 rounded border-slate-300 accent-brand-600 cursor-pointer"
+              checked={allChecked}
+              onClick={(e) => e.stopPropagation()}
+              onChange={(e) => onToggleSelectMonth?.(pushableIds, e.target.checked)}
+              aria-label={`Chọn tất cả ${pushableIds.length} mã gửi-được trong ${monthLabel(summary.year, summary.month)}`}
+              title="Chọn / bỏ chọn tất cả mã đang mở (có bqms_code) trong tháng"
+            />
+          )}
           {collapsed ? (
             <ChevronRight className="h-3.5 w-3.5 text-slate-400" />
           ) : (
@@ -1499,6 +1791,58 @@ function TableSkeleton() {
   );
 }
 
+// ─── RefreshWonButton ─────────────────────────────────────────────────────────
+//
+// Thang 2026-06-13 (Task 4): "Cập nhật trúng" — gọi backend POST
+// /api/v1/bqms/won/refresh để re-fetch Selection Result từ Samsung và đồng
+// bộ vào ERP. Backend endpoint do PM xác nhận; nếu chưa có sẽ trả 404 + toast.
+//
+// UX: nút mặc định brand, spin icon khi đang chạy, toast success/error.
+
+function RefreshWonButton() {
+  const queryClient = useQueryClient();
+  const [running, setRunning] = useState(false);
+
+  const handleClick = async () => {
+    if (running) return;
+    setRunning(true);
+    toast.info('Đang cập nhật kết quả trúng từ Samsung...', { duration: 4000 });
+    try {
+      const r: any = await api.post('/api/v1/bqms/won/refresh', {});
+      const n = r?.data?.updated ?? r?.data?.count ?? 0;
+      toast.success(`Đã cập nhật ${n} kết quả trúng / trượt`, { duration: 6000 });
+      queryClient.invalidateQueries({ queryKey: ['bqms-rfq-table'] });
+    } catch (e: any) {
+      const status = e?.response?.status;
+      const msg = e?.response?.data?.detail ?? e?.message ?? 'Lỗi không xác định';
+      if (status === 404) {
+        toast.error('Endpoint refresh trúng chưa có (backend Task 4 chưa deploy)', { duration: 6000 });
+      } else {
+        toast.error(`Cập nhật trúng lỗi: ${msg}`, { duration: 8000 });
+      }
+    } finally {
+      setRunning(false);
+    }
+  };
+
+  return (
+    <button
+      onClick={handleClick}
+      disabled={running}
+      className={cn(
+        'inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors',
+        running
+          ? 'bg-brand-100 text-brand-700 cursor-wait'
+          : 'bg-white border border-brand-300 text-brand-700 hover:bg-brand-50',
+      )}
+      title="Đồng bộ Selection Result (Trúng / Trượt) mới nhất từ Samsung sec-bqms.com"
+    >
+      <CheckCircle2 className={cn('h-3.5 w-3.5', running && 'animate-pulse')} />
+      {running ? 'Đang cập nhật...' : 'Cập nhật trúng'}
+    </button>
+  );
+}
+
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
 export default function BQMSPage() {
@@ -1506,14 +1850,88 @@ export default function BQMSPage() {
 
   // ── Filter state
   const currentYear = new Date().getFullYear();
+  const currentMonth = new Date().getMonth() + 1;
+  const searchParams = useSearchParams();
   const [year, setYear] = useState<number | null>(currentYear);
-  const [month, setMonth] = useState<number | null>(null);
-  const [search, setSearch] = useState('');
-  const [searchInput, setSearchInput] = useState('');
-  const [resultFilter, setResultFilter] = useState<string>('all');
+  // Thang 2026-05-29: mặc định tháng hiện tại để khi rollover sang tháng mới
+  // (vd 01/06) view tự cuộn sang tháng đó thay vì kẹt ở tháng cũ.
+  const [month, setMonth] = useState<number | null>(currentMonth);
+  // Search is driven from the global Ctrl+K palette (top-nav) via URL param
+  // ?search=Z0000002-385323 — the old in-page search bar was removed
+  // 2026-05-22 per Thang (duplicate UX, only one search palette now).
+  const [search, setSearch] = useState(searchParams?.get('search') || '');
+  const [resultFilter, setResultFilter] = useState<string>(
+    searchParams?.get('search') ? 'all' : 'unquoted',
+  );
   const [sourceFilter, setSourceFilter] = useState<string>('all');  // excel_import / etl / onedrive_sync / manual
   const [loaiHangFilter, setLoaiHangFilter] = useState<string>('all');  // TM / GC
+  // Thang 2026-06-13 (Task 1): lọc theo vòng báo giá hiện tại.
+  // Options: all | v1_has | v2_has | v3_has | v4_has | v1_missing
+  const [roundFilter, setRoundFilter] = useState<string>('all');
   const [page, setPage] = useState(1);
+  // Thang 2026-06-15 (Batch 2b): số dòng mỗi trang — mặc định 12, đọc lại từ
+  // localStorage khi mount. Đổi → reset về trang 1.
+  const [pageSize, setPageSize] = useState<number>(12);
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const saved = Number(window.localStorage.getItem('bqms-page-size-v1'));
+    if ([12, 25, 50, 100].includes(saved)) setPageSize(saved);
+  }, []);
+  const handlePageSizeChange = useCallback((n: number) => {
+    setPageSize(n);
+    setPage(1);
+    if (typeof window !== 'undefined') {
+      window.localStorage.setItem('bqms-page-size-v1', String(n));
+    }
+  }, []);
+  const isReadOnly = useIsReadOnly();
+
+  // ── Gửi mã BQMS sang đấu thầu NCC (Thang 2026-06-28) ───────────────────────
+  // QĐ-1: quyền gửi = admin/manager/procurement. Sale KHÔNG nằm trong set →
+  // canPushBidding=false → mọi checkbox + action-bar ẩn hoàn toàn → sale không
+  // bao giờ chạm endpoint → không 403 khó hiểu.
+  const userRole = useUserRole();
+  const canPushBidding = ['admin', 'manager', 'procurement'].includes(userRole);
+
+  const [selectedRfqIds, setSelectedRfqIds] = useState<Set<number>>(new Set());
+  // !=null → mở PushToBiddingModal với snapshot id đang chọn.
+  const [pushBiddingIds, setPushBiddingIds] = useState<number[] | null>(null);
+  const [batchPushSecIds, setBatchPushSecIds] = useState<number[] | null>(null);
+
+  // QĐ-2: chỉ "mã đang mở" (chưa có kết quả) mới gửi-được = có bqms_code +
+  // result null/'' hoặc 'pending'. Enum rfq_result có 6 nhãn: pending (đang mở)
+  // + won/lost/closed/cancelled/skipped (đã chốt) — chặn CẢ 5 trạng thái chốt
+  // (trước đây thiếu cancelled/skipped → lọt mã đã huỷ/bỏ).
+  const RESULT_CLOSED = ['won', 'lost', 'closed', 'cancelled', 'skipped'];
+  const isSelectable = useCallback((it: RFQItem): boolean => {
+    if (!it.bqms_code) return false;
+    const r = (it.result ?? '').trim().toLowerCase();
+    return r === '' || !RESULT_CLOSED.includes(r);
+  }, []);
+
+  const toggleSelectRfq = useCallback((id: number) => {
+    setSelectedRfqIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
+
+  // QĐ-3: "chọn tất cả trong tháng" — thêm/bỏ cả danh sách id gửi-được của nhóm.
+  const toggleSelectMonth = useCallback((ids: number[], select: boolean) => {
+    setSelectedRfqIds((prev) => {
+      const next = new Set(prev);
+      ids.forEach((id) => (select ? next.add(id) : next.delete(id)));
+      return next;
+    });
+  }, []);
+
+  // Reset chọn khi đổi scope (filter/trang) — selection theo id, không theo
+  // trang → tránh "chọn ma" / gửi nhầm mã ngoài view hiện tại.
+  useEffect(() => {
+    setSelectedRfqIds(new Set());
+  }, [year, month, search, resultFilter, sourceFilter, loaiHangFilter, roundFilter, page]);
 
   // ── UI state
   const [expandedRowId, setExpandedRowId] = useState<number | null>(null);
@@ -1522,7 +1940,11 @@ export default function BQMSPage() {
   // Per Thang 2026-05-11: side drawer (slide from right) replaces dropdown.
   const [drawerItem, setDrawerItem] = useState<RFQItem | null>(null);
   // BQMS Auto-Submit (Thang 2026-05-14)
-  const [pushToSecRfqId, setPushToSecRfqId] = useState<number | null>(null);
+  // Push to SEC modal — track rfqId + initial round (TH2 → V2, TH3 → next round)
+  const [pushToSecState, setPushToSecState] = useState<{ rfqId: number; initialRound: number } | null>(null);
+  const pushToSecRfqId = pushToSecState?.rfqId ?? null;
+  const setPushToSecRfqId = (id: number | null, initialRound: number = 1) =>
+    setPushToSecState(id == null ? null : { rfqId: id, initialRound });
 
   // Activity feed (polled every 30s) — surfaces periodic-scrape events:
   //   bqms_periodic.closed, bqms_periodic.round2_invitation, bqms.quote.gc/regen_pdf
@@ -1638,24 +2060,48 @@ export default function BQMSPage() {
     if (resultFilter && resultFilter !== 'all') p.set('result_filter', resultFilter);
     if (sourceFilter && sourceFilter !== 'all') p.set('source_filter', sourceFilter);
     if (loaiHangFilter && loaiHangFilter !== 'all') p.set('loai_hang', loaiHangFilter);
+    if (roundFilter && roundFilter !== 'all') p.set('round_filter', roundFilter);
     p.set('page', String(page));
-    p.set('page_size', '100');
+    // Thang 2026-06-15 (Batch 2b): page_size từ state (12/25/50/100), persist
+    // localStorage. Mặc định 12 → first paint nhẹ; user chỉnh dropdown nếu muốn
+    // xem nhiều dòng hơn. Cũng giảm tải /rfq/image hàng loạt khi để 12.
+    p.set('page_size', String(pageSize));
     return p.toString();
-  }, [year, month, search, resultFilter, sourceFilter, loaiHangFilter, page]);
+  }, [year, month, search, resultFilter, sourceFilter, loaiHangFilter, roundFilter, page, pageSize]);
 
   // ── Data query
   const { data, isLoading, isFetching, error } = useQuery({
-    queryKey: ['bqms-rfq-table', year, month, search, resultFilter, sourceFilter, loaiHangFilter, page],
+    queryKey: ['bqms-rfq-table', year, month, search, resultFilter, sourceFilter, loaiHangFilter, roundFilter, page, pageSize],
     queryFn: () =>
       api.get<RFQTableResponse>(`/api/v1/bqms/rfq-table?${buildParams()}`),
-    staleTime: 30_000,
-    refetchInterval: 30_000,
+    // Thang 2026-05-22: 30s → 60s (table không thay đổi liên tục, scrape 1h/lần)
+    staleTime: 60_000,
+    refetchInterval: 60_000,
     retry: 2,
   });
 
   const items: RFQItem[] = Array.isArray(data?.data?.items) ? data!.data.items : [];
   const total = data?.data?.total ?? 0;
   const totalPages = data?.data?.total_pages ?? 1;
+
+  // Thang 2026-06-15: visual confirmation cho round_filter — flash badge total
+  // mỗi khi tổng record thay đổi (giúp user thấy bộ lọc CÓ tác dụng, tránh hiểu
+  // nhầm "filter không chạy" khi danh sách item nhìn giống nhau).
+  // Nguyên nhân lý do thêm: trước đó user báo round_filter không lọc, root cause
+  // là stale browser bundle — nhưng dù vậy badge thay đổi cũng giúp xác nhận
+  // trực quan rằng request đã round-trip backend đúng.
+  const [totalPulse, setTotalPulse] = useState(false);
+  const prevTotalRef = useRef<number | null>(null);
+  useEffect(() => {
+    if (isLoading || isFetching) return;
+    if (prevTotalRef.current !== null && prevTotalRef.current !== total) {
+      setTotalPulse(true);
+      const t = setTimeout(() => setTotalPulse(false), 900);
+      prevTotalRef.current = total;
+      return () => clearTimeout(t);
+    }
+    prevTotalRef.current = total;
+  }, [total, isLoading, isFetching]);
   const kpis = data?.data?.kpis;
   const months: MonthSummary[] = Array.isArray(data?.data?.months) ? data!.data.months : [];
 
@@ -1677,6 +2123,39 @@ export default function BQMSPage() {
   // Báo giá → POST /vendor-staging/{staging_id}/quote → backend drills detail,
   // downloads files, UPSERT bqms_rfq, marks staging approved. Row reloads
   // as a normal BQMS row with V1-V4 cols editable.
+  // Thang 2026-06-23 (fix nút Báo giá "không hoạt động"): ON-DEMAND DRILL.
+  // Khi RFQ chưa được cron drill, BE enqueue job drill riêng + trả
+  // status:'drilling'. FE poll bằng cách re-call /quote mỗi `DRILL_POLL_MS`
+  // tới khi unlock (done) / fail. `drillingIds` = set staging_id đang drill →
+  // dùng để hiện trạng thái "Đang tải chi tiết…" trên ĐÚNG row (per-row, không
+  // disable toàn cục). `drillTimersRef` giữ timer + số lần poll để cleanup +
+  // hard-stop tránh poll vô hạn.
+  const DRILL_POLL_MS = 6000;       // poll mỗi 6s
+  const DRILL_MAX_POLLS = 30;       // ~3 phút (30 × 6s) rồi bỏ cuộc (job ~30-90s)
+  const [drillingIds, setDrillingIds] = useState<Set<number>>(new Set());
+  const drillTimersRef = useRef<Map<number, { timer: ReturnType<typeof setTimeout>; polls: number }>>(new Map());
+
+  const stopDrilling = useCallback((stagingId: number) => {
+    const entry = drillTimersRef.current.get(stagingId);
+    if (entry) clearTimeout(entry.timer);
+    drillTimersRef.current.delete(stagingId);
+    setDrillingIds((prev) => {
+      if (!prev.has(stagingId)) return prev;
+      const next = new Set(prev);
+      next.delete(stagingId);
+      return next;
+    });
+  }, []);
+
+  // Cleanup mọi timer khi unmount.
+  useEffect(() => {
+    const timers = drillTimersRef.current;
+    return () => {
+      timers.forEach(({ timer }) => clearTimeout(timer));
+      timers.clear();
+    };
+  }, []);
+
   const quoteFromBqmsMutation = useMutation({
     mutationFn: (stagingId: number) =>
       api.post<{ data: any }>(
@@ -1685,24 +2164,102 @@ export default function BQMSPage() {
         `/api/v1/bqms/vendor-staging/${stagingId}/quote`,
         {},
       ),
-    onSuccess: (resp: any) => {
+    onSuccess: (resp: any, stagingId: number) => {
       const data = resp?.data ?? {};
       const unlocked = Number(data.quote_unlocked ?? data.bqms_rfq_upserts ?? 0);
-      const warning = data.warning;
+      const status: string | undefined = data.status;
+      const rfqNumber: string | undefined = data.rfq_number;
+      const rfqLabel = rfqNumber ?? '';
+
+      // ── CASE 1: UNLOCK thành công ────────────────────────────────────────
+      // Thang 2026-05-23: Cải thiện UX — filter='tracking' + search rfq để dòng
+      // vừa unlock KHÔNG biến mất, user thấy ngay ô V1 (xanh) để báo giá.
       if (unlocked > 0) {
-        toast.success(`🔓 Đã mở khoá V1-V4 cho ${unlocked} mã linh kiện — click vào ô V1 để bắt đầu báo giá`,
-          { duration: 6000 });
-      } else if (warning) {
-        toast.warning(warning, { duration: 10_000 });
+        stopDrilling(stagingId);  // poll (nếu có) đã xong → dừng
+        if (rfqNumber) {
+          setResultFilter('tracking');
+          setSearch(rfqNumber);
+          toast.success(
+            `🔓 Đã mở khoá V1-V4 cho ${unlocked} mã linh kiện · Đang theo dõi ${rfqNumber} — click vào ô V1 (xanh) để báo giá`,
+            { id: `quote-${stagingId}`, duration: 8000 },
+          );
+        } else {
+          toast.success(
+            `🔓 Đã mở khoá V1-V4 cho ${unlocked} mã linh kiện — click vào ô V1 (xanh) để báo giá`,
+            { id: `quote-${stagingId}`, duration: 6000 },
+          );
+        }
+        queryClient.invalidateQueries({ queryKey: ['bqms-rfq-table'] });
+        queryClient.invalidateQueries({ queryKey: ['bqms-data-gaps'] });
+        return;
+      }
+
+      // ── CASE 2: ON-DEMAND DRILL đang chạy → poll tới khi xong ────────────
+      // BE đã enqueue (hoặc tái dùng) job drill 1-RFQ. Re-call /quote mỗi
+      // DRILL_POLL_MS; khi worker drill xong → lần call sau trả unlocked>0
+      // (rơi vào CASE 1) → stopDrilling. Per-row state qua drillingIds.
+      if (status === 'drilling') {
+        const entry = drillTimersRef.current.get(stagingId);
+        const polls = entry ? entry.polls : 0;
+
+        // Bắt đầu drill: đánh dấu row + toast "đang tải" (id ổn định nên các
+        // lần poll cập nhật cùng 1 toast, không spam).
+        if (!drillingIds.has(stagingId)) {
+          setDrillingIds((prev) => new Set(prev).add(stagingId));
+        }
+        toast.loading(
+          `⏳ Đang tải chi tiết RFQ ${rfqLabel} từ Samsung… nút sẽ tự mở khoá khi xong (~30-90 giây). Bạn có thể tiếp tục làm việc khác.`.replace('  ', ' '),
+          { id: `quote-${stagingId}`, duration: Infinity },
+        );
+
+        if (polls >= DRILL_MAX_POLLS) {
+          // Quá lâu (worker kẹt / Samsung lock bận) → dừng poll, báo rõ.
+          stopDrilling(stagingId);
+          toast.warning(
+            `RFQ ${rfqLabel} vẫn đang được tải chi tiết (lâu hơn bình thường). Hệ thống vẫn xử lý ngầm — đợi 1–2 phút rồi bấm lại "Báo giá".`,
+            { id: `quote-${stagingId}`, duration: 10_000 },
+          );
+          return;
+        }
+
+        const timer = setTimeout(() => {
+          quoteFromBqmsMutation.mutate(stagingId);
+        }, DRILL_POLL_MS);
+        drillTimersRef.current.set(stagingId, { timer, polls: polls + 1 });
+        return;
+      }
+
+      // ── CASE 3: DRILL fail / RFQ rỗng item ───────────────────────────────
+      if (status === 'drill_failed' || status === 'drill_empty' || status === 'drill_enqueue_failed') {
+        stopDrilling(stagingId);
+        toast.error(
+          `❌ ${data.message ?? `Không tải được chi tiết RFQ ${rfqLabel}.`}`,
+          { id: `quote-${stagingId}`, duration: 12_000 },
+        );
+        queryClient.invalidateQueries({ queryKey: ['bqms-rfq-table'] });
+        return;
+      }
+
+      // ── CASE 4: không unlock mới nhưng RFQ đã tồn tại → đưa user tới đó ──
+      stopDrilling(stagingId);
+      if (rfqNumber) {
+        setResultFilter('all');
+        setSearch(rfqNumber);
+        toast.info(
+          `Mã đã được unlock trước đó · Đang lọc theo ${rfqNumber} — kiểm tra cột V1/V2/V3/V4`,
+          { id: `quote-${stagingId}`, duration: 6000 },
+        );
       } else {
-        toast.info('Đã unlock (không có mã mới)');
+        toast.info('Đã unlock (không có mã mới). Refresh để xem.', { id: `quote-${stagingId}` });
       }
       queryClient.invalidateQueries({ queryKey: ['bqms-rfq-table'] });
       queryClient.invalidateQueries({ queryKey: ['bqms-data-gaps'] });
     },
-    onError: (err: any) => {
+    onError: (err: any, stagingId: number) => {
+      // Lỗi mạng/HTTP của 1 lần poll → dừng drill của row đó, báo lỗi.
+      stopDrilling(stagingId);
       const msg = err?.detail ?? err?.message ?? 'Lỗi không xác định';
-      toast.error(`❌ Mở khoá thất bại: ${msg}`, { duration: 10_000 });
+      toast.error(`❌ Mở khoá thất bại: ${msg}`, { id: `quote-${stagingId}`, duration: 10_000 });
     },
   });
 
@@ -1742,11 +2299,100 @@ export default function BQMSPage() {
     itemsByMonth.set(key, [...(itemsByMonth.get(key) ?? []), item]);
   }
 
-  // ── Search submit
-  const handleSearchSubmit = () => {
-    setSearch(searchInput);
-    setPage(1);
-  };
+  // Sync search from URL param ?search=... (driven by Ctrl+K palette).
+  // When the user picks a BQMS code in Ctrl+K, the palette navigates here
+  // with ?search=Z0000002-... — pick it up and filter the table.
+  // Thang 2026-06-04: Khi search từ Ctrl+K, clear year/month để tìm
+  // xuyên tháng. Trước đây giữ tháng hiện tại → row tháng khác bị filter
+  // mất → backend fallback sang staging stub (is_pending=true) → drawer
+  // mở thiếu nút "Đẩy lên SEC". Ctrl+K là global search nên phải bỏ scope.
+  useEffect(() => {
+    const urlSearch = searchParams?.get('search') || '';
+    if (urlSearch && urlSearch !== search) {
+      setSearch(urlSearch);
+      setResultFilter('all');
+      setYear(null);
+      setMonth(null);
+      setPage(1);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams]);
+
+  // Thang 2026-06-04 (BUG A): focus_rfq query param — Ctrl+K "RFQ" group
+  // navigates here with ?focus_rfq=QT26071059. Same scoping as ?search=
+  // (clear year/month + resultFilter=all) AND auto-open drawer on the
+  // first row whose rfq_number matches. Drawer item is set in a second
+  // effect that watches `items` so we don't open before data lands.
+  const focusRfq = searchParams?.get('focus_rfq') || '';
+  useEffect(() => {
+    if (focusRfq && focusRfq !== search) {
+      setSearch(focusRfq);
+      setResultFilter('all');
+      setYear(null);
+      setMonth(null);
+      setPage(1);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focusRfq]);
+
+  // Once items for the focused RFQ load, auto-open the drawer on the first
+  // matching row (idempotent — guarded by autoOpenedFocusRfq).
+  // Thang 2026-06-21 (search-qt): drawer auto-open must NOT depend on
+  // page-1 luck. rfq-table returns only page_size (~12) rows, so the row
+  // whose rfq_number === focusRfq may not be in the current page → the old
+  // effect silently no-op'd. Now: if no row in the loaded page matches, fetch
+  // that exact RFQ directly (rfq-table filtered + large page_size) and open
+  // its drawer; if still nothing, surface a non-silent toast.
+  const [autoOpenedFocusRfq, setAutoOpenedFocusRfq] = useState<string | null>(null);
+  useEffect(() => {
+    if (!focusRfq) return;
+    if (autoOpenedFocusRfq === focusRfq) return;
+    // Wait until the search-scoped table query for this RFQ has settled so we
+    // don't fire the fallback fetch against stale (pre-focus) items.
+    if (isFetching) return;
+    if (search !== focusRfq) return;
+
+    const match = items.find((it) => it.rfq_number === focusRfq);
+    if (match) {
+      setDrawerItem(match);
+      setAutoOpenedFocusRfq(focusRfq);
+      return;
+    }
+
+    // No row on the loaded page matched → fetch the exact RFQ directly.
+    let cancelled = false;
+    setAutoOpenedFocusRfq(focusRfq); // guard immediately to avoid double-fetch
+    (async () => {
+      try {
+        const p = new URLSearchParams();
+        p.set('search', focusRfq);
+        p.set('page', '1');
+        p.set('page_size', '100');
+        const res = await api.get<RFQTableResponse>(
+          `/api/v1/bqms/rfq-table?${p.toString()}`,
+        );
+        if (cancelled) return;
+        const rows = Array.isArray(res?.data?.items) ? res.data.items : [];
+        // Only open on an EXACT rfq_number match. The rfq-table search is a
+        // broad substring ILIKE (rfq_number/bqms_code/spec/maker/raw_json), so
+        // rows[0] could be a *different* RFQ that merely matched the substring —
+        // opening it would silently show the wrong order.
+        const exact = rows.find((it) => it.rfq_number === focusRfq) ?? null;
+        if (exact) {
+          setDrawerItem(exact);
+        } else {
+          toast.error(`Không tìm thấy QT ${focusRfq}`, { duration: 6000 });
+        }
+      } catch {
+        if (!cancelled) {
+          toast.error(`Không tìm thấy QT ${focusRfq}`, { duration: 6000 });
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [focusRfq, items, autoOpenedFocusRfq, isFetching, search]);
 
   // ── Filter change resets page
   const handleYearChange = (v: number | null) => { setYear(v); setPage(1); };
@@ -1780,7 +2426,26 @@ export default function BQMSPage() {
             <h1 className="text-lg font-bold text-slate-900">BQMS — Quản lý RFQ Samsung</h1>
             <div className="flex items-center gap-3 flex-wrap mt-1">
               <span className="text-xs text-slate-500">
-                {total.toLocaleString('vi-VN')} bản ghi
+                <span
+                  className={cn(
+                    'inline-block px-1.5 py-0.5 rounded font-semibold tabular-nums transition-all duration-300',
+                    totalPulse
+                      ? 'bg-brand-100 text-brand-700 ring-2 ring-brand-300 scale-110'
+                      : 'bg-transparent text-slate-700',
+                  )}
+                  title="Tổng số RFQ khớp bộ lọc hiện tại"
+                >
+                  {total.toLocaleString('vi-VN')}
+                </span>{' '}
+                bản ghi
+                {roundFilter !== 'all' && (
+                  <span
+                    className="ml-2 inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-brand-50 text-brand-600 text-[11px] font-semibold"
+                    title="Đang lọc theo vòng báo giá"
+                  >
+                    vòng: {roundFilter}
+                  </span>
+                )}
                 {isFetching && !isLoading && (
                   <span className="ml-2 text-brand-500">
                     <Loader2 className="inline h-3 w-3 animate-spin mr-0.5" />
@@ -1788,7 +2453,6 @@ export default function BQMSPage() {
                   </span>
                 )}
               </span>
-              <SyncFreshnessChip module="bqms" />
             </div>
           </div>
         </div>
@@ -1832,17 +2496,17 @@ export default function BQMSPage() {
                 <div className="p-4 space-y-3">
                   <div className="grid grid-cols-3 gap-2 text-center">
                     <div className="p-2 rounded bg-emerald-50 border border-emerald-200">
-                      <div className="text-[10px] uppercase text-emerald-700 font-bold">Đủ items</div>
+                      <div className="text-[11px] uppercase text-emerald-700 font-bold">Đủ items</div>
                       <div className="text-lg font-bold text-emerald-700">{gaps?.by_state?.has_items ?? 0}</div>
                     </div>
                     <div className="p-2 rounded bg-amber-50 border border-amber-200">
-                      <div className="text-[10px] uppercase text-amber-700 font-bold">Thiếu</div>
+                      <div className="text-[11px] uppercase text-amber-700 font-bold">Thiếu</div>
                       <div className="text-lg font-bold text-amber-700">
                         {(gaps?.by_state?.no_detail ?? 0) + (gaps?.by_state?.empty_items ?? 0)}
                       </div>
                     </div>
                     <div className="p-2 rounded bg-slate-50 border border-slate-200">
-                      <div className="text-[10px] uppercase text-slate-600 font-bold">Tổng pending</div>
+                      <div className="text-[11px] uppercase text-slate-600 font-bold">Tổng pending</div>
                       <div className="text-lg font-bold text-slate-700">{gaps?.total_pending ?? 0}</div>
                     </div>
                   </div>
@@ -1860,7 +2524,7 @@ export default function BQMSPage() {
                   {/* Smart auto-rescan status — chạy mỗi 5 phút khi có gap */}
                   <div className="rounded-lg border border-slate-200 bg-gradient-to-br from-slate-50 to-white p-2.5 space-y-1.5">
                     <div className="flex items-center justify-between">
-                      <span className="text-[10px] font-bold uppercase tracking-wider text-slate-600">
+                      <span className="text-[11px] font-bold uppercase tracking-wider text-slate-600">
                         Auto-rescan
                       </span>
                       <button
@@ -1891,7 +2555,7 @@ export default function BQMSPage() {
                       </button>
                     </div>
                     {gaps?.smart_rescan?.state && (
-                      <div className="flex items-center gap-1.5 text-[10px]">
+                      <div className="flex items-center gap-1.5 text-[11px]">
                         {(() => {
                           const s = gaps.smart_rescan!.state!;
                           const status = s.status ?? 'idle';
@@ -1917,11 +2581,11 @@ export default function BQMSPage() {
                       </div>
                     )}
                     {gaps?.smart_rescan?.state?.updated_at && (
-                      <div className="text-[9px] text-slate-400">
+                      <div className="text-[11px] text-slate-400">
                         Lần cuối: {new Date(gaps.smart_rescan.state.updated_at).toLocaleString('vi-VN', { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit' })}
                       </div>
                     )}
-                    <div className="text-[9px] text-slate-500 italic">
+                    <div className="text-[11px] text-slate-500 italic">
                       Tự chạy mỗi 5 phút. Khi không còn gap → idle (không drill nữa).
                     </div>
                   </div>
@@ -1953,14 +2617,14 @@ export default function BQMSPage() {
                   </button>
 
                   {gaps?.last_cron?.updated_at && (
-                    <div className="text-[10px] text-slate-500 text-center pt-1 border-t border-slate-100">
+                    <div className="text-[11px] text-slate-500 text-center pt-1 border-t border-slate-100">
                       Cron 30p: {new Date(gaps.last_cron.updated_at).toLocaleString('vi-VN')}
                     </div>
                   )}
 
                   {gaps?.missing_list && gaps.missing_list.length > 0 && (
                     <div className="pt-2 border-t border-slate-100">
-                      <div className="text-[10px] uppercase tracking-wider text-slate-500 font-bold mb-1.5">
+                      <div className="text-[11px] uppercase tracking-wider text-slate-500 font-bold mb-1.5">
                         Danh sách thiếu ({gaps.missing_list.length})
                       </div>
                       <div className="space-y-1 max-h-[200px] overflow-auto">
@@ -2002,7 +2666,7 @@ export default function BQMSPage() {
             >
               <Inbox className="h-4 w-4" />
               {newActivityCount > 0 && (
-                <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center">
+                <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 rounded-full bg-red-500 text-white text-[11px] font-bold flex items-center justify-center">
                   {newActivityCount > 99 ? '99+' : newActivityCount}
                 </span>
               )}
@@ -2028,7 +2692,10 @@ export default function BQMSPage() {
                     let icon = '•';
                     let color = 'text-slate-600';
                     if (a.action === 'bqms_periodic.closed') { label = 'RFQ đã Closed'; icon = '🔒'; color = 'text-slate-500'; }
-                    else if (a.action === 'bqms_periodic.round2_invitation') { label = 'Mời báo giá vòng 2'; icon = '🔔'; color = 'text-amber-700'; }
+                    else if (a.action === 'bqms.auto_close_expired') { label = 'Auto-close: quá hạn / không seen scrape'; icon = '🔒'; color = 'text-slate-600'; }
+                    else if (a.action === 'bqms.auto_skip_expired') { label = 'Auto-skip: quá hạn (legacy)'; icon = '⏭'; color = 'text-slate-500'; }
+                    else if (a.action === 'bqms_periodic.round2_invitation') { label = 'Mời báo giá vòng 2 (TH3)'; icon = '🔔'; color = 'text-amber-700'; }
+                    else if (a.action === 'bqms_periodic.round2_v1_missing_warning') { label = 'TH2: V1 cũ Samsung — báo V2 mới trong ERP'; icon = '⚠'; color = 'text-amber-700'; }
                     else if (a.action === 'bqms.quote.gc') { label = 'Báo giá GC'; icon = '✅'; color = 'text-emerald-700'; }
                     else if (a.action === 'bqms.quote.regen_pdf') { label = 'Render lại PDF'; icon = '📄'; color = 'text-blue-700'; }
                     let payload: any = {};
@@ -2039,13 +2706,13 @@ export default function BQMSPage() {
                           <span className="text-base flex-shrink-0">{icon}</span>
                           <div className="min-w-0 flex-1">
                             <div className={cn('text-xs font-semibold', color)}>{label}</div>
-                            <div className="text-[10px] text-slate-600 font-mono truncate">
+                            <div className="text-[11px] text-slate-600 font-mono truncate">
                               {a.record_id || ''}
                             </div>
                             {payload.message && (
-                              <div className="text-[10px] text-slate-500 mt-0.5 line-clamp-2">{payload.message}</div>
+                              <div className="text-[11px] text-slate-500 mt-0.5 line-clamp-2">{payload.message}</div>
                             )}
-                            <div className="text-[9px] text-slate-400 mt-0.5">
+                            <div className="text-[11px] text-slate-400 mt-0.5">
                               {a.created_at ? new Date(a.created_at).toLocaleString('vi-VN') : ''}
                             </div>
                           </div>
@@ -2064,6 +2731,10 @@ export default function BQMSPage() {
             <RefreshCw className={cn('h-3.5 w-3.5', isFetching && 'animate-spin')} />
             Làm mới
           </button>
+          {/* Cập nhật trúng — Thang 2026-06-13 (Task 4): gọi endpoint backend
+              refresh kết quả won/lost từ Samsung Selection Result. Endpoint sẽ
+              được Project Manager confirm; nếu chưa có sẽ fail-silently với toast. */}
+          <RefreshWonButton />
           <Link
             href="/bqms/quotation/new"
             className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-brand-600 text-white hover:bg-brand-700 transition-colors shadow-sm"
@@ -2108,7 +2779,7 @@ export default function BQMSPage() {
           label="Win rate"
           value={`${kpis?.win_rate ?? 0}%`}
           icon={Percent}
-          colorClass="bg-violet-100 text-violet-600"
+          colorClass="bg-brand-100 text-brand-600"
           loading={isLoading}
           sub={kpis ? `${kpis.won}/${kpis.won + kpis.lost} đã xử lý` : undefined}
         />
@@ -2146,37 +2817,43 @@ export default function BQMSPage() {
           </select>
         </div>
 
-        {/* Result filter — Phase 2.4: thêm Closed + Skip để thấy mã đã đóng / bỏ qua */}
-        <div className="flex items-center gap-1 rounded-lg border border-slate-200 overflow-hidden">
-          {[
-            { val: 'all',     label: 'Tất cả' },
-            { val: 'pending', label: 'Đang xử lý' },
-            { val: 'won',     label: 'Trúng' },
-            { val: 'lost',    label: 'Trượt' },
-            { val: 'closed',  label: 'Closed' },
-            { val: 'skipped', label: 'Skip' },
-          ].map(({ val, label }) => (
-            <button
-              key={val}
-              onClick={() => handleResultChange(val)}
-              className={cn(
-                'px-3 py-1.5 text-xs font-medium transition-colors',
-                resultFilter === val
-                  ? (val === 'closed' ? 'bg-slate-600 text-white'
-                    : val === 'skipped' ? 'bg-amber-600 text-white'
-                    : 'bg-brand-600 text-white')
-                  : 'bg-white text-slate-600 hover:bg-slate-50'
-              )}
-              title={
-                val === 'closed' ? 'Mã đã hết hạn D-Day (Samsung đóng)' :
-                val === 'skipped' ? 'Mã đã đánh dấu "không báo nữa"' :
-                undefined
-              }
-            >
-              {label}
-            </button>
-          ))}
-        </div>
+        {/* Result filter — Thang 2026-05-29: chuyển pill row → dropdown gọn,
+            preserve color cue qua ring + dot color theo value đang chọn. */}
+        {(() => {
+          const RESULT_OPTIONS = [
+            { val: 'tracking', label: 'Đang theo dõi', dot: 'bg-blue-500',    ring: 'ring-blue-300',    title: 'Mã đã nhấn "Báo giá" — V1-V4 unlocked, đang theo dõi vòng báo giá' },
+            { val: 'unquoted', label: 'Chưa báo giá',  dot: 'bg-amber-500',   ring: 'ring-amber-300',   title: 'Mã mới scrape về, chưa quyết định báo giá hay không' },
+            { val: 'won',      label: 'Trúng',         dot: 'bg-emerald-500', ring: 'ring-emerald-300', title: 'Mã đã trúng (Selection Result = Selected)', hideForViewer: true },
+            { val: 'lost',     label: 'Trượt',         dot: 'bg-rose-500',    ring: 'ring-rose-300',    title: 'Mã đã trượt (Selection Result = Unselected)', hideForViewer: true },
+            { val: 'closed',   label: 'Closed',        dot: 'bg-slate-500',   ring: 'ring-slate-300',   title: 'Mã đã hết hạn D-Day (Samsung đóng)', hideForViewer: true },
+            { val: 'skipped',  label: 'Skip',          dot: 'bg-amber-500',   ring: 'ring-amber-300',   title: 'Mã đã đánh dấu "không báo nữa"', hideForViewer: true },
+            { val: 'all',      label: 'Tất cả',        dot: 'bg-brand-500',   ring: 'ring-brand-300',   title: 'Hiển thị toàn bộ mã ở mọi trạng thái' },
+          ];
+          const visible = RESULT_OPTIONS.filter((b) => !(isReadOnly && b.hideForViewer));
+          const current = visible.find((b) => b.val === resultFilter) ?? visible[visible.length - 1];
+          return (
+            <div className="relative inline-flex items-center">
+              <span className={cn(
+                'absolute left-3 top-1/2 -translate-y-1/2 h-2 w-2 rounded-full pointer-events-none',
+                current.dot,
+              )} />
+              <select
+                value={resultFilter}
+                onChange={(e) => handleResultChange(e.target.value)}
+                title={current.title}
+                className={cn(
+                  'pl-7 pr-8 py-1.5 text-xs font-semibold border border-slate-200 rounded-lg bg-white text-slate-700',
+                  'ring-2 ring-offset-0 cursor-pointer hover:bg-slate-50 transition-all',
+                  current.ring,
+                )}
+              >
+                {visible.map(({ val, label }) => (
+                  <option key={val} value={val}>{label}</option>
+                ))}
+              </select>
+            </div>
+          );
+        })()}
 
         {/* Source filter */}
         <select
@@ -2191,6 +2868,76 @@ export default function BQMSPage() {
           <option value="onedrive_sync">OneDrive sync</option>
           <option value="manual">Nhập tay</option>
         </select>
+
+        {/* Round filter — Thang 2026-06-13 (Task 1): lọc nhanh theo vòng V đã/chưa có.
+            Chấm brand để khớp brand color khi đang active. */}
+        {(() => {
+          const ROUND_OPTIONS = [
+            { val: 'all',        label: 'Mọi vòng',     title: 'Hiển thị toàn bộ — không lọc theo vòng' },
+            { val: 'v1_has',     label: 'V1 đã có',     title: 'Đã có giá V1 (quoted_price_bqms_v1 != null)' },
+            { val: 'v2_has',     label: 'V2 đã có',     title: 'Đã có giá V2' },
+            { val: 'v3_has',     label: 'V3 đã có',     title: 'Đã có giá V3' },
+            { val: 'v4_has',     label: 'V4 đã có',     title: 'Đã có giá V4' },
+            { val: 'v1_missing', label: 'Chưa có V1',   title: 'Mã chưa được báo V1 nào (V1 == null)' },
+          ];
+          const current = ROUND_OPTIONS.find((o) => o.val === roundFilter) ?? ROUND_OPTIONS[0];
+          const isActive = roundFilter !== 'all';
+          return (
+            <div className="relative inline-flex items-center">
+              <span
+                className={cn(
+                  'absolute left-3 top-1/2 -translate-y-1/2 h-2 w-2 rounded-full pointer-events-none',
+                  isActive ? 'bg-brand-500' : 'bg-slate-300',
+                )}
+              />
+              <select
+                value={roundFilter}
+                onChange={(e) => { setRoundFilter(e.target.value); setPage(1); }}
+                title={current.title}
+                className={cn(
+                  'pl-7 pr-8 py-1.5 text-xs font-semibold border border-slate-200 rounded-lg bg-white text-slate-700',
+                  'cursor-pointer hover:bg-slate-50 transition-all',
+                  isActive && 'ring-2 ring-brand-300',
+                )}
+              >
+                {ROUND_OPTIONS.map(({ val, label }) => (
+                  <option key={val} value={val}>{label}</option>
+                ))}
+              </select>
+            </div>
+          );
+        })()}
+
+        {/* Page-size — Thang 2026-06-15 (Batch 2b): số dòng/trang (12/25/50/100),
+            persist localStorage. Style khớp roundFilter (brand/slate). */}
+        {(() => {
+          const PAGE_SIZE_OPTIONS = [12, 25, 50, 100];
+          const isActive = pageSize !== 12;
+          return (
+            <div className="relative inline-flex items-center">
+              <span
+                className={cn(
+                  'absolute left-3 top-1/2 -translate-y-1/2 h-2 w-2 rounded-full pointer-events-none',
+                  isActive ? 'bg-brand-500' : 'bg-slate-300',
+                )}
+              />
+              <select
+                value={pageSize}
+                onChange={(e) => handlePageSizeChange(Number(e.target.value))}
+                title="Số dòng hiển thị mỗi trang"
+                className={cn(
+                  'pl-7 pr-8 py-1.5 text-xs font-semibold border border-slate-200 rounded-lg bg-white text-slate-700',
+                  'cursor-pointer hover:bg-slate-50 transition-all',
+                  isActive && 'ring-2 ring-brand-300',
+                )}
+              >
+                {PAGE_SIZE_OPTIONS.map((n) => (
+                  <option key={n} value={n}>{n}/trang</option>
+                ))}
+              </select>
+            </div>
+          );
+        })()}
 
         {/* TM/GC filter */}
         <div className="flex items-center gap-1 rounded-lg border border-slate-200 overflow-hidden">
@@ -2215,38 +2962,114 @@ export default function BQMSPage() {
           ))}
         </div>
 
-        {/* Search */}
+        {/* Search — handled by global Ctrl+K palette (top-nav).
+            When active, show chip with current search term + clear button.
+            Removed in-page input/button per Thang 2026-05-22. */}
         <div className="flex items-center gap-1.5 flex-1 min-w-[200px]">
-          <div className="relative flex-1">
-            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400" />
-            <input
-              type="text"
-              placeholder="RFQ No, BQMS Code, tên hàng, maker..."
-              value={searchInput}
-              onChange={(e) => setSearchInput(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && handleSearchSubmit()}
-              className="w-full pl-8 pr-3 py-1.5 text-xs border border-slate-200 rounded-lg bg-white text-slate-700 placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-brand-500"
-            />
-          </div>
-          <button
-            onClick={handleSearchSubmit}
-            className="px-3 py-1.5 text-xs font-medium bg-brand-600 text-white rounded-lg hover:bg-brand-700 transition-colors"
-          >
-            Tìm
-          </button>
-          {search && (
+          {search ? (
+            <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-brand-50 border border-brand-200 text-xs">
+              <Search className="h-3.5 w-3.5 text-brand-600 flex-shrink-0" />
+              <span className="text-slate-500">Đang lọc:</span>
+              <span className="font-mono font-semibold text-brand-700">{search}</span>
+              <button
+                onClick={() => {
+                  setSearch('');
+                  setPage(1);
+                  // Strip ?search= from URL without reload
+                  if (typeof window !== 'undefined') {
+                    const url = new URL(window.location.href);
+                    url.searchParams.delete('search');
+                    window.history.replaceState({}, '', url.toString());
+                  }
+                }}
+                className="ml-1 text-slate-400 hover:text-rose-600 font-bold"
+                title="Xoá bộ lọc tìm kiếm"
+              >
+                ✕
+              </button>
+            </div>
+          ) : (
             <button
-              onClick={() => { setSearch(''); setSearchInput(''); setPage(1); }}
-              className="px-2.5 py-1.5 text-xs text-slate-500 border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors"
+              onClick={() => {
+                // Trigger Ctrl+K palette. Using window.KeyboardEvent (the
+                // global DOM constructor) because `KeyboardEvent` was
+                // shadowed by `import { KeyboardEvent } from 'react'` at the
+                // top of this file (React's type, undefined at runtime).
+                if (typeof window === 'undefined') return;
+                window.dispatchEvent(new window.KeyboardEvent('keydown', {
+                  key: 'k', ctrlKey: true, bubbles: true,
+                }));
+              }}
+              className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg border border-slate-200 hover:border-brand-300 bg-white text-xs text-slate-500 hover:text-slate-700 transition-colors"
+              title="Mở thanh tìm kiếm Ctrl+K"
             >
-              Xóa
+              <Search className="h-3.5 w-3.5" />
+              <span>Tìm mã BQMS / RFQ...</span>
+              <kbd className="ml-2 px-1.5 py-0.5 rounded border border-slate-200 bg-slate-50 text-[11px] font-mono text-slate-400">
+                Ctrl K
+              </kbd>
             </button>
           )}
         </div>
       </div>
 
-      {/* ── Main Table */}
-      <div className="bg-white rounded-xl shadow-sm border border-slate-100 overflow-hidden">
+      {/* ── Action-bar nổi: Gửi đấu thầu NCC (Thang 2026-06-28) ──
+          Chỉ hiện khi đủ quyền + đang chọn ≥1 mã. Đồng nhất pattern /sourcing
+          (giữa filter & bảng), màu brand (đấu thầu = brand toàn hệ thống). */}
+      <AnimatePresence>
+        {canPushBidding && selectedRfqIds.size > 0 && (
+          <motion.div
+            initial={{ y: -16, opacity: 0 }}
+            animate={{ y: 0, opacity: 1 }}
+            exit={{ y: -16, opacity: 0 }}
+            transition={{ type: 'spring', stiffness: 300, damping: 26 }}
+            className="mb-3 rounded-2xl border border-brand-200 bg-brand-50/60 px-5 py-3.5"
+          >
+            <div className="flex flex-wrap items-center gap-4">
+              <div className="flex items-center gap-3">
+                <div className="h-10 w-10 rounded-lg bg-brand-600 flex items-center justify-center">
+                  <Gavel className="h-5 w-5 text-white" />
+                </div>
+                <div>
+                  <div className="text-sm font-bold text-brand-900">
+                    {selectedRfqIds.size} mã đã chọn
+                  </div>
+                  <div className="text-xs text-brand-700">
+                    Chỉ gửi mã đang mở · không chia sẻ giá nội bộ
+                  </div>
+                </div>
+              </div>
+              <div className="ml-auto flex flex-wrap items-center gap-2">
+                <button
+                  onClick={() => setPushBiddingIds(Array.from(selectedRfqIds))}
+                  className="inline-flex items-center gap-1.5 rounded-lg bg-brand-600 px-4 py-2 text-sm font-bold text-white hover:bg-brand-700 transition-colors shadow-sm"
+                >
+                  <Gavel className="h-4 w-4" />
+                  Gửi đấu thầu ({selectedRfqIds.size})
+                </button>
+                <button
+                  onClick={() => setBatchPushSecIds(Array.from(selectedRfqIds))}
+                  className="inline-flex items-center gap-1.5 rounded-lg bg-slate-800 px-4 py-2 text-sm font-bold text-white hover:bg-slate-900 transition-colors shadow-sm"
+                  title="Đẩy nhiều mã lên sec-bqms.com lần lượt (Save Temporarily)"
+                >
+                  🚀 Đẩy lên SEC ({selectedRfqIds.size})
+                </button>
+                <button
+                  onClick={() => setSelectedRfqIds(new Set())}
+                  className="text-xs text-slate-600 hover:text-rose-600 font-semibold inline-flex items-center gap-1 px-2.5 py-2 rounded-md hover:bg-white"
+                >
+                  <X className="h-3.5 w-3.5" /> Bỏ chọn
+                </button>
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* ── Main Table — Thang 2026-06-13 (Task 5): bỏ overflow-hidden
+          để sticky thead không bị clip. Border-radius vẫn ổn vì children
+          tự bo (ScrollableTableWrapper là div thường). */}
+      <div className="bg-white rounded-xl shadow-sm border border-slate-100">
         {error ? (
           <div className="flex flex-col items-center justify-center py-16 gap-2">
             <AlertTriangle className="h-8 w-8 text-red-400" />
@@ -2262,29 +3085,32 @@ export default function BQMSPage() {
           <ScrollableTableWrapper>
             <table className="w-full border-collapse text-xs">
               {/* Sticky header — sticky-left up to "Tên hàng" col per Thang 2026-05-11
-                  + color-dot status (no text) + ALL Bidding fields visible. */}
-              <thead className="sticky top-0 z-30">
-                <tr className="bg-slate-800 text-slate-200 text-[10px]">
+                  + color-dot status (no text) + ALL Bidding fields visible.
+                  Thang 2026-06-13 (Task 5): top-3 (12px) để né top-scrollbar h-3
+                  của ScrollableTableWrapper; z-30 < z-40 (top scrollbar) để chuột
+                  vẫn dùng được scrollbar. */}
+              <thead className="sticky top-3 z-30">
+                <tr className="bg-slate-100 text-slate-600 text-[12px]">
                   {/* Sticky-left group — Per Thang 2026-05-13: Hành động lên đầu */}
-                  <th className="text-center px-2 py-2 font-semibold whitespace-nowrap w-24 sticky left-0 bg-slate-800 z-20">Hành động</th>
-                  <th className="text-center px-2 py-2 font-semibold whitespace-nowrap sticky left-[96px] bg-slate-800 z-20" title="Trạng thái (chấm màu)">●</th>
-                  <th className="text-center px-2 py-2 font-semibold whitespace-nowrap w-8 sticky left-[124px] bg-slate-800 z-20">#</th>
-                  <th className="text-left px-2 py-2 font-semibold whitespace-nowrap sticky left-[156px] bg-slate-800 z-20">RFQ</th>
-                  <th className="text-left px-2 py-2 font-semibold whitespace-nowrap sticky left-[246px] bg-slate-800 z-20">BQMS</th>
-                  <th className="text-center px-2 py-2 font-semibold whitespace-nowrap w-24 sticky left-[336px] bg-slate-800 z-20">Ảnh</th>
-                  <th className="text-left px-2 py-2 font-semibold sticky left-[432px] bg-slate-800 z-20 min-w-[220px]">Tên hàng / Subject</th>
+                  <th className="text-center px-2 py-2 font-semibold whitespace-nowrap w-24 sticky left-0 bg-slate-100 z-20">Hành động</th>
+                  <th className="text-center px-2 py-2 font-semibold whitespace-nowrap sticky left-[96px] bg-slate-100 z-20" title="Trạng thái (chấm màu)">●</th>
+                  <th className="text-center px-2 py-2 font-semibold whitespace-nowrap sticky left-[124px] bg-slate-100 z-20" title="Ngày đẩy báo giá lên SEC">Ngày đẩy</th>
+                  <th className="text-left px-2 py-2 font-semibold whitespace-nowrap sticky left-[156px] bg-slate-100 z-20">RFQ</th>
+                  <th className="text-left px-2 py-2 font-semibold whitespace-nowrap sticky left-[246px] bg-slate-100 z-20">BQMS</th>
+                  <th className="text-center px-2 py-2 font-semibold whitespace-nowrap w-24 sticky left-[336px] bg-slate-100 z-20">Ảnh</th>
+                  <th className="text-left px-2 py-2 font-semibold sticky left-[432px] bg-slate-100 z-20 min-w-[280px]">Tên hàng / Subject</th>
 
-                  {/* Scrollable group */}
+                  {/* Scrollable group — min-widths added 2026-05-29 cho cột dễ đọc */}
                   <th className="text-left px-2 py-2 font-semibold whitespace-nowrap">Loại</th>
-                  <th className="text-left px-2 py-2 font-semibold whitespace-nowrap">Maker</th>
+                  <th className="text-left px-2 py-2 font-semibold whitespace-nowrap min-w-[140px]">Maker</th>
                   <th className="text-right px-2 py-2 font-semibold whitespace-nowrap">SL</th>
                   <th className="text-left px-2 py-2 font-semibold whitespace-nowrap">ĐVT</th>
                   <th className="text-right px-2 py-2 font-semibold whitespace-nowrap">MOQ</th>
                   <th className="text-left px-2 py-2 font-semibold whitespace-nowrap">CIS</th>
-                  <th className="text-left px-2 py-2 font-semibold whitespace-nowrap">Part No</th>
-                  <th className="text-left px-2 py-2 font-semibold whitespace-nowrap" title="Người Samsung yêu cầu báo giá (từ xlsx)">Requester</th>
-                  <th className="text-left px-2 py-2 font-semibold whitespace-nowrap" title="Phòng ban Samsung order">Department</th>
-                  <th className="text-left px-2 py-2 font-semibold whitespace-nowrap" title="Nhân viên ERP báo giá mã này (auto-tracked)">Người PT</th>
+                  <th className="text-left px-2 py-2 font-semibold whitespace-nowrap min-w-[130px]">Part No</th>
+                  <th className="text-left px-2 py-2 font-semibold whitespace-nowrap min-w-[110px]" title="Người Samsung yêu cầu báo giá (từ xlsx)">Requester</th>
+                  <th className="text-left px-2 py-2 font-semibold whitespace-nowrap min-w-[110px]" title="Phòng ban Samsung order">Department</th>
+                  <th className="text-left px-2 py-2 font-semibold whitespace-nowrap min-w-[110px]" title="Nhân viên ERP báo giá mã này (auto-tracked)">Người PT</th>
                   <th className="text-left px-2 py-2 font-semibold whitespace-nowrap">Ngày</th>
                   <th className="text-left px-2 py-2 font-semibold whitespace-nowrap">Hạn BG</th>
                   <th className="text-center px-2 py-2 font-semibold whitespace-nowrap">D-N</th>
@@ -2307,14 +3133,14 @@ export default function BQMSPage() {
                       <div className="flex flex-col items-center gap-2 text-slate-300">
                         <Inbox className="h-10 w-10" />
                         <p className="text-sm text-slate-400">Không có dữ liệu phù hợp</p>
-                        {(search || resultFilter !== 'all' || sourceFilter !== 'all' || loaiHangFilter !== 'all' || year || month) && (
+                        {(search || resultFilter !== 'all' || sourceFilter !== 'all' || loaiHangFilter !== 'all' || roundFilter !== 'all' || year || month) && (
                           <button
                             onClick={() => {
                               setSearch('');
-                              setSearchInput('');
                               setResultFilter('all');
                               setSourceFilter('all');
                               setLoaiHangFilter('all');
+                              setRoundFilter('all');
                               setYear(null);
                               setMonth(null);
                               setPage(1);
@@ -2361,6 +3187,12 @@ export default function BQMSPage() {
                                 ? quoteFromBqmsMutation.variables
                                 : null
                             }
+                            quoteDrillingIds={drillingIds}
+                            canPushBidding={canPushBidding}
+                            selectedRfqIds={selectedRfqIds}
+                            isSelectable={isSelectable}
+                            onToggleSelect={toggleSelectRfq}
+                            onToggleSelectMonth={toggleSelectMonth}
                           />
                         );
                       })
@@ -2390,6 +3222,11 @@ export default function BQMSPage() {
                                 ? quoteFromBqmsMutation.variables
                                 : null
                             }
+                            quoteDrillingIds={drillingIds}
+                            canPushBidding={canPushBidding}
+                            isSelected={selectedRfqIds.has(item.id)}
+                            isPushable={isSelectable(item)}
+                            onToggleSelect={toggleSelectRfq}
                           />
                         );
                       })}
@@ -2458,16 +3295,20 @@ export default function BQMSPage() {
             quoteFromBqmsMutation.mutate(sid);
             setDrawerItem(null);
           }}
-          onPushToSec={(rid) => {
-            setPushToSecRfqId(rid);
+          onPushToSec={(rid, initialRound) => {
+            setPushToSecRfqId(rid, initialRound);
             setDrawerItem(null);
           }}
         />
       )}
 
-      {/* Push to SEC modal */}
-      {pushToSecRfqId != null && (
-        <PushToSecModal rfqId={pushToSecRfqId} onClose={() => setPushToSecRfqId(null)} />
+      {/* Push to SEC modal — initialRound từ scenario classification (TH1→V1, TH2→V2, TH3→tiếp theo) */}
+      {pushToSecState != null && (
+        <PushToSecModal
+          rfqId={pushToSecState.rfqId}
+          initialRound={pushToSecState.initialRound}
+          onClose={() => setPushToSecState(null)}
+        />
       )}
 
       {/* Push progress popup — auto-open khi có job running */}
@@ -2475,6 +3316,31 @@ export default function BQMSPage() {
 
       {/* Push queue widget — fixed bottom-right */}
       <PushQueueWidget onClickRfq={(id) => setPushToSecRfqId(id)} />
+
+      {/* Gửi mã BQMS sang đấu thầu NCC — tái dùng modal /sourcing (Thang 2026-06-28) */}
+      {pushBiddingIds && pushBiddingIds.length > 0 && (
+        <PushToBiddingModal
+          source="bqms"
+          ids={pushBiddingIds}
+          onClose={() => setPushBiddingIds(null)}
+          onDone={() => {
+            setSelectedRfqIds(new Set());
+            setPushBiddingIds(null);
+          }}
+        />
+      )}
+
+      {/* Đẩy NHIỀU mã lên SEC lần lượt (Thang 2026-06-29) */}
+      {batchPushSecIds && batchPushSecIds.length > 0 && (
+        <BatchPushSecModal
+          rfqIds={batchPushSecIds}
+          onClose={() => setBatchPushSecIds(null)}
+          onDone={() => {
+            setSelectedRfqIds(new Set());
+            setBatchPushSecIds(null);
+          }}
+        />
+      )}
     </div>
   );
 }
@@ -2498,6 +3364,13 @@ function MonthGroupSection({
   onQuoteFromBqms,
   quoteFromBqmsPending,
   quoteFromBqmsRowId,
+  quoteDrillingIds,
+  // Gửi đấu thầu NCC (Thang 2026-06-28)
+  canPushBidding,
+  selectedRfqIds,
+  isSelectable,
+  onToggleSelect,
+  onToggleSelectMonth,
 }: {
   summary: MonthSummary;
   items: RFQItem[];
@@ -2515,10 +3388,33 @@ function MonthGroupSection({
   onQuoteFromBqms?: (stagingId: number) => void;
   quoteFromBqmsPending?: boolean;
   quoteFromBqmsRowId?: number | null;
+  quoteDrillingIds?: Set<number>;
+  canPushBidding?: boolean;
+  selectedRfqIds?: Set<number>;
+  isSelectable?: (it: RFQItem) => boolean;
+  onToggleSelect?: (id: number) => void;
+  onToggleSelectMonth?: (ids: number[], select: boolean) => void;
 }) {
+  // QĐ-3: trạng thái checkbox header — chỉ tính trên mã GỬI-ĐƯỢC của nhóm.
+  // Mã disabled (won/lost/closed/thiếu bqms_code) KHÔNG vào tử/mẫu → "chọn tất
+  // cả" không bao giờ kẹt indeterminate.
+  const pushableIds = isSelectable ? items.filter(isSelectable).map((it) => it.id) : [];
+  const selectedInGroup = pushableIds.filter((id) => selectedRfqIds?.has(id)).length;
+  const allChecked = pushableIds.length > 0 && selectedInGroup === pushableIds.length;
+  const someChecked = selectedInGroup > 0 && !allChecked;
+
   return (
     <>
-      <MonthGroupHeader summary={summary} collapsed={collapsed} onToggle={onToggle} />
+      <MonthGroupHeader
+        summary={summary}
+        collapsed={collapsed}
+        onToggle={onToggle}
+        canPushBidding={canPushBidding}
+        pushableIds={pushableIds}
+        allChecked={allChecked}
+        someChecked={someChecked}
+        onToggleSelectMonth={onToggleSelectMonth}
+      />
       {!collapsed &&
         items.map((item, idx) => {
           const urgency = getUrgency(item);
@@ -2537,9 +3433,14 @@ function MonthGroupSection({
               onQuoteFromBqms={onQuoteFromBqms}
               quoteFromBqmsPending={quoteFromBqmsPending}
               quoteFromBqmsRowId={quoteFromBqmsRowId}
+              quoteDrillingIds={quoteDrillingIds}
               onCancelCell={onCancelCell}
               pageYear={pageYear}
               pageMonth={pageMonth}
+              canPushBidding={canPushBidding}
+              isSelected={selectedRfqIds?.has(item.id)}
+              isPushable={isSelectable ? isSelectable(item) : false}
+              onToggleSelect={onToggleSelect}
             />
           );
         })}
@@ -2564,6 +3465,12 @@ function DataRow({
   onQuoteFromBqms,
   quoteFromBqmsPending,
   quoteFromBqmsRowId,
+  quoteDrillingIds,
+  // Gửi đấu thầu NCC (Thang 2026-06-28)
+  canPushBidding,
+  isSelected,
+  isPushable,
+  onToggleSelect,
 }: {
   item: RFQItem;
   idx: number;
@@ -2579,13 +3486,29 @@ function DataRow({
   onQuoteFromBqms?: (stagingId: number) => void;
   quoteFromBqmsPending?: boolean;
   quoteFromBqmsRowId?: number | null;
+  quoteDrillingIds?: Set<number>;
+  canPushBidding?: boolean;
+  isSelected?: boolean;
+  isPushable?: boolean;
+  onToggleSelect?: (id: number) => void;
 }) {
   const isPending = !!item.is_pending;
-  const isQuotingThis = isPending && quoteFromBqmsPending && quoteFromBqmsRowId === item.staging_id;
+  // Thang 2026-06-23: nút Báo giá hiện cho cả 2 case: is_pending (staging chưa
+  // có bqms_rfq) VÀ row đã upsert nhưng quote_unlocked=false → spinner phải bám
+  // cả 2. Bỏ điều kiện `isPending` cũ (làm row locked không bao giờ hiện spinner).
+  const canQuoteThisRow = isPending || item.quote_unlocked === false
+    || (!isLiveClosed(item.deadline_dt, item.result) && item.quote_unlocked !== true);
+  // ON-DEMAND DRILL state cho row này (BE đang tải chi tiết RFQ từ Samsung).
+  const isDrillingThis = item.staging_id != null && !!quoteDrillingIds?.has(item.staging_id);
+  // "Đang gọi /quote" tức thì cho ĐÚNG row (per-row, KHÔNG disable toàn cục).
+  const isQuotingThis =
+    canQuoteThisRow && quoteFromBqmsPending && quoteFromBqmsRowId === item.staging_id;
+  // Trạng thái bận tổng hợp của row (spinner + chặn double-click CHỈ row này).
+  const isRowBusy = isDrillingThis || isQuotingThis;
   const dateStr = item.effective_date ?? item.inquiry_date ?? item.created_at ?? '';
 
   // Row tint per Thang 2026-05-11:
-  //   pending (chưa báo)  → violet
+  //   pending (chưa báo)  → amber
   //   V1 đã set           → blue tint
   //   V2 đã set           → cyan tint
   //   V3+ đã set          → teal/emerald
@@ -2610,9 +3533,9 @@ function DataRow({
     rowTintHover = 'hover:bg-slate-100';
     stickyBg = 'bg-slate-100/60'; stickyBgHover = 'group-hover:bg-slate-100';
   } else if (isPending) {
-    rowTint = 'bg-violet-50/50';
-    rowTintHover = 'hover:bg-violet-100/50';
-    stickyBg = 'bg-violet-50/50'; stickyBgHover = 'group-hover:bg-violet-100/50';
+    rowTint = 'bg-amber-50/50';
+    rowTintHover = 'hover:bg-amber-100/50';
+    stickyBg = 'bg-amber-50/50'; stickyBgHover = 'group-hover:bg-amber-100/50';
   } else if (item.quoted_price_bqms_v3 != null || item.quoted_price_bqms_v4 != null) {
     rowTint = 'bg-teal-50/50';
     rowTintHover = 'hover:bg-teal-100/50';
@@ -2626,6 +3549,17 @@ function DataRow({
     rowTintHover = 'hover:bg-blue-100/50';
     stickyBg = 'bg-blue-50/40'; stickyBgHover = 'group-hover:bg-blue-100/50';
   }
+  // Round-2 urgency override (Thang 2026-05-18): is_round2_24h gets cam highlight
+  // Overrides any other tint to make it pop visually.
+  if (item.is_round2_24h) {
+    rowTint = 'bg-orange-100/80 ring-2 ring-orange-300 ring-inset';
+    rowTintHover = 'hover:bg-orange-200/80';
+    stickyBg = 'bg-orange-100/80'; stickyBgHover = 'group-hover:bg-orange-200/80';
+  } else if (item.is_round2_priority) {
+    // Round-2 priority but >24h old → softer amber border
+    rowTint = cn(rowTint || 'bg-amber-50/40', 'border-l-4 border-amber-400');
+    rowTintHover = rowTintHover || 'hover:bg-amber-100/40';
+  }
   if (isExpanded) {
     rowTint = 'bg-brand-50/60';
     rowTintHover = '';
@@ -2637,7 +3571,7 @@ function DataRow({
       <tr
         onClick={() => onRowClick(item.id)}
         className={cn(
-          'border-b border-slate-100 transition-colors cursor-pointer text-[11px] group',
+          'border-b border-slate-100 transition-colors cursor-pointer text-[13px] group',
           rowTint || 'hover:bg-slate-50/70',
           rowTintHover,
           urgency === 'red' && !rowTint ? 'bg-red-50/30' : '',
@@ -2653,28 +3587,62 @@ function DataRow({
           'px-2 py-1.5 text-center whitespace-nowrap w-24 sticky left-0 z-10',
           stickyBg, stickyBgHover,
         )} onClick={(e) => e.stopPropagation()}>
-          {(isPending || item.quote_unlocked === false) && item.staging_id != null ? (
-            <button
-              type="button"
-              onClick={() => onQuoteFromBqms?.(item.staging_id!)}
-              disabled={!!quoteFromBqmsPending}
-              className={cn(
-                'inline-flex items-center gap-1 px-2 py-1 rounded text-[10px] font-semibold transition-all',
-                isQuotingThis
-                  ? 'bg-amber-200 text-amber-800 cursor-wait'
-                  : 'bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-50'
-              )}
-              title="Mở khoá V1-V4 + assign về user. Drill/download/ảnh do cron tự lo ngầm."
-            >
-              {isQuotingThis ? (
-                <><Loader2 className="h-3 w-3 animate-spin" />Đang...</>
-              ) : (
-                <><CheckCircle2 className="h-3 w-3" />Báo giá</>
-              )}
-            </button>
-          ) : (
-            <span className="text-slate-300 text-[10px]">—</span>
-          )}
+          <div className="flex items-center justify-center gap-1.5">
+            {/* Checkbox gửi đấu thầu NCC — chỉ render khi đủ quyền (QĐ-1).
+                Disabled nếu mã đã có kết quả / thiếu bqms_code (QĐ-2). Nằm TRONG
+                td đã có onClick stopPropagation → click không mở row-detail. */}
+            {canPushBidding && (
+              <input
+                type="checkbox"
+                className="h-4 w-4 shrink-0 rounded border-slate-300 accent-brand-600 cursor-pointer disabled:cursor-not-allowed disabled:opacity-40"
+                checked={!!isSelected}
+                disabled={!isPushable}
+                onChange={() => onToggleSelect?.(item.id)}
+                aria-label={`Chọn RFQ ${item.rfq_number ?? item.bqms_code ?? item.id} để gửi đấu thầu`}
+                title={
+                  isPushable
+                    ? 'Chọn để gửi đấu thầu NCC'
+                    : !item.bqms_code
+                      ? 'Mã chưa có bqms_code — không gửi được'
+                      : 'Mã đã có kết quả — không gửi đấu thầu'
+                }
+              />
+            )}
+            {canQuoteThisRow && item.staging_id != null ? (
+              <button
+                type="button"
+                // Thang 2026-06-23: disable CHỈ khi ĐÚNG row này đang bận
+                // (isRowBusy) — KHÔNG còn disable toàn cục `quoteFromBqmsPending`
+                // (cũ: 1 row báo giá thì mọi nút khác đông cứng → "lúc được lúc
+                // không").
+                onClick={() => onQuoteFromBqms?.(item.staging_id!)}
+                disabled={isRowBusy}
+                className={cn(
+                  'inline-flex items-center gap-1 px-2 py-1 rounded text-[11px] font-semibold transition-all',
+                  isDrillingThis
+                    ? 'bg-sky-200 text-sky-800 cursor-wait'
+                    : isQuotingThis
+                      ? 'bg-amber-200 text-amber-800 cursor-wait'
+                      : 'bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-50'
+                )}
+                title={
+                  isDrillingThis
+                    ? 'Đang tải chi tiết RFQ từ Samsung… nút sẽ tự mở khoá khi xong.'
+                    : 'Mở khoá V1-V4 + assign về user. Nếu RFQ chưa có chi tiết, hệ thống tự tải rồi mở khoá.'
+                }
+              >
+                {isDrillingThis ? (
+                  <><Loader2 className="h-3 w-3 animate-spin" />Đang tải…</>
+                ) : isQuotingThis ? (
+                  <><Loader2 className="h-3 w-3 animate-spin" />Đang...</>
+                ) : (
+                  <><CheckCircle2 className="h-3 w-3" />Báo giá</>
+                )}
+              </button>
+            ) : (
+              <span className="text-slate-300 text-[11px]">—</span>
+            )}
+          </div>
         </td>
 
         {/* ● Status dot — color-only, no text. Per Thang 2026-05-11. */}
@@ -2685,12 +3653,13 @@ function DataRow({
           <StatusDot item={item} />
         </td>
 
-        {/* # */}
+        {/* Ngày đẩy — Thang 2026-06-15 (Batch 2f): thay cột STT "#".
+            Ưu tiên bqms_pushed_at; fallback created_at → reg_dt; "—" nếu trống. */}
         <td className={cn(
-          'px-2 py-1.5 text-center text-slate-400 tabular-nums w-8 select-none sticky left-[124px] z-10',
+          'px-2 py-1.5 text-center text-slate-500 whitespace-nowrap sticky left-[124px] z-10',
           stickyBg, stickyBgHover,
         )}>
-          {idx}
+          {fmtDateShort(item.bqms_pushed_at) ?? fmtDateShort(item.created_at) ?? fmtDateShort(item.reg_dt) ?? '—'}
         </td>
 
         {/* RFQ */}
@@ -2700,15 +3669,44 @@ function DataRow({
         )}>
           <div className="flex items-center gap-1">
             <span className="font-mono text-brand-600 font-semibold">{item.rfq_number ?? '—'}</span>
+            {/* Smart scenario badge (TH1/TH2/TH3) — overrides plain V{version} */}
+            {item.scenario && item.scenario_meta && (
+              <span
+                className={cn(
+                  'inline-flex items-center px-1.5 py-0 text-[11px] font-bold rounded',
+                  item.scenario_meta.badge_color === 'emerald' && 'bg-emerald-100 text-emerald-700',
+                  item.scenario_meta.badge_color === 'amber' && 'bg-amber-100 text-amber-700',
+                  item.scenario_meta.badge_color === 'violet' && 'bg-brand-100 text-brand-700',
+                )}
+                title={item.scenario_meta.tooltip}>
+                {item.scenario_meta.label}
+              </span>
+            )}
             {item.version && item.version > 1 && (
-              <span className="inline-flex items-center px-1 py-0 text-[9px] font-bold rounded bg-orange-100 text-orange-700"
-                title={`Vòng ${item.version}`}>
+              <span className="inline-flex items-center px-1 py-0 text-[11px] font-bold rounded bg-orange-100 text-orange-700"
+                title={`Samsung vòng ${item.version}`}>
                 V{item.version}
               </span>
             )}
-            {item.data_source === 'etl' && (
-              <span className="inline-flex items-center px-1 py-0 text-[9px] font-bold rounded bg-indigo-100 text-indigo-700"
-                title="Vendor Portal">VP</span>
+            {/* Issue B (Thang 2026-06-19): V-round push state pill — only
+                renders when the RFQ has been pushed at least once. Tooltip
+                lists all V1..V4 prices for quick scan. */}
+            <PushRoundBadge
+              round={item.bqms_pushed_round ?? null}
+              state={item.bqms_push_status ?? null}
+              pricesV={[
+                item.quoted_price_bqms_v1,
+                item.quoted_price_bqms_v2,
+                item.quoted_price_bqms_v3,
+                item.quoted_price_bqms_v4,
+              ]}
+              pushedAt={item.bqms_pushed_at ?? null}
+            />
+            {item.is_round2_24h && (
+              <span className="inline-flex items-center px-1.5 py-0 text-[11px] font-bold rounded bg-orange-500 text-white animate-pulse"
+                title={`Samsung mời round ${item.version ?? 2} trong 24h gần nhất — báo giá sớm!`}>
+                🔔 MỚI
+              </span>
             )}
           </div>
         </td>
@@ -2742,7 +3740,7 @@ function DataRow({
                 </div>
               )}
               {item.specification && (
-                <div className="text-slate-500 truncate text-[10px]" title={item.specification}>
+                <div className="text-slate-500 truncate text-[11px]" title={item.specification}>
                   {item.specification}
                 </div>
               )}
@@ -2770,7 +3768,7 @@ function DataRow({
             />
           ) : item.classification ? (
             <span className={cn(
-              'inline-flex px-1.5 py-0 text-[9px] font-bold rounded border',
+              'inline-flex px-1.5 py-0 text-[11px] font-bold rounded border',
               item.classification.toUpperCase() === 'GC'
                 ? 'bg-orange-100 text-orange-700 border-orange-200'
                 : 'bg-blue-50 text-blue-700 border-blue-200'
@@ -2797,12 +3795,12 @@ function DataRow({
         </td>
 
         {/* CIS */}
-        <td className="px-2 py-1.5 font-mono text-[10px] text-slate-500">
+        <td className="px-2 py-1.5 font-mono text-[11px] text-slate-500">
           {item.first_cis_code ?? '—'}
         </td>
 
         {/* Part No */}
-        <td className="px-2 py-1.5 max-w-[120px] truncate font-mono text-[10px] text-slate-500"
+        <td className="px-2 py-1.5 max-w-[120px] truncate font-mono text-[11px] text-slate-500"
             title={item.first_part_no ?? ''}>
           {item.first_part_no ?? '—'}
         </td>
@@ -2815,7 +3813,7 @@ function DataRow({
         {/* Department (Phase 2 — từ xlsx Basic Information) */}
         <td className="px-2 py-1.5 max-w-[100px] whitespace-nowrap">
           {item.department ? (
-            <span className="inline-block px-1.5 py-0.5 rounded text-[10px] font-medium bg-indigo-50 text-indigo-700 truncate max-w-[90px]" title={item.department}>
+            <span className="inline-block px-1.5 py-0.5 rounded text-[11px] font-medium bg-slate-100 text-slate-700 truncate max-w-[90px]" title={item.department}>
               {item.department}
             </span>
           ) : (
@@ -2837,23 +3835,24 @@ function DataRow({
         </td>
 
         {/* Hạn BG */}
-        <td className="px-2 py-1.5 text-slate-600 whitespace-nowrap text-[10px]">
+        <td className="px-2 py-1.5 text-slate-600 whitespace-nowrap text-[11px]">
           {fmtDeadline(item.deadline_dt)}
         </td>
 
-        {/* D-Day badge */}
+        {/* D-N countdown — computed LIVE from deadline_dt (auto counts down,
+            quá hạn → Closed). dday_html kept only as fallback. */}
         <td className="px-2 py-1.5 text-center whitespace-nowrap">
-          {ddayBadge(item.dday_html)}
+          {ddayBadge(item.deadline_dt, item.result, item.dday_html)}
         </td>
 
         {/* #Items */}
         <td className="px-2 py-1.5 text-right tabular-nums">
           {item.items_count != null && item.items_count > 0 ? (
-            <span className="inline-flex items-center px-1.5 py-0 text-[10px] font-bold rounded bg-indigo-100 text-indigo-700">
+            <span className="inline-flex items-center px-1.5 py-0 text-[11px] font-bold rounded bg-slate-100 text-slate-700">
               {item.items_count}
             </span>
           ) : item.detail_error ? (
-            <span className="text-red-400 text-[10px]" title={item.detail_error}>err</span>
+            <span className="text-red-400 text-[11px]" title={item.detail_error}>err</span>
           ) : <span className="text-slate-300">—</span>}
         </td>
 
@@ -2939,7 +3938,7 @@ function ClassificationCell({
         onClick={() => setOpen(v => !v)}
         disabled={saving}
         className={cn(
-          'inline-flex items-center gap-0.5 px-1.5 py-0 text-[9px] font-bold rounded border hover:ring-1 hover:ring-slate-400 transition-all',
+          'inline-flex items-center gap-0.5 px-1.5 py-0 text-[11px] font-bold rounded border hover:ring-1 hover:ring-slate-400 transition-all',
           !cur
             ? 'bg-slate-100 text-slate-400 border-slate-200'
             : cur === 'GC'
@@ -2958,17 +3957,17 @@ function ClassificationCell({
             <button
               type="button"
               onClick={() => handleSet('TM')}
-              className="text-left px-2 py-1 rounded hover:bg-blue-50 text-[10px] font-semibold text-blue-700"
+              className="text-left px-2 py-1 rounded hover:bg-blue-50 text-[11px] font-semibold text-blue-700"
             >TM (Thương mại)</button>
             <button
               type="button"
               onClick={() => handleSet('GC')}
-              className="text-left px-2 py-1 rounded hover:bg-orange-50 text-[10px] font-semibold text-orange-700"
+              className="text-left px-2 py-1 rounded hover:bg-orange-50 text-[11px] font-semibold text-orange-700"
             >GC (Gia công)</button>
             <button
               type="button"
               onClick={() => handleSet(null)}
-              className="text-left px-2 py-1 rounded hover:bg-slate-100 text-[10px] text-slate-600 border-t border-slate-100 mt-0.5 pt-1.5"
+              className="text-left px-2 py-1 rounded hover:bg-slate-100 text-[11px] text-slate-600 border-t border-slate-100 mt-0.5 pt-1.5"
             >↻ Auto-detect{autoValue ? ` (${autoValue})` : ''}</button>
           </div>
         </>
@@ -3041,7 +4040,11 @@ function ScrollableTableWrapper({ children }: { children: React.ReactNode }) {
         <div style={{ width: innerWidth, height: 1 }} />
       </div>
 
-      {/* Main scrollable table */}
+      {/* Main scrollable table — Thang 2026-06-13 (Bug fix T5): CSS Overflow
+          Level 3 says `overflow-x: auto; overflow-y: visible` computes to
+          `overflow: auto auto`, silently clipping the sticky <thead>. Fix:
+          declare ONLY overflow-x-auto so the Y axis stays the default
+          (visible) and sticky attaches to the actual viewport scroller. */}
       <div
         ref={mainRef}
         onScroll={syncFromMain}
@@ -3052,6 +4055,56 @@ function ScrollableTableWrapper({ children }: { children: React.ReactNode }) {
           {children}
         </div>
       </div>
+    </div>
+  );
+}
+
+// ─── ResultMarkControl — segmented Thắng/Thua/Đang chờ (Tính năng A) ─────────
+//
+// Thang: 2629 RFQ 'closed' chưa ghi thắng/thua → chặn dự đoán %thắng. Cho user
+// nội bộ đánh dấu kết quả 1 RFQ. Gọi PATCH /rfq/{id}/result rồi invalidate table.
+function ResultMarkControl({ rfqId, current }: { rfqId: number; current: string | null }) {
+  const queryClient = useQueryClient();
+  const [saving, setSaving] = useState<string | null>(null);
+  const cur = (current ?? '').toLowerCase();
+
+  const mark = async (val: 'won' | 'lost' | 'pending') => {
+    if (val === cur) return;
+    setSaving(val);
+    try {
+      await api.patch(`/api/v1/bqms/rfq/${rfqId}/result`, { result: val });
+      toast.success(val === 'won' ? 'Đã đánh dấu Thắng' : val === 'lost' ? 'Đã đánh dấu Thua' : 'Đã chuyển Đang chờ');
+      queryClient.invalidateQueries({ queryKey: ['bqms-rfq-table'] });
+    } catch (e: any) {
+      toast.error(`Lỗi: ${e?.detail ?? e?.message ?? 'Unknown'}`);
+    } finally {
+      setSaving(null);
+    }
+  };
+
+  const opts: { val: 'won' | 'lost' | 'pending'; label: string; on: string }[] = [
+    { val: 'won', label: 'Thắng', on: 'bg-emerald-500 text-white' },
+    { val: 'lost', label: 'Thua', on: 'bg-rose-500 text-white' },
+    { val: 'pending', label: 'Đang chờ', on: 'bg-amber-400 text-amber-950' },
+  ];
+
+  return (
+    <div className="inline-flex items-center rounded-lg overflow-hidden border border-white/30 bg-white/10">
+      {opts.map((o) => (
+        <button
+          key={o.val}
+          type="button"
+          onClick={() => mark(o.val)}
+          disabled={saving != null}
+          className={cn(
+            'px-2.5 py-1.5 text-xs font-semibold transition-all disabled:opacity-60',
+            cur === o.val ? o.on : 'text-white hover:bg-white/20',
+          )}
+          title={`Đánh dấu kết quả = ${o.label}`}
+        >
+          {saving === o.val ? '…' : o.label}
+        </button>
+      ))}
     </div>
   );
 }
@@ -3077,9 +4130,14 @@ function DetailDrawer({
   item: RFQItem;
   onClose: () => void;
   onQuoteFromBqms?: (stagingId: number) => void;
-  onPushToSec?: (rfqId: number) => void;
+  onPushToSec?: (rfqId: number, initialRound: number) => void;
 }) {
   const queryClient = useQueryClient();
+  // BQMS polish 1 (Thang 2026-06-13): warehouse role doesn't have permission
+  // to push to SEC (backend rbac.py only allows admin|manager|staff|sales).
+  // Hide the button for warehouse users so they don't get a 403 toast on click.
+  const userRole = useUserRole();
+  const canPushToSec = userRole !== 'warehouse';
   // ESC to close (must be useEffect, not useState — useState's initializer
   // returns nothing usable for cleanup).
   useEffect(() => {
@@ -3093,6 +4151,9 @@ function DetailDrawer({
   const isPending = !!item.is_pending;
   // GC wizard state — null = closed, n = open for round n.
   const [wizardRound, setWizardRound] = useState<number | null>(null);
+  // TM wizard state (Thang 2026-05-15): preview/edit form for TM `+ L{n}` button.
+  const [tmWizardRound, setTmWizardRound] = useState<number | null>(null);
+  const [tmWizardInitialPrice, setTmWizardInitialPrice] = useState<number | null>(null);
   // Phase F (Thang 2026-05-13): loading state cho TM L1/L2/L3/L4 buttons.
   // Trước đây đặt nhầm trong DataRow → L-button trong DetailDrawer reference
   // tới biến không tồn tại → ReferenceError crash trang.
@@ -3152,34 +4213,50 @@ function DetailDrawer({
         }}
       />
     )}
+    {tmWizardRound != null && item.rfq_number && (
+      <TmQuoteWizard
+        rfqId={item.id}
+        rfqNumber={item.rfq_number}
+        roundN={tmWizardRound}
+        initialPrice={tmWizardInitialPrice}
+        onClose={() => { setTmWizardRound(null); setTmWizardInitialPrice(null); }}
+        onSuccess={(res) => {
+          const fileCount = res?.files?.length ?? 0;
+          toast.success(`✅ Đã tạo ${fileCount} file báo giá TM lần ${tmWizardRound} cho ${item.rfq_number}`, { duration: 6000 });
+          setTmWizardRound(null);
+          setTmWizardInitialPrice(null);
+          queryClient.invalidateQueries({ queryKey: ['bqms-rfq-table'] });
+          queryClient.invalidateQueries({ queryKey: ['rfq-history', item.id] });
+          queryClient.invalidateQueries({ queryKey: ['rfq-folder', item.rfq_number] });
+        }}
+      />
+    )}
     <div className="fixed inset-0 z-50 flex justify-end" onClick={onClose}>
       {/* Backdrop */}
       <div className="absolute inset-0 bg-black/40 backdrop-blur-[1px]" />
 
-      {/* Drawer */}
+      {/* Drawer — Thang 2026-06-01: rộng hơn (4xl=896px / 5xl=1024px xl)
+          + body text-sm thay vì text-xs, để hiển thông tin gọn không phải
+          scroll dài + font dễ đọc hơn. */}
       <div
-        className="relative w-full max-w-2xl bg-white h-full overflow-y-auto shadow-2xl"
+        className="relative w-full max-w-2xl lg:max-w-4xl xl:max-w-5xl bg-white h-full overflow-y-auto shadow-2xl"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
-        <div className="sticky top-0 z-10 bg-gradient-to-br from-brand-600 to-indigo-600 text-white px-5 py-4 shadow-md">
+        <div className="sticky top-0 z-10 bg-gradient-to-br from-brand-600 to-brand-700 text-white px-5 py-4 shadow-md">
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
               <div className="flex items-center gap-2 mb-1">
                 <StatusDot item={item} />
                 <span className="font-mono font-bold text-base">{item.rfq_number ?? '—'}</span>
                 {item.version && item.version > 1 && (
-                  <span className="px-1.5 py-0 text-[10px] font-bold rounded bg-white/20">V{item.version}</span>
+                  <span className="px-1.5 py-0 text-[11px] font-bold rounded bg-white/20">V{item.version}</span>
                 )}
                 {item.classification && (
-                  <span className={cn(
-                    'px-1.5 py-0 text-[10px] font-bold rounded',
-                    item.classification.toUpperCase() === 'GC'
-                      ? 'bg-orange-300/40 text-orange-50' : 'bg-blue-300/40 text-blue-50'
-                  )}>{item.classification.toUpperCase()}</span>
+                  <span className="px-1.5 py-0 text-[11px] font-bold rounded bg-white/15 text-white">{item.classification.toUpperCase()}</span>
                 )}
                 {isPending && (
-                  <span className="px-1.5 py-0 text-[10px] font-bold rounded bg-violet-200/40 text-white">
+                  <span className="px-1.5 py-0 text-[11px] font-bold rounded bg-white/15 text-white">
                     Chờ báo
                   </span>
                 )}
@@ -3208,16 +4285,58 @@ function DetailDrawer({
                 Báo giá ngay
               </button>
             )}
-            {/* Push to SEC — Thang 2026-05-14. Hiện khi đã quote V1 trong ERP */}
-            {!isPending && item.quote_unlocked === true && item.quoted_price_bqms_v1 != null && onPushToSec && (
-              <button
-                onClick={() => onPushToSec(item.id)}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold bg-gradient-to-r from-indigo-500 to-pink-500 text-white hover:from-indigo-600 hover:to-pink-600 shadow-md hover:shadow-lg active:scale-95 transition-all"
-                title="Đẩy báo giá lên sec-bqms.com (Save Temporarily)"
-              >
-                🚀 Đẩy lên SEC
-              </button>
-            )}
+            {/* Push to SEC — Thang 2026-05-14 (button text fix 2026-05-20).
+                Hiện khi quote_unlocked AND có BẤT KỲ V nào filled.
+                initialRound = pushable_round (HIGHEST filled V — round user vừa báo).
+                Trước đây dùng scenario_default_round → user báo V1 xong nút lại
+                hiện V2 vì TH3.scenario_default_round = max(2, ...). Đã sửa.
+
+                Thang 2026-06-04 (BUG B): defensive frontend backup for backend
+                Option A (bqms_dedup CTE). Backend now reliably returns
+                quote_unlocked=true on the winning twin, but we also accept
+                rows whose bqms_push_status='saved_temp' so a re-push after
+                round 2-4 still surfaces the button even if a later relock
+                slipped through (shadow twin or migration not yet applied). */}
+            {!isPending && onPushToSec && canPushToSec && (() => {
+              const filled = [
+                item.quoted_price_bqms_v1,
+                item.quoted_price_bqms_v2,
+                item.quoted_price_bqms_v3,
+                item.quoted_price_bqms_v4,
+              ];
+              if (filled.every((v) => v == null)) return null;
+              // Thang 2026-06-13 (Bug fix T2): if any V is filled (real
+              // price in DB) → allow push regardless of quote_unlocked.
+              // The dedup CTE sometimes shadows the priced twin with an
+              // unfilled twin (quote_unlocked=false), so previously the
+              // Push button vanished even when V1 had a price. Defensive:
+              // any filled V → user already quoted → push is valid.
+              //
+              // Dead branch removed: previously this read
+              //   const unlocked = item.quote_unlocked === true;
+              //   const previouslyPushed = item.bqms_push_status === 'saved_temp';
+              //   const anyVFilled = filled.some((v) => v != null);
+              //   if (!unlocked && !previouslyPushed && !anyVFilled) return null;
+              // but `filled.every(v => v == null)` already returned above,
+              // so anyVFilled is necessarily true here, making the whole
+              // condition unreachable.
+              // Compute pushable round defensively even if backend hasn't shipped yet
+              const computedRound = item.pushable_round ?? (
+                item.quoted_price_bqms_v4 != null ? 4 :
+                item.quoted_price_bqms_v3 != null ? 3 :
+                item.quoted_price_bqms_v2 != null ? 2 :
+                item.quoted_price_bqms_v1 != null ? 1 : 1
+              );
+              return (
+                <button
+                  onClick={() => onPushToSec(item.id, computedRound)}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold bg-brand-600 text-white hover:bg-brand-700 shadow-md hover:shadow-lg active:scale-95 transition-all"
+                  title={`Đẩy báo giá V${computedRound} lên sec-bqms.com (Save Temporarily) — round có thể đổi trong modal`}
+                >
+                  🚀 Đẩy lên SEC V{computedRound}
+                </button>
+              );
+            })()}
             {item.rfq_number && folder?.folder && (
               <Link
                 href={`/documents/browser?path=${encodeURIComponent(toBrowserPath(folder.folder))}`}
@@ -3273,11 +4392,20 @@ function DetailDrawer({
                 Bỏ skip
               </button>
             )}
+            {/* Đánh dấu Thắng/Thua/Đang chờ — chỉ cho approved rows (đã có bqms_rfq.id).
+                Tính năng A (Thang): 2629 RFQ 'closed' chưa ghi thắng/thua. */}
+            {!isPending && item.id > 0 && (
+              <div className="flex items-center gap-1.5 ml-auto">
+                <span className="text-[11px] text-white/70">Kết quả:</span>
+                <ResultMarkControl rfqId={item.id} current={item.result} />
+              </div>
+            )}
           </div>
         </div>
 
-        {/* Body — Redesigned per Thang 2026-05-12: professional grouped layout */}
-        <div className="p-5 space-y-4 text-xs">
+        {/* Body — Thang 2026-06-01: widen + bump font + 2-col grid lg+. V1-V4
+            timeline (đầu tiên) span full-width, các section còn lại auto 2-col. */}
+        <div className="p-5 lg:p-6 text-[13px] grid grid-cols-1 lg:grid-cols-2 gap-4 [&>*:first-child]:lg:col-span-2">
           {/* === V1→V4 Progress Timeline (chỉ show với approved rows) === */}
           {!isPending && (
             <section className="rounded-xl border border-slate-200 bg-gradient-to-br from-slate-50 to-white p-3.5 shadow-sm">
@@ -3285,10 +4413,10 @@ function DetailDrawer({
                 <h3 className="text-[11px] font-bold uppercase text-slate-700 tracking-wider flex items-center gap-1.5">
                   <TrendingUp className="h-3.5 w-3.5 text-brand-500" /> Lịch sử báo giá
                 </h3>
-                <span className="text-[10px] text-slate-500">
+                <span className="text-[11px] text-slate-500">
                   {item.result === 'won' ? '✓ Trúng'
                   : item.result === 'lost' ? '✗ Trượt'
-                  : item.result === 'closed' ? '⌛ Closed'
+                  : isLiveClosed(item.deadline_dt, item.result) ? '⌛ Closed'
                   : item.result === 'skipped' ? '⊘ Skipped'
                   : '⏳ Đang xử lý'}
                 </span>
@@ -3300,7 +4428,17 @@ function DetailDrawer({
                   const filled = v != null;
                   // Phase H (Thang 2026-05-13): V1-V4 khóa cho tới khi user click "Báo giá".
                   // Scrape tạo row với quote_unlocked=false; click "Báo giá" set =true.
-                  const unlocked = item.quote_unlocked === true;
+                  // Thang 2026-06-13 (Task 2 — V1 hiển thị): nếu bất kỳ V nào đã có giá
+                  // thật → coi row này như unlocked để hiển thị lịch sử + push button,
+                  // tránh trường hợp dedup CTE shadow twin có quote_unlocked=false đè
+                  // mất twin có giá khiến V1 "biến mất" khỏi UI.
+                  const anyVFilled =
+                    item.quoted_price_bqms_v1 != null ||
+                    item.quoted_price_bqms_v2 != null ||
+                    item.quoted_price_bqms_v3 != null ||
+                    item.quoted_price_bqms_v4 != null;
+                  const unlocked = item.quote_unlocked === true || anyVFilled
+                    || !isLiveClosed(item.deadline_dt, item.result);
                   return (
                     <div key={n} className={cn(
                       'rounded-lg border px-2 py-2 text-center transition-all',
@@ -3309,13 +4447,13 @@ function DetailDrawer({
                              : prevSet ? 'border-brand-300 bg-white hover:bg-brand-50/50 hover:shadow-sm'
                                        : 'border-slate-200 bg-slate-50/30 opacity-50'
                     )}>
-                      <div className="text-[9px] uppercase tracking-wider text-slate-400 mb-0.5 font-bold">Vòng {n}</div>
+                      <div className="text-[11px] uppercase tracking-wider text-slate-400 mb-0.5 font-bold">Vòng {n}</div>
                       <div className="font-mono font-bold text-slate-800 tabular-nums text-[13px] leading-tight">
                         {filled ? fmtVnd(v) : <span className="text-slate-300">—</span>}
                       </div>
                       {prevSet && !unlocked && (
                         <div
-                          className="mt-1 w-full inline-flex items-center justify-center gap-0.5 px-1 py-0.5 rounded text-[9px] font-bold bg-slate-200 text-slate-500"
+                          className="mt-1 w-full inline-flex items-center justify-center gap-0.5 px-1 py-0.5 rounded text-[11px] font-bold bg-slate-200 text-slate-500"
                           title="Click 'Báo giá' để mở khoá V1-V4"
                         >
                           🔒 Khoá
@@ -3328,36 +4466,12 @@ function DetailDrawer({
                           onClick={() => {
                             const isGc = (item.classification ?? 'tm').toLowerCase() === 'gc';
                             if (isGc) { setWizardRound(n); return; }
-                            const cur = filled ? String(v) : '';
-                            const input = window.prompt(`Nhập giá V${n} (VND) cho ${item.rfq_number}:`, cur);
-                            if (input == null) return;
-                            const numStr = input.replace(/[^\d.\-]/g, '');
-                            const num = numStr ? Number(numStr) : null;
-                            if (num != null && (isNaN(num) || num < 0)) { window.alert('Giá không hợp lệ'); return; }
-                            const params = new URLSearchParams({ round_n: String(n), flow_type: 'tm' });
-                            if (num != null) params.set('new_price', String(num));
-                            setLoadingRound(n);
-                            toast.info(`Đang tạo file L${n} cho ${item.rfq_number}...`, { duration: 4000 });
-                            api.post(`/api/v1/bqms/rfq/${item.id}/generate-round?${params}`, {})
-                              .then((r: any) => {
-                                const nFiles = r?.data?.files?.length ?? 0;
-                                const errs = r?.data?.errors ?? [];
-                                if (errs.length > 0) {
-                                  toast.warning(`L${n}: ${nFiles} file tạo, ${errs.length} lỗi: ${errs[0]}`, { duration: 8000 });
-                                } else {
-                                  toast.success(`✅ Đã tạo ${nFiles} file V${n} cho ${item.rfq_number}`, { duration: 5000 });
-                                }
-                                queryClient.invalidateQueries({ queryKey: ['bqms-rfq-table'] });
-                                queryClient.invalidateQueries({ queryKey: ['rfq-history', item.id] });
-                              })
-                              .catch((err: any) => {
-                                const msg = err?.response?.data?.detail ?? err?.message ?? 'Unknown';
-                                toast.error(`❌ Lỗi tạo L${n}: ${msg}`, { duration: 10000 });
-                              })
-                              .finally(() => setLoadingRound(null));
+                            // TM: mở form preview/edit (Thang 2026-05-15) thay vì prompt.
+                            setTmWizardInitialPrice(filled ? Number(v) : null);
+                            setTmWizardRound(n);
                           }}
                           className={cn(
-                            'mt-1 w-full inline-flex items-center justify-center gap-0.5 px-1 py-0.5 rounded text-[9px] font-bold transition-colors',
+                            'mt-1 w-full inline-flex items-center justify-center gap-0.5 px-1 py-0.5 rounded text-[11px] font-bold transition-colors',
                             loadingRound === n
                               ? 'bg-amber-200 text-amber-800 cursor-wait'
                               : filled
@@ -3388,7 +4502,7 @@ function DetailDrawer({
                     <FieldRow icon={DollarSign} label="Giá AMA" value={fmtVnd(item.quoted_price_ama)} mono color="slate" />
                   )}
                   {item.supplier_name && (
-                    <FieldRow icon={Factory} label="NCC" value={item.supplier_name} color="indigo" />
+                    <FieldRow icon={Factory} label="NCC" value={item.supplier_name} color="brand" />
                   )}
                 </div>
               )}
@@ -3404,7 +4518,7 @@ function DetailDrawer({
             <div className="space-y-2">
               {item.description && (
                 <div className="bg-slate-50 rounded-lg p-2.5 border-l-2 border-brand-400">
-                  <div className="text-[9px] uppercase tracking-wider text-slate-500 font-semibold mb-0.5">Description</div>
+                  <div className="text-[11px] uppercase tracking-wider text-slate-500 font-semibold mb-0.5">Description</div>
                   <div className="text-[13px] font-semibold text-slate-800">{item.description}</div>
                 </div>
               )}
@@ -3416,7 +4530,7 @@ function DetailDrawer({
               )}
               {item.specification && (
                 <div className="bg-amber-50/40 rounded-lg p-2 border border-amber-100 text-[11px]">
-                  <div className="text-[9px] uppercase tracking-wider text-amber-700 font-bold mb-0.5">Specification</div>
+                  <div className="text-[11px] uppercase tracking-wider text-amber-700 font-bold mb-0.5">Specification</div>
                   <div className="text-slate-800 font-mono leading-relaxed">{item.specification}</div>
                 </div>
               )}
@@ -3434,7 +4548,7 @@ function DetailDrawer({
           {/* === 2. Mã định danh / Identifiers === */}
           <section className="rounded-xl border border-slate-200 bg-white p-3.5 shadow-sm">
             <h3 className="text-[11px] font-bold uppercase text-slate-700 tracking-wider mb-2.5 flex items-center gap-1.5">
-              <Hash className="h-3.5 w-3.5 text-indigo-500" />
+              <Hash className="h-3.5 w-3.5 text-brand-500" />
               Mã định danh
             </h3>
             <div className="grid grid-cols-2 gap-x-3 gap-y-1.5 text-[11px]">
@@ -3454,10 +4568,22 @@ function DetailDrawer({
             <div className="grid grid-cols-2 gap-x-3 gap-y-1.5 text-[11px]">
               <FieldRow icon={Calendar} label="Ngày tạo" value={fmtDateShort(item.reg_dt) ?? (item.inquiry_date ?? item.created_at)?.slice(0, 10)} />
               <FieldRow icon={Clock} label="Hạn BG" value={fmtDeadline(item.deadline_dt)} color="rose" prominent />
-              <FieldRow icon={Clock} label="D-N" value={item.dday_html?.replace(/<[^>]+>/g, '')} color="amber" />
+              <FieldRow
+                icon={Clock}
+                label="D-N"
+                value={isLiveClosed(item.deadline_dt, item.result)
+                  ? 'Closed'
+                  : ddayText(item.deadline_dt, item.dday_html)}
+                color={
+                  isLiveClosed(item.deadline_dt, item.result) ||
+                  ddayText(item.deadline_dt, item.dday_html) === 'Closed'
+                    ? 'slate'
+                    : 'amber'
+                }
+              />
               <FieldRow icon={CheckCircle2} label="Hiện trạng" value={item.bd_status} />
               <FieldRow icon={FileSignature} label="Loại HĐ" value={item.ctr_type_nm} />
-              <FieldRow icon={Layers} label="Detail Version" value={item.detail_version != null ? `V${item.detail_version}` : (item.version ? `V${item.version}` : null)} color="violet" prominent />
+              <FieldRow icon={Layers} label="Detail Version" value={item.detail_version != null ? `V${item.detail_version}` : (item.version ? `V${item.version}` : null)} color="brand" prominent />
             </div>
           </section>
 
@@ -3469,7 +4595,7 @@ function DetailDrawer({
             </h3>
             <div className="grid grid-cols-2 gap-x-3 gap-y-1.5 text-[11px]">
               <FieldRow icon={User2} label="Người PT (ERP)" value={item.assigned_to_name} color="emerald" prominent />
-              <FieldRow icon={Building2} label="Department" value={item.department} color="indigo" />
+              <FieldRow icon={Building2} label="Department" value={item.department} color="slate" />
               <FieldRow icon={User2} label="Requester (Samsung)" value={item.requester} />
               <FieldRow icon={User2} label="Phụ trách Samsung" value={(item.psincharge_name ?? item.person_in_charge_name)?.split('/')[0]} />
               <FieldRow icon={FileText} label="#Items" value={item.items_count != null ? String(item.items_count) : null} />
@@ -3484,8 +4610,16 @@ function DetailDrawer({
 
           {/* Lịch sử giá moved to top of body — redesigned as Progress Timeline */}
 
+          {/* === Lịch sử V-round (Issue B, Thang 2026-06-19) ===
+              Reads from bqms_qt_events ledger via /round-history endpoint.
+              Friendly-degrades to empty-state if migration not yet applied. */}
+          {item.rfq_number && (
+            <RoundHistoryTimeline rfqNumber={item.rfq_number} />
+          )}
+
           {/* === Folder + Images (modern gallery per Thang 2026-05-11) === */}
           <ImageGallerySection
+            rfqId={item.id}
             rfqNumber={item.rfq_number}
             bqmsCode={item.bqms_code}
             folder={folder}
@@ -3503,23 +4637,23 @@ function DetailDrawer({
               File đính kèm
             </h3>
             {folder?.folder && (
-              <div className="bg-slate-50 rounded border border-slate-200 px-3 py-2 font-mono text-[10px] text-slate-700 break-all mb-2">
+              <div className="bg-slate-50 rounded border border-slate-200 px-3 py-2 font-mono text-[11px] text-slate-700 break-all mb-2">
                 {folder.folder}
               </div>
             )}
             {false && folder?.images && folder.images.length > 0 && (
               <div className="mt-3">
-                <div className="text-[10px] text-slate-500 mb-1.5">{folder.images.length} ảnh:</div>
+                <div className="text-[11px] text-slate-500 mb-1.5">{folder.images.length} ảnh:</div>
               </div>
             )}
             {folder?.files && folder.files.length > 0 && (
               <div className="mt-3">
-                <div className="text-[10px] text-slate-500 mb-1.5">{folder.files.length} file đính kèm:</div>
+                <div className="text-[11px] text-slate-500 mb-1.5">{folder.files.length} file đính kèm:</div>
                 <div className="space-y-1">
                   {folder.files.slice(0, 10).map((f) => (
                     <a key={f.name}
                       href={withToken(`/api/v1/bqms/bidding/folder/file?rfq_number=${encodeURIComponent(item.rfq_number ?? '')}&kind=raw&name=${encodeURIComponent(f.name)}`)}
-                      className="flex items-center justify-between px-2 py-1.5 rounded bg-slate-50 hover:bg-slate-100 border border-slate-200 text-[10px]"
+                      className="flex items-center justify-between px-2 py-1.5 rounded bg-slate-50 hover:bg-slate-100 border border-slate-200 text-[11px]"
                     >
                       <span className="font-mono text-slate-700 truncate">{f.name}</span>
                       <span className="text-slate-400 ml-2 flex-shrink-0">{Math.round(f.size / 1024)} KB</span>
@@ -3529,7 +4663,7 @@ function DetailDrawer({
               </div>
             )}
             {(!folder?.exists || (!folder.images?.length && !folder.files?.length)) && (
-              <p className="text-[11px] text-slate-400 italic">Chưa có folder/file. Nhấn "Báo giá" để drill detail + download.</p>
+              <p className="text-[11px] text-slate-400 italic">Chưa có folder/file — cron tự động quét. Dùng nút "Quét ngay" ở mục Ảnh nếu muốn force-drill.</p>
             )}
           </section>
 
@@ -3544,13 +4678,13 @@ function DetailDrawer({
                       <div className="flex items-center gap-2">
                         <span className="font-mono font-bold text-brand-700">#{h.id}</span>
                         <span className={cn(
-                          'px-1.5 py-0 rounded text-[9px] font-semibold',
+                          'px-1.5 py-0 rounded text-[11px] font-semibold',
                           h.status === 'completed' ? 'bg-emerald-100 text-emerald-700'
                           : h.status === 'failed' ? 'bg-red-100 text-red-700'
                           : 'bg-slate-100 text-slate-600'
                         )}>{h.status}</span>
                       </div>
-                      <span className="text-[10px] text-slate-400">
+                      <span className="text-[11px] text-slate-400">
                         {h.created_at ? formatDate(h.created_at) : ''}
                       </span>
                     </div>
@@ -3565,12 +4699,12 @@ function DetailDrawer({
                                 {isPdf
                                   ? <Eye className="h-3 w-3 text-red-600 flex-shrink-0" />
                                   : <FileSpreadsheet className="h-3 w-3 text-green-600 flex-shrink-0" />}
-                                <span className="text-[10px] font-mono text-slate-700 truncate">{f.filename}</span>
+                                <span className="text-[11px] font-mono text-slate-700 truncate">{f.filename}</span>
                               </div>
                               <div className="flex items-center gap-1">
                                 {isPdf && f.preview_url && (
                                   <a href={withToken(f.preview_url)} target="_blank" rel="noopener noreferrer"
-                                    className="px-1.5 py-0.5 rounded bg-red-600 text-white text-[9px] hover:bg-red-700">
+                                    className="px-1.5 py-0.5 rounded bg-red-600 text-white text-[11px] hover:bg-red-700">
                                     Mở
                                   </a>
                                 )}
@@ -3588,13 +4722,13 @@ function DetailDrawer({
                                         window.alert(`Lỗi: ${e?.message ?? 'Unknown'}`);
                                       }
                                     }}
-                                    className="px-1.5 py-0.5 rounded bg-amber-600 text-white text-[9px] hover:bg-amber-700"
+                                    className="px-1.5 py-0.5 rounded bg-amber-600 text-white text-[11px] hover:bg-amber-700"
                                     title="Render lại PDF (sau khi edit Excel)">
                                     Re-PDF
                                   </button>
                                 )}
                                 <a href={withToken(f.download_url)}
-                                  className="px-1.5 py-0.5 rounded bg-brand-600 text-white text-[9px] hover:bg-brand-700">
+                                  className="px-1.5 py-0.5 rounded bg-brand-600 text-white text-[11px] hover:bg-brand-700">
                                   Tải
                                 </a>
                               </div>
@@ -3615,6 +4749,180 @@ function DetailDrawer({
   );
 }
 
+// ─── Rename file / folder — Thang 2026-05-15 ──────────────────────────────
+
+function basename(p: string): string {
+  const norm = p.replace(/\\/g, '/');
+  const idx = norm.lastIndexOf('/');
+  return idx >= 0 ? norm.slice(idx + 1) : norm;
+}
+
+function RenameButton({
+  rfqId,
+  currentPath,
+  kind,
+  compact,
+  onSuccess,
+}: {
+  rfqId: number;
+  currentPath: string;
+  kind: 'file' | 'folder';
+  compact?: boolean;
+  onSuccess?: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [name, setName] = useState('');
+  const [busy, setBusy] = useState(false);
+  const handleOpen = () => {
+    setName(basename(currentPath));
+    setOpen(true);
+  };
+  const handleSave = async () => {
+    if (!name.trim()) {
+      toast.error('Tên không được rỗng');
+      return;
+    }
+    if (name === basename(currentPath)) {
+      setOpen(false);
+      return;
+    }
+    setBusy(true);
+    try {
+      const endpoint = kind === 'folder'
+        ? `/api/v1/bqms/rfq/${rfqId}/rename-folder`
+        : `/api/v1/bqms/rfq/${rfqId}/rename-file`;
+      const res = await api.post<{ data: any; message: string }>(endpoint, {
+        old_path: currentPath,
+        new_name: name.trim(),
+      });
+      toast.success(res.message ?? 'Đã đổi tên');
+      setOpen(false);
+      onSuccess?.();
+    } catch (e: any) {
+      toast.error(e?.detail ?? e?.message ?? 'Đổi tên thất bại');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (!open) {
+    return (
+      <button
+        type="button"
+        onClick={handleOpen}
+        className={cn(
+          'inline-flex items-center gap-0.5 rounded font-medium transition-colors flex-shrink-0',
+          compact
+            ? 'px-1.5 py-0.5 text-[11px] bg-slate-200 text-slate-700 hover:bg-slate-300'
+            : 'px-2 py-1 text-[11px] bg-white border border-slate-300 text-slate-600 hover:bg-slate-100',
+        )}
+        title="Đổi tên"
+      >
+        <Pencil className={compact ? 'h-2.5 w-2.5' : 'h-3 w-3'} />
+        {!compact && <span>Đổi tên</span>}
+      </button>
+    );
+  }
+  return (
+    <div className="inline-flex items-center gap-1 flex-shrink-0">
+      <input
+        type="text"
+        value={name}
+        autoFocus
+        disabled={busy}
+        onChange={(e) => setName(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') handleSave();
+          if (e.key === 'Escape') setOpen(false);
+        }}
+        className="w-44 text-[11px] font-mono border border-blue-300 rounded px-1.5 py-0.5 outline-none focus:ring-1 focus:ring-blue-400"
+      />
+      <button
+        type="button"
+        onClick={handleSave}
+        disabled={busy}
+        className="px-1.5 py-0.5 rounded bg-blue-600 text-white text-[11px] font-medium hover:bg-blue-700 disabled:opacity-50">
+        {busy ? <Loader2 className="h-2.5 w-2.5 animate-spin" /> : 'Lưu'}
+      </button>
+      <button
+        type="button"
+        onClick={() => setOpen(false)}
+        disabled={busy}
+        className="px-1.5 py-0.5 rounded bg-slate-200 text-slate-600 text-[11px] hover:bg-slate-300">
+        Huỷ
+      </button>
+    </div>
+  );
+}
+
+function FolderSubRenameMenu({
+  rfqId,
+  rootFolder,
+  onSuccess,
+}: {
+  rfqId: number;
+  rootFolder: string;
+  onSuccess?: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const { data, isLoading } = useQuery({
+    queryKey: ['rfq-subfolders', rfqId],
+    enabled: open,
+    staleTime: 30_000,
+    queryFn: async () => {
+      const res = await api.get<{ data: { root: string | null; subfolders: { name: string; path: string }[] } }>(
+        `/api/v1/bqms/rfq/${rfqId}/subfolders`,
+      );
+      return res.data.subfolders;
+    },
+  });
+  return (
+    <div className="relative flex-shrink-0">
+      <button
+        type="button"
+        onClick={() => setOpen(v => !v)}
+        className="inline-flex items-center gap-1 px-2 py-1 rounded text-[11px] font-medium bg-white border border-slate-300 text-slate-600 hover:bg-slate-100"
+        title="Đổi tên các subfolder báo giá (L1/L2/...)">
+        <Pencil className="h-3 w-3" />
+        Đổi tên folder
+      </button>
+      {open && (
+        <div className="absolute right-0 top-full mt-1 z-30 w-80 bg-white border border-slate-200 rounded-lg shadow-xl p-3">
+          <div className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider mb-2">
+            Chọn folder con để đổi tên
+          </div>
+          {isLoading ? (
+            <div className="text-[11px] text-slate-400 flex items-center gap-1"><Loader2 className="h-3 w-3 animate-spin" />Đang tải...</div>
+          ) : !data || data.length === 0 ? (
+            <div className="text-[11px] text-slate-400 italic">Chưa có subfolder báo giá nào (L1/L2/...).</div>
+          ) : (
+            <div className="space-y-1.5">
+              {data.map(d => (
+                <div key={d.name} className="flex items-center justify-between gap-2 text-[11px]">
+                  <span className="font-mono text-slate-700 truncate flex-1" title={d.name}>{d.name}</span>
+                  <RenameButton
+                    rfqId={rfqId}
+                    currentPath={d.path}
+                    kind="folder"
+                    compact
+                    onSuccess={() => { onSuccess?.(); setOpen(false); }}
+                  />
+                </div>
+              ))}
+            </div>
+          )}
+          <button
+            type="button"
+            onClick={() => setOpen(false)}
+            className="mt-3 w-full text-[11px] text-slate-400 hover:text-slate-600">
+            Đóng
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── ImageGallerySection — modern responsive gallery with lightbox per Thang 2026-05-11
 //
 // Replaces the cramped 4-col tiny-thumb grid with:
@@ -3627,17 +4935,46 @@ function DetailDrawer({
 // your item's images immediately) but can switch to "Tất cả" to see all.
 
 function ImageGallerySection({
+  rfqId,
   rfqNumber,
   bqmsCode,
   folder,
 }: {
+  rfqId: number;
   rfqNumber: string | null;
   bqmsCode: string | null;
   folder: { exists: boolean; folder?: string; images?: { name: string; size: number }[] } | undefined;
 }) {
+  const queryClient = useQueryClient();
   const [filterMode, setFilterMode] = useState<'item' | 'all'>('item');
   const [lightboxIdx, setLightboxIdx] = useState<number | null>(null);
   const [copied, setCopied] = useState(false);
+  const [scanning, setScanning] = useState(false);
+
+  // Thang 2026-05-15 (Issue 14): nút "Quét ngay" trigger force-rescan task
+  // khi folder chưa có. Chạy sync ~30-60s, sau đó refetch folder + ảnh.
+  const handleForceScan = async () => {
+    if (!rfqId || scanning) return;
+    setScanning(true);
+    toast.info(`Đang quét RFQ ${rfqNumber}... (30-60s, Samsung session lock)`, { duration: 8000 });
+    try {
+      const res = await api.post<{ data: any; message: string }>(
+        `/api/v1/bqms/rfq/${rfqId}/force-rescan`,
+        {},
+      );
+      const d = res.data ?? {};
+      toast.success(
+        `Quét xong: ${d.files_downloaded ?? 0} file · ${d.images_extracted ?? 0} ảnh · ${d.items_drilled ?? 0} mã`,
+        { duration: 6000 },
+      );
+      queryClient.invalidateQueries({ queryKey: ['rfq-folder', rfqNumber] });
+      queryClient.invalidateQueries({ queryKey: ['bqms-rfq-table'] });
+    } catch (e: any) {
+      toast.error(e?.detail ?? e?.message ?? 'Quét thất bại');
+    } finally {
+      setScanning(false);
+    }
+  };
 
   const allImages = folder?.images ?? [];
   const itemImages = bqmsCode
@@ -3677,12 +5014,12 @@ function ImageGallerySection({
       <div className="flex items-center justify-between mb-2">
         <h3 className="text-[11px] font-bold uppercase text-slate-500 tracking-wide flex items-center gap-2">
           <span>Hình ảnh sản phẩm</span>
-          <span className="px-1.5 py-0 text-[9px] font-bold rounded bg-slate-100 text-slate-600">
+          <span className="px-1.5 py-0 text-[11px] font-bold rounded bg-slate-100 text-slate-600">
             {visible.length}
           </span>
         </h3>
         {bqmsCode && itemImages.length > 0 && allImages.length > itemImages.length && (
-          <div className="flex items-center gap-1 text-[10px]">
+          <div className="flex items-center gap-1 text-[11px]">
             <button
               onClick={() => setFilterMode('item')}
               className={cn(
@@ -3706,10 +5043,21 @@ function ImageGallerySection({
       </div>
 
       {!folder?.exists ? (
-        <div className="rounded-lg border-2 border-dashed border-slate-200 bg-slate-50/50 px-4 py-6 text-center">
+        <div className="rounded-lg border-2 border-dashed border-slate-200 bg-slate-50/50 px-4 py-6 text-center space-y-2">
           <p className="text-[11px] text-slate-400 italic">
-            Chưa có folder. Báo giá để drill detail + extract ảnh.
+            Chưa có folder ảnh — cron tự động quét 3-30 phút/lần, hoặc bấm dưới để quét ngay.
           </p>
+          <button
+            type="button"
+            onClick={handleForceScan}
+            disabled={scanning || !rfqId}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-semibold bg-brand-600 text-white hover:bg-brand-700 active:scale-95 transition-all disabled:opacity-50 disabled:cursor-wait">
+            {scanning ? (
+              <><Loader2 className="h-3 w-3 animate-spin" />Đang quét...</>
+            ) : (
+              <><RefreshCw className="h-3 w-3" />Quét ngay</>
+            )}
+          </button>
         </div>
       ) : visible.length === 0 ? (
         <div className="rounded-lg border-2 border-dashed border-slate-200 bg-slate-50/50 px-4 py-6 text-center">
@@ -3741,10 +5089,10 @@ function ImageGallerySection({
                 className="absolute inset-0 w-full h-full object-contain bg-slate-50"
               />
               <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/60 via-black/30 to-transparent p-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
-                <div className="text-[9px] text-white font-mono truncate">
+                <div className="text-[11px] text-white font-mono truncate">
                   {img.name.replace(/\.[^.]+$/, '')}
                 </div>
-                <div className="text-[8px] text-white/70">
+                <div className="text-[11px] text-white/70">
                   {(img.size / 1024).toFixed(1)} KB
                 </div>
               </div>
@@ -3854,17 +5202,17 @@ function FolderPathInline({
           href={folder.folder
             ? `/documents/browser?path=${encodeURIComponent(toBrowserPath(folder.folder))}`
             : '/documents/browser'}
-          className="text-[10px] text-brand-700 hover:text-brand-800 hover:underline break-all flex-1 font-mono"
+          className="text-[11px] text-brand-700 hover:text-brand-800 hover:underline break-all flex-1 font-mono"
           title="Mở Quản lý tài liệu tại folder này"
         >
           {folder.folder}
         </Link>
-        <span className="text-[9px] text-slate-500 flex-shrink-0">
+        <span className="text-[11px] text-slate-500 flex-shrink-0">
           {totalCount} mục
         </span>
         <button
           onClick={handleCopy}
-          className="text-[9px] px-1.5 py-0.5 rounded bg-white border border-slate-200 text-slate-600 hover:bg-slate-100 flex-shrink-0"
+          className="text-[11px] px-1.5 py-0.5 rounded bg-white border border-slate-200 text-slate-600 hover:bg-slate-100 flex-shrink-0"
           title="Copy đường dẫn"
         >{copied ? '✓' : <Copy className="h-3 w-3" />}</button>
         <button
@@ -3884,7 +5232,7 @@ function FolderPathInline({
         <div className="mt-2 bg-white border border-slate-200 rounded-lg overflow-hidden divide-y divide-slate-100">
           {folder.files && folder.files.length > 0 && (
             <div>
-              <div className="px-3 py-1.5 bg-slate-50 text-[10px] font-bold text-slate-500 uppercase">
+              <div className="px-3 py-1.5 bg-slate-50 text-[11px] font-bold text-slate-500 uppercase">
                 Raw files ({folder.files.length})
               </div>
               <div className="divide-y divide-slate-50">
@@ -3897,10 +5245,10 @@ function FolderPathInline({
                     className="flex items-center gap-2 px-3 py-1.5 hover:bg-brand-50/50 group transition-colors"
                   >
                     <FileSpreadsheet className="h-3 w-3 text-emerald-600 flex-shrink-0" />
-                    <span className="font-mono text-[10px] text-slate-700 truncate flex-1 group-hover:text-brand-700">
+                    <span className="font-mono text-[11px] text-slate-700 truncate flex-1 group-hover:text-brand-700">
                       {f.name}
                     </span>
-                    <span className="text-[9px] text-slate-400 flex-shrink-0">
+                    <span className="text-[11px] text-slate-400 flex-shrink-0">
                       {(f.size / 1024).toFixed(0)} KB
                     </span>
                     <ExternalLink className="h-3 w-3 text-slate-300 group-hover:text-brand-500 flex-shrink-0" />
@@ -3911,7 +5259,7 @@ function FolderPathInline({
           )}
           {folder.images && folder.images.length > 0 && (
             <div>
-              <div className="px-3 py-1.5 bg-slate-50 text-[10px] font-bold text-slate-500 uppercase">
+              <div className="px-3 py-1.5 bg-slate-50 text-[11px] font-bold text-slate-500 uppercase">
                 Images ({folder.images.length})
               </div>
               <div className="divide-y divide-slate-50">
@@ -3924,10 +5272,10 @@ function FolderPathInline({
                     className="flex items-center gap-2 px-3 py-1.5 hover:bg-brand-50/50 group transition-colors"
                   >
                     <Eye className="h-3 w-3 text-blue-600 flex-shrink-0" />
-                    <span className="font-mono text-[10px] text-slate-700 truncate flex-1 group-hover:text-brand-700">
+                    <span className="font-mono text-[11px] text-slate-700 truncate flex-1 group-hover:text-brand-700">
                       {f.name}
                     </span>
-                    <span className="text-[9px] text-slate-400 flex-shrink-0">
+                    <span className="text-[11px] text-slate-400 flex-shrink-0">
                       {(f.size / 1024).toFixed(0)} KB
                     </span>
                     <ExternalLink className="h-3 w-3 text-slate-300 group-hover:text-brand-500 flex-shrink-0" />
@@ -3937,7 +5285,7 @@ function FolderPathInline({
             </div>
           )}
           {totalCount === 0 && (
-            <div className="px-3 py-3 text-[10px] text-slate-400 text-center italic">
+            <div className="px-3 py-3 text-[11px] text-slate-400 text-center italic">
               Folder rỗng
             </div>
           )}
@@ -3969,14 +5317,14 @@ function DrawerField({ label, value, mono = false }: { label: string; value: any
   if (value == null || value === '') {
     return (
       <div>
-        <div className="text-[10px] text-slate-400 mb-0.5">{label}</div>
+        <div className="text-[11px] text-slate-400 mb-0.5">{label}</div>
         <div className="text-slate-300">—</div>
       </div>
     );
   }
   return (
     <div>
-      <div className="text-[10px] text-slate-400 mb-0.5">{label}</div>
+      <div className="text-[11px] text-slate-400 mb-0.5">{label}</div>
       <div className={cn('text-slate-700 break-words', mono && 'font-mono text-[11px]')}>
         {String(value)}
       </div>
@@ -4009,9 +5357,9 @@ function FieldRow({
     emerald: 'text-emerald-700 font-semibold',
     amber:   'text-amber-700 font-semibold',
     rose:    'text-rose-700 font-semibold',
-    indigo:  'text-indigo-700 bg-indigo-50 px-1.5 py-0.5 rounded inline-block font-semibold',
-    violet:  'text-violet-700 bg-violet-50 px-1.5 py-0.5 rounded inline-block font-semibold',
-    blue:    'text-blue-700 bg-blue-50 px-1.5 py-0.5 rounded inline-block font-semibold',
+    indigo:  'text-brand-700 bg-brand-50 px-1.5 py-0.5 rounded inline-block font-semibold',
+    violet:  'text-brand-700 bg-brand-50 px-1.5 py-0.5 rounded inline-block font-semibold',
+    blue:    'text-sky-700 bg-sky-50 px-1.5 py-0.5 rounded inline-block font-semibold',
     orange:  'text-orange-700 bg-orange-50 px-1.5 py-0.5 rounded inline-block font-semibold',
   };
   return (
@@ -4020,7 +5368,7 @@ function FieldRow({
         <Icon className="h-3 w-3 text-slate-400 flex-shrink-0 mt-0.5" />
       )}
       <div className="min-w-0 flex-1">
-        <div className="text-[9px] uppercase tracking-wider text-slate-400 font-semibold leading-tight">
+        <div className="text-[11px] uppercase tracking-wider text-slate-400 font-semibold leading-tight">
           {label}
         </div>
         <div className={cn(
@@ -4092,6 +5440,21 @@ const PROCESS_PRESETS = [
   'Grinding', 'Laser', 'Sanding', 'EDM', 'Welding',
 ];
 
+// Thang 2026-05-15: GC wizard mặc định preload 8 quy trình chuẩn từ template
+// QUOTATION_GC.xlsx (Z0000002-037802 sample sheet). User chỉ điền giá tiền;
+// quy trình có giá = 0 sẽ bị backend bỏ qua khi xuất file (filter trong
+// gc_template_quotation.py).
+const DEFAULT_GC_PROCESSES: { name: string; time_hr: number; unit_price: number }[] = [
+  { name: 'MCT',          time_hr: 1, unit_price: 0 },
+  { name: 'Wire cutting', time_hr: 1, unit_price: 0 },
+  { name: 'Milling',      time_hr: 1, unit_price: 0 },
+  { name: 'Drilling',     time_hr: 1, unit_price: 0 },
+  { name: 'Lathe',        time_hr: 1, unit_price: 0 },
+  { name: 'Grinding',     time_hr: 1, unit_price: 0 },
+  { name: 'Laser',        time_hr: 1, unit_price: 0 },
+  { name: 'Sanding',      time_hr: 1, unit_price: 0 },
+];
+
 // Compute auto-weight (kg) from W×L×H mm³ → assume density ~1g/cm³ as fallback
 const calcWeight = (m: WizardMaterial): number => {
   const w = m.w || 0, l = m.l || 0, h = m.h || 0, q = m.qty || 1;
@@ -4118,24 +5481,31 @@ function GcQuoteWizard({
 
   const { data: itemsResp, isLoading: itemsLoading, error: itemsError } = useQuery({
     queryKey: ['wizard-items', rfqId],
-    queryFn: () => api.get<{ data: { bqms_code: string; spec: string; qty: number }[] }>(
+    queryFn: () => api.get<{ data: any[] }>(
       `/api/v1/bqms/rfq/${rfqId}/wizard-items`,
     ),
-    staleTime: 60_000,
+    // Thang 2026-05-15 (Issue 12): wizard luôn load bản mới nhất từ DB
+    // (latest quotations.items) để user thấy chỉnh sửa lần trước đã lưu.
+    staleTime: 0,
   });
   useEffect(() => {
     if (itemsResp?.data && items.length === 0) {
-      setItems(itemsResp.data.map(it => ({
+      setItems(itemsResp.data.map((it: any) => ({
         bqms_code: it.bqms_code || '',
-        jig_name: (it.spec || '').slice(0, 50),
+        // Pre-fill jig_name từ lần báo giá trước nếu có, fallback spec[:50]
+        jig_name: it.jig_name ?? (it.spec || '').slice(0, 50),
         spec: it.spec || '',
         qty: it.qty || 1,
         selected: true,  // default all selected
-        materials: [],
-        parts: [],
-        others: [],
-        processes: [],
-        nego: 0,
+        // Issue 12: load materials/parts/others/processes từ lần báo giá trước
+        // nếu có. Nếu chưa từng báo giá → fallback default (8 process preset).
+        materials: Array.isArray(it.materials) ? it.materials : [],
+        parts: Array.isArray(it.parts) ? it.parts : [],
+        others: Array.isArray(it.others) ? it.others : [],
+        processes: Array.isArray(it.processes) && it.processes.length > 0
+          ? it.processes
+          : DEFAULT_GC_PROCESSES.map(p => ({ ...p })),
+        nego: Number(it.nego) || 0,
       })));
     }
   }, [itemsResp, items.length]);
@@ -4191,9 +5561,13 @@ function GcQuoteWizard({
     }
     setSubmitting(true); setError(null);
     try {
+      // Thang 2026-06-13 (Task 3): truyền ngày hôm nay để backend ghi vào
+      // XLSX row 4 col C (tránh tình trạng XLSX template còn ngày cũ).
+      const today = new Date();
+      const todayIso = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
       const res = await api.post<{ data: any; message: string }>(
         '/api/v1/bqms/quote-wizard/finalize-gc',
-        { rfq_id: rfqId, round_n: roundN, items: selectedItems },
+        { rfq_id: rfqId, round_n: roundN, items: selectedItems, current_date: todayIso },
       );
       onSuccess(res.data);
     } catch (e: any) {
@@ -4236,12 +5610,12 @@ function GcQuoteWizard({
               <div className="flex items-center gap-2">
                 <button type="button"
                   onClick={() => setItems(prev => prev.map(it => ({ ...it, selected: true })))}
-                  className="text-[10px] px-2 py-0.5 rounded border border-slate-300 bg-white hover:bg-slate-100">
+                  className="text-[11px] px-2 py-0.5 rounded border border-slate-300 bg-white hover:bg-slate-100">
                   Chọn tất cả
                 </button>
                 <button type="button"
                   onClick={() => setItems(prev => prev.map(it => ({ ...it, selected: false })))}
-                  className="text-[10px] px-2 py-0.5 rounded border border-slate-300 bg-white hover:bg-slate-100">
+                  className="text-[11px] px-2 py-0.5 rounded border border-slate-300 bg-white hover:bg-slate-100">
                   Bỏ chọn
                 </button>
               </div>
@@ -4351,12 +5725,461 @@ function GcQuoteWizard({
 }
 
 // ─── Clipboard TSV parse helper — Phase 3.1 per Thang 2026-05-12 ──────────
-//
-// Allow user to copy a block from Excel (multi-row, tab-separated) and paste
-// directly into Materials/Parts/Others/Processes — auto-creates N rows
-// instead of forcing manual click "Thêm" for each one.
-//
-// Number parsing accepts both 1.234,56 (vi-VN) and 1,234.56 (en) formats.
+// ─── TM Quote Wizard (modal) ───────────────────────────────────────────────
+// Thang 2026-05-15: when user clicks `+ L{n}` on a TM row, show a preview
+// form with editable spec/maker/qty/price + image override (Đổi ảnh) before
+// generating CAM_KET + QUOTATION files. Mirrors GcQuoteWizard pattern.
+
+interface TmWizardItem {
+  bqms: string;
+  spec: string;
+  maker: string;
+  so_luong: number | string;
+  suggested_price: number | null;
+  unit_price: number | string;
+  ver: number;
+  uploading: boolean;
+  selected: boolean;
+}
+
+function TmQuoteWizard({
+  rfqId,
+  rfqNumber,
+  roundN,
+  initialPrice,
+  onClose,
+  onSuccess,
+}: {
+  rfqId: number;
+  rfqNumber: string;
+  roundN: number;
+  initialPrice?: number | null;
+  onClose: () => void;
+  onSuccess: (result: any) => void;
+}) {
+  const [items, setItems] = useState<TmWizardItem[]>([]);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const fileInputs = useRef<Record<string, HTMLInputElement | null>>({});
+
+  const { data: lookupResp, isLoading: lookupLoading } = useQuery({
+    queryKey: ['tm-wizard-lookup', rfqNumber, roundN],
+    queryFn: () => api.get<{ data: { items: any[] } }>(
+      `/api/v1/quotations/lookup?rfq_code=${encodeURIComponent(rfqNumber)}`,
+    ),
+    // Thang 2026-05-15 (Issue 12): luôn lấy bản mới nhất (spec/maker/qty
+    // user vừa sửa lần trước đã được persist trong /generate-round).
+    staleTime: 0,
+  });
+
+  useEffect(() => {
+    const list = lookupResp?.data?.items;
+    if (list && items.length === 0) {
+      setItems(list.map((it: any) => ({
+        bqms: it.bqms ?? '',
+        spec: it.spec ?? '',
+        maker: it.maker ?? '',
+        so_luong: it.so_luong ?? 1,
+        suggested_price: it.suggested_price ?? null,
+        unit_price: initialPrice != null
+          ? String(initialPrice)
+          : (it.suggested_price != null ? String(it.suggested_price) : ''),
+        ver: 0,
+        uploading: false,
+        selected: true,
+      })));
+    }
+  }, [lookupResp, items.length, initialPrice]);
+
+  const toggleAll = (checked: boolean) => {
+    setItems(prev => prev.map(it => ({ ...it, selected: checked })));
+  };
+  const toggleOne = (idx: number) => {
+    setItems(prev => prev.map((it, i) => i === idx ? { ...it, selected: !it.selected } : it));
+  };
+  const allSelected = items.length > 0 && items.every(it => it.selected);
+  const someSelected = items.some(it => it.selected) && !allSelected;
+
+  useEffect(() => {
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => { document.body.style.overflow = prev; };
+  }, []);
+
+  const updateField = (idx: number, field: keyof TmWizardItem, value: any) => {
+    setItems(prev => prev.map((it, i) => i === idx ? { ...it, [field]: value } : it));
+  };
+
+  const handleImageReplace = async (idx: number, file: File) => {
+    const code = items[idx]?.bqms;
+    if (!code) return;
+    updateField(idx, 'uploading', true);
+    try {
+      const fd = new FormData();
+      fd.append('rfq_number', rfqNumber);
+      fd.append('bqms_code', code);
+      fd.append('slot', 'product_photo');
+      fd.append('file', file);
+      await api.upload('/api/v1/bqms/quote-image-override', fd);
+      updateField(idx, 'ver', (items[idx]?.ver ?? 0) + 1);
+      toast.success(`Đã đổi ảnh cho ${code}`);
+    } catch (err: any) {
+      toast.error(err?.detail ?? 'Đổi ảnh thất bại');
+    } finally {
+      updateField(idx, 'uploading', false);
+    }
+  };
+
+  const handleImageReset = async (idx: number) => {
+    const code = items[idx]?.bqms;
+    if (!code) return;
+    try {
+      await api.delete(
+        `/api/v1/bqms/quote-image-override?rfq_number=${encodeURIComponent(rfqNumber)}&bqms_code=${encodeURIComponent(code)}&slot=product_photo`,
+      );
+      updateField(idx, 'ver', (items[idx]?.ver ?? 0) + 1);
+      toast.success(`Đã khôi phục ảnh gốc cho ${code}`);
+    } catch (err: any) {
+      toast.error(err?.detail ?? 'Khôi phục ảnh thất bại');
+    }
+  };
+
+  const selectedItems = items.filter(it => it.selected);
+  const readyItems = selectedItems.filter(it => it.unit_price !== '' && Number(it.unit_price) > 0);
+  const missingPriceCount = selectedItems.length - readyItems.length;
+
+  const handleConfirm = async () => {
+    if (selectedItems.length === 0) {
+      setError('Hãy tích chọn ít nhất 1 mã để báo giá');
+      return;
+    }
+    if (readyItems.length === 0) {
+      setError('Các mã đã chọn đều thiếu giá V' + roundN);
+      return;
+    }
+    setSubmitting(true); setError(null);
+    try {
+      // Chỉ gửi những items đã tick + có giá > 0
+      const payloadItems = readyItems.map(it => ({
+        bqms: it.bqms,
+        spec: it.spec,
+        maker: it.maker,
+        so_luong: Number(it.so_luong) || 1,
+        unit_price: Number(it.unit_price),
+      }));
+      const params = new URLSearchParams({
+        round_n: String(roundN),
+        flow_type: 'tm',
+      });
+      // Thang 2026-06-13 (Task 3): luôn ghi ngày báo giá = HÔM NAY (browser tz)
+      // vào XLSX (row 4, col C). Backend autofill_service đã xử lý format VN
+      // "dd/mm/yyyy" — chỉ cần truyền ISO date cho clarity.
+      const today = new Date();
+      const todayIso = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+      const res = await api.post<{ data: any; message: string }>(
+        `/api/v1/bqms/rfq/${rfqId}/generate-round?${params.toString()}`,
+        { items: payloadItems, current_date: todayIso },
+      );
+      onSuccess(res.data);
+    } catch (e: any) {
+      setError(e?.detail ?? e?.message ?? 'Tạo báo giá thất bại');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  if (typeof document === 'undefined') return null;
+
+  return createPortal(
+    <div className="fixed inset-0 z-[70] bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-6" onClick={onClose}>
+      <div
+        className="bg-white rounded-2xl shadow-2xl w-[min(1280px,98vw)] max-h-[94vh] flex flex-col overflow-hidden ring-1 ring-slate-200"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div className="px-7 py-5 border-b border-slate-100 bg-white flex items-start justify-between gap-4">
+          <div className="flex items-center gap-4 min-w-0">
+            <div className="flex-shrink-0 w-11 h-11 rounded-xl bg-gradient-to-br from-brand-500 to-brand-700 flex items-center justify-center shadow-md shadow-brand-500/30">
+              <FileSpreadsheet className="h-5 w-5 text-white" />
+            </div>
+            <div className="min-w-0">
+              <div className="flex items-center gap-2 mb-0.5">
+                <h2 className="text-lg font-bold text-slate-900 tracking-tight">Báo giá Thương mại</h2>
+                <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-bold uppercase tracking-wider bg-blue-100 text-blue-700">
+                  Lần {roundN}
+                </span>
+              </div>
+              <div className="text-sm text-slate-500 font-mono">{rfqNumber}</div>
+            </div>
+          </div>
+          <button
+            onClick={onClose}
+            className="flex-shrink-0 p-2 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors"
+            title="Đóng (ESC)">
+            <XCircle className="h-5 w-5" />
+          </button>
+        </div>
+
+        {/* Toolbar */}
+        {items.length > 0 && (
+          <div className="px-7 py-3 border-b border-slate-100 bg-slate-50/50 flex items-center justify-between gap-4">
+            <label className="flex items-center gap-2 cursor-pointer select-none text-sm text-slate-700">
+              <input
+                type="checkbox"
+                checked={allSelected}
+                ref={(el) => { if (el) el.indeterminate = someSelected; }}
+                onChange={(e) => toggleAll(e.target.checked)}
+                className="w-4 h-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500 focus:ring-offset-0"
+              />
+              <span className="font-medium">Chọn tất cả</span>
+              <span className="text-xs text-slate-400">({selectedItems.length}/{items.length})</span>
+            </label>
+            <div className="flex items-center gap-2 text-xs">
+              <span className="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-emerald-50 text-emerald-700 font-medium">
+                <CheckCircle2 className="h-3 w-3" /> {readyItems.length} sẵn sàng
+              </span>
+              {missingPriceCount > 0 && (
+                <span className="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-amber-50 text-amber-700 font-medium">
+                  <AlertTriangle className="h-3 w-3" /> {missingPriceCount} thiếu giá
+                </span>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Body */}
+        <div className="flex-1 overflow-auto px-7 py-5 bg-slate-50/30">
+          {lookupLoading ? (
+            <div className="flex items-center justify-center gap-2 text-sm text-slate-500 py-12">
+              <Loader2 className="h-5 w-5 animate-spin text-blue-500" /> Đang tra cứu items...
+            </div>
+          ) : items.length === 0 ? (
+            <div className="text-center text-sm text-slate-500 py-12">
+              <Inbox className="h-10 w-10 mx-auto mb-2 text-slate-300" />
+              Không tìm thấy items cho RFQ này.
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {items.map((it, idx) => {
+                const imgSrc = it.bqms
+                  ? withToken(`/api/v1/bqms/rfq/image?bqms_code=${encodeURIComponent(it.bqms)}&rfq_number=${encodeURIComponent(rfqNumber)}&_v=${it.ver}`)
+                  : null;
+                const priceNum = it.unit_price !== '' ? Number(it.unit_price) : NaN;
+                const hasPrice = !isNaN(priceNum) && priceNum > 0;
+                const ready = it.selected && hasPrice;
+
+                return (
+                  <div
+                    key={`${it.bqms}-${idx}`}
+                    className={cn(
+                      'group relative bg-white rounded-xl border transition-all overflow-hidden',
+                      it.selected
+                        ? ready
+                          ? 'border-blue-200 shadow-sm shadow-blue-100/40 ring-1 ring-blue-100'
+                          : 'border-amber-200 shadow-sm shadow-amber-100/40'
+                        : 'border-slate-200 opacity-60 hover:opacity-80',
+                    )}
+                  >
+                    {/* Status bar (left accent) */}
+                    <div className={cn(
+                      'absolute left-0 top-0 bottom-0 w-1',
+                      it.selected ? (ready ? 'bg-blue-500' : 'bg-amber-400') : 'bg-slate-200',
+                    )} />
+
+                    <div className="pl-5 pr-5 py-4 flex items-start gap-5">
+                      {/* Checkbox + Image column */}
+                      <div className="flex-shrink-0 flex flex-col items-center gap-2 pt-1">
+                        <input
+                          type="checkbox"
+                          checked={it.selected}
+                          onChange={() => toggleOne(idx)}
+                          className="w-4 h-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500 focus:ring-offset-0 cursor-pointer"
+                        />
+                        {imgSrc ? (
+                          <a
+                            href={imgSrc}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="block w-20 h-20 rounded-lg border border-slate-200 bg-slate-50 overflow-hidden hover:ring-2 hover:ring-blue-400 hover:border-blue-300 transition-all shadow-sm"
+                            title="Xem ảnh lớn">
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                            <img
+                              key={`${it.bqms}-${it.ver}`}
+                              src={imgSrc}
+                              alt={it.bqms}
+                              className="w-full h-full object-cover"
+                              onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }}
+                            />
+                          </a>
+                        ) : (
+                          <div className="w-20 h-20 rounded-lg bg-slate-100 border border-slate-200 flex items-center justify-center text-[11px] text-slate-400 font-medium">
+                            chưa có ảnh
+                          </div>
+                        )}
+                        <input
+                          type="file"
+                          accept=".png,.jpg,.jpeg"
+                          className="hidden"
+                          ref={(el) => { fileInputs.current[it.bqms] = el; }}
+                          onChange={(e) => {
+                            const f = e.target.files?.[0];
+                            if (f) handleImageReplace(idx, f);
+                            e.target.value = '';
+                          }}
+                        />
+                        <div className="flex items-center gap-1">
+                          <button
+                            type="button"
+                            disabled={!it.bqms || it.uploading}
+                            onClick={() => fileInputs.current[it.bqms]?.click()}
+                            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-[11px] font-semibold bg-blue-600 text-white hover:bg-blue-700 active:scale-95 transition-all shadow-sm disabled:opacity-40">
+                            {it.uploading ? <Loader2 className="h-3 w-3 animate-spin" /> : <Pencil className="h-3 w-3" />}
+                            Đổi ảnh
+                          </button>
+                          {it.ver > 0 && (
+                            <button
+                              type="button"
+                              onClick={() => handleImageReset(idx)}
+                              className="inline-flex items-center p-1 rounded-md text-slate-500 bg-slate-100 hover:bg-slate-200 transition-colors"
+                              title="Khôi phục ảnh gốc">
+                              <RotateCcw className="h-3 w-3" />
+                            </button>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Content column */}
+                      <div className="flex-1 min-w-0 grid grid-cols-12 gap-x-4 gap-y-3">
+                        {/* BQMS Code + status */}
+                        <div className="col-span-12 flex items-center justify-between gap-3">
+                          <div className="flex items-center gap-2 min-w-0">
+                            <span className="text-[11px] uppercase tracking-wider text-slate-400 font-semibold">Mã BQMS</span>
+                            <span className="font-mono text-sm font-bold text-slate-900 truncate">{it.bqms || '—'}</span>
+                          </div>
+                          {!it.selected ? (
+                            <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Bỏ qua</span>
+                          ) : ready ? (
+                            <span className="inline-flex items-center gap-1 text-[11px] font-bold uppercase tracking-wider text-blue-600">
+                              <CheckCircle2 className="h-3 w-3" /> Sẵn sàng
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 text-[11px] font-bold uppercase tracking-wider text-amber-600">
+                              <AlertTriangle className="h-3 w-3" /> Thiếu giá
+                            </span>
+                          )}
+                        </div>
+
+                        {/* Spec */}
+                        <div className="col-span-12 md:col-span-7">
+                          <label className="text-[11px] uppercase tracking-wider text-slate-400 font-semibold block mb-1">Specification</label>
+                          <textarea
+                            value={it.spec}
+                            onChange={(e) => updateField(idx, 'spec', e.target.value)}
+                            rows={2}
+                            placeholder="Mô tả kỹ thuật"
+                            className="w-full text-sm border border-slate-200 rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-blue-200 focus:border-blue-400 resize-y bg-white transition-shadow" />
+                        </div>
+
+                        {/* Maker + SL */}
+                        <div className="col-span-12 md:col-span-5 grid grid-cols-3 gap-3">
+                          <div className="col-span-2">
+                            <label className="text-[11px] uppercase tracking-wider text-slate-400 font-semibold block mb-1">Maker</label>
+                            <input
+                              type="text"
+                              value={it.maker}
+                              onChange={(e) => updateField(idx, 'maker', e.target.value)}
+                              placeholder="Nhà sản xuất"
+                              className="w-full text-sm border border-slate-200 rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-blue-200 focus:border-blue-400 bg-white transition-shadow" />
+                          </div>
+                          <div>
+                            <label className="text-[11px] uppercase tracking-wider text-slate-400 font-semibold block mb-1">Số lượng</label>
+                            <input
+                              type="number"
+                              min="1"
+                              value={it.so_luong}
+                              onChange={(e) => updateField(idx, 'so_luong', e.target.value)}
+                              className="w-full text-sm text-right font-mono border border-slate-200 rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-blue-200 focus:border-blue-400 bg-white transition-shadow" />
+                          </div>
+                        </div>
+
+                        {/* Price block */}
+                        <div className="col-span-12 grid grid-cols-2 gap-3 pt-1 border-t border-slate-100">
+                          <div className="pt-2">
+                            <label className="text-[11px] uppercase tracking-wider text-slate-400 font-semibold block mb-1">Giá gợi ý (lịch sử)</label>
+                            <div className="text-sm font-mono font-medium text-emerald-600 px-3 py-2">
+                              {it.suggested_price != null
+                                ? `${Number(it.suggested_price).toLocaleString('vi-VN')} ₫`
+                                : <span className="text-slate-300">Chưa có dữ liệu</span>}
+                            </div>
+                          </div>
+                          <div className="pt-2">
+                            <label className="text-[11px] uppercase tracking-wider text-blue-600 font-semibold block mb-1">
+                              Giá báo V{roundN} (VND) <span className="text-red-500">*</span>
+                            </label>
+                            <input
+                              type="number"
+                              step="0.01"
+                              value={it.unit_price}
+                              placeholder={it.suggested_price != null ? String(it.suggested_price) : 'Nhập giá báo'}
+                              onChange={(e) => updateField(idx, 'unit_price', e.target.value)}
+                              className={cn(
+                                'w-full text-sm text-right font-mono font-bold border-2 rounded-lg px-3 py-2 outline-none transition-all bg-white',
+                                hasPrice
+                                  ? 'border-blue-300 focus:ring-2 focus:ring-blue-200 focus:border-blue-500 text-blue-900'
+                                  : 'border-amber-200 focus:ring-2 focus:ring-amber-200 focus:border-amber-400 text-slate-700',
+                              )} />
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
+        {/* Footer */}
+        <div className="px-7 py-4 border-t border-slate-100 bg-white flex items-center justify-between gap-4">
+          <div className="text-xs text-slate-500 flex items-center gap-3">
+            <span>
+              <span className="font-bold text-slate-900">{readyItems.length}</span> mã đưa vào file
+              {missingPriceCount > 0 && (
+                <span className="text-amber-600 ml-2">· bỏ qua {missingPriceCount} mã thiếu giá</span>
+              )}
+            </span>
+          </div>
+          <div className="flex items-center gap-3">
+            {error && (
+              <span className="inline-flex items-center gap-1.5 text-xs font-medium text-red-600 bg-red-50 px-3 py-1.5 rounded-lg">
+                <XCircle className="h-3.5 w-3.5" /> {error}
+              </span>
+            )}
+            <button
+              type="button"
+              onClick={onClose}
+              disabled={submitting}
+              className="px-5 py-2.5 rounded-lg text-sm font-semibold bg-white border border-slate-200 text-slate-700 hover:bg-slate-50 hover:border-slate-300 active:scale-95 transition-all disabled:opacity-50">
+              Huỷ
+            </button>
+            <button
+              type="button"
+              onClick={handleConfirm}
+              disabled={submitting || readyItems.length === 0}
+              className="inline-flex items-center gap-2 px-6 py-2.5 rounded-lg text-sm font-bold bg-brand-600 text-white shadow-md shadow-brand-500/30 hover:bg-brand-700 hover:shadow-lg hover:shadow-brand-500/40 active:scale-95 transition-all disabled:opacity-50 disabled:shadow-none disabled:cursor-not-allowed">
+              {submitting ? (
+                <><Loader2 className="h-4 w-4 animate-spin" />Đang tạo...</>
+              ) : (
+                <><FileSpreadsheet className="h-4 w-4" />Tạo file V{roundN} ({readyItems.length})</>
+              )}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>,
+    document.body,
+  );
+}
 
 function parseBulkPasteText(text: string): string[][] {
   if (!text) return [];
@@ -4879,7 +6702,11 @@ function GcItemForm({
       </table>
 
       {/* PROCESS TABLE */}
-      <table className="w-full border-collapse mt-2">
+      <div className="mt-2 mb-1 px-2 py-1 bg-amber-50 border border-amber-200 rounded text-[11px] text-amber-800 flex items-center gap-1.5">
+        <AlertTriangle className="w-3 h-3 flex-shrink-0" />
+        <span>8 quy trình tải sẵn — chỉ điền <b>Price(vnd)/Hr</b>. Quy trình giá = 0 sẽ tự động bị bỏ qua khi xuất Excel/PDF.</span>
+      </div>
+      <table className="w-full border-collapse">
         <colgroup>
           <col style={{ width: '8%' }} /><col style={{ width: '20%' }} /><col style={{ width: '23%' }} /><col style={{ width: '5%' }} /><col style={{ width: '5%' }} /><col style={{ width: '11%' }} /><col style={{ width: '13%' }} /><col style={{ width: '15%' }} />
         </colgroup>
@@ -4978,7 +6805,7 @@ function GcItemForm({
                 onChange={(e) => updateItem(activeIdx, { nego: Number(e.target.value) || 0 })}
                 className="w-full bg-transparent border-0 outline-none text-right font-mono" />
             </td>
-            <td className={cn(cell, 'text-center text-[10px] text-slate-500')}>1000단위 이하</td>
+            <td className={cn(cell, 'text-center text-[11px] text-slate-500')}>1000단위 이하</td>
           </tr>
           <tr className={totalRow}>
             <td className={cn(cell, 'text-center text-sm')}>Result Total Amount</td>
@@ -5022,7 +6849,7 @@ function GcItemForm({
                 disabled={uploadingImg}
                 onClick={() => imgFileRef.current?.click()}
                 className={cn(
-                  "absolute top-1 right-1 px-2 py-1 rounded text-[10px] font-semibold shadow-sm transition-opacity",
+                  "absolute top-1 right-1 px-2 py-1 rounded text-[11px] font-semibold shadow-sm transition-opacity",
                   uploadingImg
                     ? "bg-amber-200 text-amber-800"
                     : "bg-white/90 hover:bg-amber-100 text-slate-700 opacity-0 group-hover:opacity-100",
@@ -5100,6 +6927,11 @@ function NumberCell({
 
 function PushQueueWidget({ onClickRfq }: { onClickRfq?: (id: number) => void }) {
   const [expanded, setExpanded] = useState(false);
+  // Thang 2026-05-15 (Issue 14): widget tự ẩn 20s sau khi push xong (active=0).
+  // recentDone/failed có thể tồn tại lâu trong DB nên không dùng làm điều kiện
+  // hiển thị → chỉ giữ widget khi đang chạy hoặc vừa hoàn tất.
+  const [holdUntil, setHoldUntil] = useState<number>(0);
+  const [, setTick] = useState(0);  // force re-render khi timer tick
 
   const { data } = useQuery({
     queryKey: ['bqms-push-queue'],
@@ -5112,14 +6944,28 @@ function PushQueueWidget({ onClickRfq }: { onClickRfq?: (id: number) => void }) 
   const recentDone = items.filter((i) => i.bqms_push_status === 'saved_temp').slice(0, 3);
   const failed = items.filter((i) => i.bqms_push_status === 'failed').slice(0, 3);
 
-  if (activeItems.length === 0 && recentDone.length === 0 && failed.length === 0) return null;
+  // Bắt đầu hold 20s khi vừa chuyển từ "đang chạy" sang "hết job".
+  useEffect(() => {
+    if (activeItems.length > 0) {
+      setHoldUntil(Date.now() + 20_000);
+    }
+  }, [activeItems.length]);
+
+  // Tick mỗi giây để check holdUntil đã hết chưa.
+  useEffect(() => {
+    const t = setInterval(() => setTick(x => x + 1), 1000);
+    return () => clearInterval(t);
+  }, []);
+
+  const inHold = Date.now() < holdUntil;
+  if (activeItems.length === 0 && !inHold) return null;
 
   return (
     <div className="fixed bottom-4 right-4 z-40 w-80">
       <div className="bg-white rounded-xl shadow-2xl border border-slate-200 overflow-hidden">
         <button
           onClick={() => setExpanded(!expanded)}
-          className="w-full px-3 py-2 bg-gradient-to-r from-indigo-600 to-pink-600 text-white flex items-center justify-between text-xs font-bold"
+          className="w-full px-3 py-2 bg-brand-600 text-white flex items-center justify-between text-xs font-bold"
         >
           <span className="flex items-center gap-1.5">
             <Send className="h-3.5 w-3.5" />
@@ -5135,28 +6981,28 @@ function PushQueueWidget({ onClickRfq }: { onClickRfq?: (id: number) => void }) 
                 <div className="flex items-center justify-between text-[11px]">
                   <span className="font-mono font-bold text-brand-700">{it.rfq_number}</span>
                   {it.bqms_push_status === 'running' ? (
-                    <span className="inline-flex items-center gap-1 px-1.5 py-0.5 bg-amber-100 text-amber-700 rounded text-[9px] font-bold">
+                    <span className="inline-flex items-center gap-1 px-1.5 py-0.5 bg-amber-100 text-amber-700 rounded text-[11px] font-bold">
                       <Loader2 className="h-2.5 w-2.5 animate-spin" /> ĐANG CHẠY
                     </span>
                   ) : (
-                    <span className="px-1.5 py-0.5 bg-blue-100 text-blue-700 rounded text-[9px] font-bold">CHỜ</span>
+                    <span className="px-1.5 py-0.5 bg-blue-100 text-blue-700 rounded text-[11px] font-bold">CHỜ</span>
                   )}
                 </div>
-                <div className="text-[10px] text-slate-500 mt-0.5">Round V{it.bqms_pushed_round ?? '?'}</div>
+                <div className="text-[11px] text-slate-500 mt-0.5">Round V{it.bqms_pushed_round ?? '?'}</div>
               </div>
             ))}
             {recentDone.length > 0 && (
               <>
-                <div className="px-3 py-1.5 bg-emerald-50 text-[9px] font-bold uppercase text-emerald-700">✓ Vừa xong</div>
+                <div className="px-3 py-1.5 bg-emerald-50 text-[11px] font-bold uppercase text-emerald-700">✓ Vừa xong</div>
                 {recentDone.map((it) => (
                   <div key={it.id} className="px-3 py-1.5 border-b border-slate-100 hover:bg-slate-50">
                     <div className="flex items-center justify-between text-[11px]">
                       <span className="font-mono font-bold text-emerald-700">{it.rfq_number}</span>
-                      <span className="text-[9px] text-slate-500">{it.bqms_pushed_at ? new Date(it.bqms_pushed_at).toLocaleTimeString('vi-VN') : ''}</span>
+                      <span className="text-[11px] text-slate-500">{it.bqms_pushed_at ? new Date(it.bqms_pushed_at).toLocaleTimeString('vi-VN') : ''}</span>
                     </div>
                     {it.bqms_push_screenshot_path && (
                       <a href={`/api/v1/bqms/rfq/${it.id}/push-screenshot`} target="_blank" rel="noreferrer"
-                        className="text-[10px] text-brand-600 hover:underline">
+                        className="text-[11px] text-brand-600 hover:underline">
                         Xem screenshot
                       </a>
                     )}
@@ -5166,13 +7012,13 @@ function PushQueueWidget({ onClickRfq }: { onClickRfq?: (id: number) => void }) 
             )}
             {failed.length > 0 && (
               <>
-                <div className="px-3 py-1.5 bg-rose-50 text-[9px] font-bold uppercase text-rose-700">✗ Lỗi gần đây</div>
+                <div className="px-3 py-1.5 bg-rose-50 text-[11px] font-bold uppercase text-rose-700">✗ Lỗi gần đây</div>
                 {failed.map((it) => (
                   <div key={it.id} className="px-3 py-1.5 border-b border-slate-100 hover:bg-slate-50 cursor-pointer"
                     onClick={() => onClickRfq?.(it.id)}>
                     <div className="font-mono text-[11px] font-bold text-rose-700">{it.rfq_number}</div>
                     {it.bqms_push_error && (
-                      <div className="text-[9px] text-rose-600 truncate" title={it.bqms_push_error}>{it.bqms_push_error}</div>
+                      <div className="text-[11px] text-rose-600 truncate" title={it.bqms_push_error}>{it.bqms_push_error}</div>
                     )}
                   </div>
                 ))}

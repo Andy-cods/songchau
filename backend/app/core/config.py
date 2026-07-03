@@ -17,8 +17,11 @@ class Settings(BaseSettings):
     # Auth
     JWT_SECRET_KEY: str = ""
     JWT_ALGORITHM: str = "HS256"
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = 15
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 300
     REFRESH_TOKEN_EXPIRE_DAYS: int = 7
+    # refresh_token cookie Secure flag. Default True (production, HTTPS).
+    # Set False in local .env to test over plain HTTP.
+    COOKIE_SECURE: bool = True
 
     # App
     APP_ENV: str = "production"
@@ -27,6 +30,36 @@ class Settings(BaseSettings):
     LOG_LEVEL: str = "INFO"
     PO_APPROVAL_THRESHOLD: int = 50_000_000
     MAX_UPLOAD_SIZE_MB: int = 50
+
+    # ── Phase 3 — Đơn↔PO↔Giao hàng↔Tài chính event spine ──
+    # ⚠️ BEHAVIOR-CHANGE FLAG (owner sign-off required before enabling).
+    # When TRUE, approving a payment request auto-creates an
+    # accounts_receivable (công nợ) row for the linked sourcing order and
+    # advances the revenue_chain. Default FALSE so deploying the Phase-3
+    # code does NOT change any financial behavior until Thang flips it on.
+    PHASE3_AUTO_AR_ENABLED: bool = False
+
+    # ── Đợt 5 — Procurement auto công nợ phải trả (AP) ──
+    # ⚠️ BEHAVIOR-CHANGE FLAG (owner sign-off required before enabling).
+    # When TRUE, a procurement_delivery transitioning to status='received'
+    # auto-creates exactly ONE accounts_payable (công nợ phải trả) row for
+    # that delivery (amount = value of that delivery only). Default FALSE so
+    # deploying the procurement-AP code does NOT change any financial
+    # behavior — the hook is a no-op until Thang flips it on. A runtime
+    # override also exists via the app_config key 'procurement_auto_ap_enabled'.
+    PROCUREMENT_AUTO_AP_ENABLED: bool = False
+
+    # ── Batch 2C — BQMS QT V-round / D-N state machine tick ──
+    # ⚠️ SAFETY FLAGS for the periodic state-machine tick (run_state_tick).
+    #   BQMS_STATE_TICK_ENABLED  — master on/off. Default FALSE so deploying the
+    #     code does NOT start auto-advancing qt_state until Thang turns it on.
+    #   BQMS_STATE_TICK_DRYRUN   — when TRUE the tick LOGS the transitions it
+    #     WOULD make but writes NOTHING. Default TRUE so the very FIRST enabled
+    #     cycle can be inspected before letting the engine auto-close anything.
+    # Flip BQMS_STATE_TICK_DRYRUN=False (after reviewing one dry-run cycle) to
+    # let the tick actually persist state changes + append events.
+    BQMS_STATE_TICK_ENABLED: bool = False
+    BQMS_STATE_TICK_DRYRUN: bool = True
 
     # Files
     FILES_BASE_PATH: str = "/data/files"

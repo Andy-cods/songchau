@@ -71,10 +71,28 @@ class BqmsQuotePusher:
             # alert() cho IBSheet locale popup. Playwright KHÔNG auto-accept
             # dialog — sẽ block page nếu không có handler. Register handler
             # ngay sau khi tạo page, accept TẤT CẢ dialogs xuyên suốt session.
+            #
+            # Thang 2026-05-22: track validation alerts so saveDcu() can
+            # report Samsung rejected the save. Without this, push reports
+            # SUCCESS even when validation aborted save — user sees fields
+            # missing on Samsung side and rightly complains.
+            self._last_validation_alert: str | None = None
             async def _on_dialog(dialog):
                 try:
+                    msg = dialog.message
                     logger.info("Dialog auto-accept: type=%s message=%s",
-                                dialog.type, dialog.message[:100])
+                                dialog.type, msg[:200])
+                    # Detect Samsung validation rejection patterns
+                    msg_low = msg.lower()
+                    if any(kw in msg_low for kw in (
+                        "mandatory", "required", "is required",
+                        "phải", "không được trống", "bắt buộc",
+                        "필수", "is empty", "must be",
+                    )):
+                        self._last_validation_alert = msg[:300]
+                        logger.warning(
+                            "Samsung validation alert detected: %s", msg[:200]
+                        )
                     await dialog.accept()
                 except Exception as exc:
                     logger.warning("Dialog accept failed: %s", exc)
@@ -84,9 +102,9 @@ class BqmsQuotePusher:
         """Login sec-bqms — reuse pattern từ bqms_bidding_scraper."""
         from app.core.config import settings
         await self._start_browser()
+        from app.services.bqms_credentials import get_bqms_credentials
         base = settings.BQMS_BASE_URL or "https://www.sec-bqms.com"
-        user = settings.BQMS_USERNAME
-        pwd = settings.BQMS_PASSWORD
+        user, pwd = get_bqms_credentials()
         if not user or not pwd:
             raise RuntimeError("BQMS credentials missing in settings")
 
@@ -108,22 +126,45 @@ class BqmsQuotePusher:
         logger.info("BqmsQuotePusher login OK: %s", self._page.url)
 
     async def ensure_session(self):
-        """Đảm bảo session active. Re-login nếu hết hạn hoặc chưa từng login."""
+        """Đảm bảo session active + page về vendor portal MAIN.
+
+        Thang 2026-05-22: bug fix — sau khi 1 push trước đó success, page
+        ở edit URL. Push tiếp theo gọi `selectLeftMenu(10)` nhưng global JS
+        function đó chỉ load trên main portal layout. Liveness check trước
+        đây gọi bdEprSubmitList.do (sub-page) → session valid nhưng page sai
+        state → selectLeftMenu undefined. Fix: ALWAYS navigate về
+        vendorPortalMain.do sau liveness check để mọi push start từ cùng
+        starting point.
+        """
         await self._start_browser()
         if self._logged_in_at is None or (datetime.now() - self._logged_in_at) > self._session_max_age:
             logger.info("Session expired or new — logging in")
             await self._login()
             return
-        # Quick liveness check — GET main page, expect không redirect về login
+        # Quick liveness check + reset page về main portal
         try:
             from app.core.config import settings
             base = settings.BQMS_BASE_URL or "https://www.sec-bqms.com"
             await self._page.goto(
-                f"{base}/bqms/vendorPortal/bdEprSubmitList.do",
+                f"{base}/bqms/vendorPortal/vendorPortalMain.do?_mainLayOut=vendorPortalLayout",
                 wait_until="domcontentloaded", timeout=15_000,
             )
             if "anonymous" in self._page.url or "login" in self._page.url.lower():
                 logger.warning("Cookie expired during liveness check, re-login")
+                await self._login()
+                return
+            # Verify selectLeftMenu is loaded (the global function we need)
+            try:
+                has_menu = await self._page.evaluate(
+                    "typeof selectLeftMenu === 'function'"
+                )
+                if not has_menu:
+                    logger.warning(
+                        "selectLeftMenu missing after liveness check — re-login"
+                    )
+                    await self._login()
+            except Exception as exc:
+                logger.warning("selectLeftMenu probe failed (%s) — re-login", exc)
                 await self._login()
         except Exception as exc:
             logger.warning("Liveness check failed (%s), re-login", exc)
@@ -148,78 +189,183 @@ class BqmsQuotePusher:
         """Push 1 RFQ → Save Temporarily lên sec-bqms.
 
         progress_cb(pct: int, step: str): callback async để cập nhật progress vào DB.
+
+        Thang 2026-05-22: payload có thể chứa `_is_repush` (bool, default False).
+        Khi True (push trước đã saved_temp, user click push lần nữa) → pusher
+        chuyển sang OVERRIDE mode: bỏ qua idempotent skip cho ảnh + xóa file
+        đính kèm cũ trước khi upload mới. Price/lead vẫn dùng idempotent
+        check (đã sẵn handle case user_value khác Samsung_value → overwrite).
         """
         async with self._global_lock:
             start = datetime.now()
             rfq_number = payload["rfq_number"]
+            # Re-push flag — set in task wrapper after reading prev_status
+            self._is_repush = bool(payload.get("_is_repush", False))
+            if self._is_repush:
+                logger.info(
+                    "[%s] PUSH MODE = OVERRIDE (re-push, previous status=saved_temp)",
+                    rfq_number,
+                )
+            else:
+                logger.info(
+                    "[%s] PUSH MODE = NORMAL (first push or after failure)",
+                    rfq_number,
+                )
             # Store payload on self so _click_save_temporarily can re-apply
             # grid model values right before saveDcu (workaround for grid
             # values being wiped between _fill_one_item and save).
             self._current_payload = payload
 
-            async def _p(pct, step):
-                """Helper an toàn — callback có thể None."""
+            async def _p(pct, step, step_index=None, step_key=None):
+                """Helper an toàn — callback có thể None.
+
+                Thang 2026-06-22: forward optional step_index (1..8) + step_key
+                to progress_cb so the popup renders the canonical 8-step
+                checklist. Nested nav helpers still call _p with only (pct, step)
+                → step_index/step_key default None → checklist keeps last value.
+                """
                 logger.info("[%s] %d%% — %s", rfq_number, pct, step)
                 if progress_cb:
                     try:
-                        await progress_cb(pct, step)
+                        await progress_cb(pct, step, step_index=step_index, step_key=step_key)
+                    except TypeError:
+                        # Tolerate a legacy progress_cb accepting only (pct, step)
+                        try:
+                            await progress_cb(pct, step)
+                        except Exception as exc:
+                            logger.warning("progress_cb failed: %s", exc)
                     except Exception as exc:
                         logger.warning("progress_cb failed: %s", exc)
 
             n_items = len(payload.get("items", []))
-            # Plan progress weights:
-            # 0-10%: login/session
-            # 10-15%: navigate
-            # 15-20%: edit click
-            # 20-75%: per-item (55% chia đều cho N items)
-            # 75-85%: valid_date + opinion
-            # 85-92%: attachments
-            # 92-98%: save_temp
-            # 98-100%: screenshot
+            # Canonical 8-step checklist (Thang 2026-06-22). label · cumulative %
+            # when the step COMPLETES — IDENTICAL for every round V1..Vn:
+            #   1 login       Đăng nhập sec-bqms     10
+            #   2 session     Mở phiên & kiểm tra    18
+            #   3 navigate    Điều hướng tới QT      32
+            #   4 edit        Vào chế độ chỉnh sửa   42
+            #   5 fill_items  Nhập giá & lead time   72  (interpolate 42→72 / N)
+            #   6 fill_global Hạn báo giá + ý kiến   82
+            #   7 attachments Tải file đính kèm      90
+            #   8 save_temp   Lưu tạm & xác nhận     100
+            # Per-item band (42→72) is the SAME band for V1 (image) and V2+
+            # (price only) — bar moves consistently across rounds (removed the
+            # old 55%/N vs 25%/N asymmetry).
+            FILL_START, FILL_END = 42.0, 72.0
+            per_item_pct = (FILL_END - FILL_START) / max(n_items, 1)
 
             try:
-                await _p(2, "Khởi tạo Playwright session")
+                await _p(2, "Đăng nhập sec-bqms", 1, "login")
                 await self.ensure_session()
-                await _p(10, "Session sec-bqms OK")
+                await _p(10, "Đăng nhập sec-bqms", 1, "login")
 
-                await _p(12, f"Mở trang detail QT {rfq_number}")
-                await self._goto_qt_detail(rfq_number)
-                await _p(15, "Đã vào detail page")
+                await _p(14, "Mở phiên & kiểm tra", 2, "session")
+                # Pass _p so _ensure_on_bidding_list can update progress during
+                # the 3 attempts (each ~15-20s wait loop). It calls _p with only
+                # (pct, step) → step_index/key stay at last value (3 navigate).
+                await _p(18, "Điều hướng tới QT", 3, "navigate")
+                await self._goto_qt_detail(rfq_number, progress_cb=_p)
+                await _p(32, "Điều hướng tới QT", 3, "navigate")
 
-                await _p(17, "Click Edit để chuyển edit mode")
-                await self._click_edit()
-                await _p(20, "Edit mode active")
+                # Thang 2026-05-22: if direct-form-submit fallback already put
+                # us on EditU URL (re-push workaround), skip Edit click — page
+                # is already in edit mode. CRITICAL: must locate the frame
+                # containing `itemGridBox` (dhtmlxGrid global) — Samsung renders
+                # content in nested frame structure.
+                cur_url = (self._page.url or "").lower()
+                if "qtsquoteditu" in cur_url:
+                    logger.info(
+                        "[%s] Already on EditU after navigation — skip Edit click",
+                        rfq_number,
+                    )
+                    # Wait extra for grid + IBSheet to fully initialize
+                    await asyncio.sleep(5)
+                    # Find the frame that has itemGridBox (the items grid)
+                    # OR submitContents (the opinion textarea) — both live
+                    # in the content frame.
+                    self._edit_frame = None
+                    for attempt in range(15):
+                        for fr in [self._page.main_frame] + list(self._page.frames):
+                            fu = (fr.url or "").lower()
+                            if "vendorlogin" in fu or "anonymous" in fu:
+                                continue
+                            try:
+                                has_grid = await fr.evaluate(
+                                    "typeof itemGridBox !== 'undefined'"
+                                )
+                            except Exception:
+                                has_grid = False
+                            if has_grid:
+                                self._edit_frame = fr
+                                logger.info(
+                                    "[%s] Located EditU frame with itemGridBox: %s",
+                                    rfq_number, (fr.url or 'main')[:80],
+                                )
+                                break
+                        if self._edit_frame is not None:
+                            break
+                        await asyncio.sleep(1)
+                    if self._edit_frame is None:
+                        # Fallback to main frame; downstream may still fail but
+                        # we tried our best.
+                        logger.warning(
+                            "[%s] itemGridBox not found in any frame after 15s — "
+                            "falling back to main_frame (downstream may fail)",
+                            rfq_number,
+                        )
+                        self._edit_frame = self._page.main_frame
+                    await _p(42, "Vào chế độ chỉnh sửa", 4, "edit")
+                else:
+                    await _p(36, "Vào chế độ chỉnh sửa", 4, "edit")
+                    await self._click_edit()
+                    await _p(42, "Vào chế độ chỉnh sửa", 4, "edit")
+
+                # CRITICAL FIX (Thang 2026-06-19): sau khi Edit mode active,
+                # Samsung hiển thị 1 notification popup IBSheet ("Most Used
+                # Pieces share the VAT include in pcs..." hoặc locale missing).
+                # Popup này KHÔNG phải lỗi — chỉ là thông báo cần click OK.
+                # Nếu không dismiss, IBSheet API call (getRowsNum, cells2,
+                # setCellValueById) bị block → _fill_one_item fail với
+                # "row not found for code" mặc dù row TỒN TẠI trong grid.
+                # Test case: QT26075907 V2 (Z0000000-794221) — push fail 5 lần
+                # cùng error, dismiss popup → push thành công.
+                await _p(42, "Vào chế độ chỉnh sửa", 4, "edit")
+                await self._dismiss_popups()
+                await asyncio.sleep(1.5)  # cho IBSheet stabilize sau khi popup mất
 
                 # Round 2/3/4: skip image upload + skip FREE_CHARGE/SUBMIT_GIVEUP
                 # per Thang 2026-05-15 spec. Only fill price + lead_time per item.
+                # Step 5 fill_items — interpolate across the SAME 42→72 band for
+                # ALL rounds (per_item_pct computed above, independent of round).
                 round_n = int(payload.get("round", 1))
-                per_item_pct = (55.0 if round_n == 1 else 25.0) / max(n_items, 1)
-                step_label = "upload ảnh" if round_n == 1 else "điền price + lead"
                 for idx, item in enumerate(payload["items"]):
-                    base_pct = 20 + idx * per_item_pct
+                    base_pct = FILL_START + idx * per_item_pct
                     await _p(int(base_pct),
-                             f"Item {idx+1}/{n_items} — {item.get('bqms_code', '?')}: {step_label}")
+                             f"Nhập giá & lead time ({idx+1}/{n_items})",
+                             5, "fill_items")
                     await self._fill_one_item(item, round_n=round_n)
                     await _p(int(base_pct + per_item_pct),
-                             f"Item {idx+1}/{n_items}: xong")
+                             f"Nhập giá & lead time ({idx+1}/{n_items})",
+                             5, "fill_items")
 
-                await _p(76, "Điền Quote Valid Date")
+                await _p(76, "Hạn báo giá + ý kiến", 6, "fill_global")
                 await self._fill_quote_valid_date(payload["quote_valid_date"])
 
-                await _p(80, "Điền Submission Opinion")
+                await _p(82, "Hạn báo giá + ý kiến", 6, "fill_global")
                 await self._fill_submission_opinion(payload["submission_opinion"])
 
                 if payload.get("attachment_paths"):
-                    await _p(86, f"Upload {len(payload['attachment_paths'])} file đính kèm")
+                    await _p(86, f"Tải file đính kèm ({len(payload['attachment_paths'])})",
+                             7, "attachments")
                     await self._upload_attachments(payload["attachment_paths"])
-                    await _p(92, "Đã upload file")
+                await _p(90, "Tải file đính kèm", 7, "attachments")
 
-                await _p(94, "Click Save Temporarily")
+                await _p(94, "Lưu tạm & xác nhận", 8, "save_temp")
                 await self._click_save_temporarily()
-                await _p(98, "Đã save temp — đang chụp screenshot")
+                await _p(98, "Lưu tạm & xác nhận", 8, "save_temp")
 
                 screenshot_path = await self._save_screenshot(rfq_number)
-                await _p(100, "Hoàn tất ✓")
+                await _p(100, "Lưu tạm & xác nhận", 8, "save_temp")
 
                 duration = (datetime.now() - start).total_seconds()
                 logger.info(
@@ -303,13 +449,17 @@ class BqmsQuotePusher:
         finally:
             await conn.close()
 
-    async def _ensure_on_bidding_list(self) -> bool:
+    async def _ensure_on_bidding_list(self, progress_cb=None) -> bool:
         """Reuse pattern từ scraper bqms_bidding_scraper._ensure_on_bidding_list.
 
-        Strategy:
+        Strategy (Thang 2026-05-22):
           1. Quick check — bdEprSubmitList đã trong scope?
           2. selectLeftMenu(10, 10, true) (preserves session)
           3. Fallback page.goto list URL
+          4. NEW: force re-login + retry navigation (handles silent session kill)
+
+        progress_cb(pct, step): optional callback so frontend nhìn được
+        từng giây trong các vòng wait dài (15s mỗi attempt).
         """
         from app.core.config import settings
         base = settings.BQMS_BASE_URL or "https://www.sec-bqms.com"
@@ -324,25 +474,48 @@ class BqmsQuotePusher:
         except Exception:
             pass
 
-        # Attempt 1: selectLeftMenu (in-app nav, preserves session)
-        try:
-            await self._page.evaluate("selectLeftMenu(10, 10, true)")
-            # Native locale dialog appears + auto-accepted by _on_dialog handler.
-            # Wait 7s như anh chỉ — IBSheet load list sau dialog dismiss.
-            await asyncio.sleep(7)
-            await self._dismiss_popups()
-            for _ in range(15):
+        async def _wait_for_js(label: str, total_secs: int, base_pct: int):
+            """Wait + update progress every 3s so user sees activity."""
+            for i in range(total_secs):
                 await asyncio.sleep(1)
                 try:
                     if await self._page.evaluate(js_check):
-                        logger.info("→ recovered via selectLeftMenu(10)")
+                        logger.info("→ recovered via %s after %ds", label, i+1)
                         return True
                 except Exception:
-                    continue
+                    pass
+                # Push step text every 3s — keeps modal feeling responsive
+                if progress_cb and (i + 1) % 3 == 0:
+                    try:
+                        await progress_cb(
+                            base_pct,
+                            f"Đợi Samsung Bidding list load ({label}, {i+1}/{total_secs}s)",
+                        )
+                    except Exception:
+                        pass
+            return False
+
+        # Attempt 1: selectLeftMenu (in-app nav, preserves session)
+        if progress_cb:
+            try:
+                await progress_cb(13, "Attempt 1/3: selectLeftMenu(10)")
+            except Exception:
+                pass
+        try:
+            await self._page.evaluate("selectLeftMenu(10, 10, true)")
+            await asyncio.sleep(7)
+            await self._dismiss_popups()
+            if await _wait_for_js("selectLeftMenu", 15, 13):
+                return True
         except Exception as exc:
             logger.warning("selectLeftMenu failed: %s", exc)
 
         # Attempt 2: full page.goto fallback
+        if progress_cb:
+            try:
+                await progress_cb(14, "Attempt 2/3: page.goto bdEprSubmitListR")
+            except Exception:
+                pass
         list_url = (
             f"{base}/bqms/gbd/eprPotal/sbid/sbid/bdEprSubmitListR.do"
             f"?_menuId=AZib43qsAJIV-QNs&_menuF=true"
@@ -351,36 +524,134 @@ class BqmsQuotePusher:
             await self._page.goto(list_url, wait_until="domcontentloaded", timeout=20_000)
             await asyncio.sleep(4)
             await self._dismiss_popups()
-            for _ in range(15):
-                await asyncio.sleep(1)
-                try:
-                    if await self._page.evaluate(js_check):
-                        logger.info("→ recovered via page.goto")
-                        return True
-                except Exception:
-                    continue
+            if await _wait_for_js("page.goto", 15, 14):
+                return True
         except Exception as exc:
             logger.warning("page.goto fallback failed: %s", exc)
+
+        # Attempt 3 (NEW): force re-login then retry page.goto
+        # Handles case Samsung silently kills session (cookie still in browser
+        # but server-side session invalidated → page renders but `bdEprSubmitList`
+        # JS never loads because the page redirects internally or shows login).
+        if progress_cb:
+            try:
+                await progress_cb(
+                    15, "Attempt 3/3: force re-login Samsung (session có thể đã expire)",
+                )
+            except Exception:
+                pass
+        try:
+            logger.warning("Both attempts failed — forcing full re-login + retry")
+            self._logged_in_at = None  # invalidate so _login fires fresh
+            await self._login()
+            await self._page.goto(list_url, wait_until="domcontentloaded", timeout=20_000)
+            await asyncio.sleep(4)
+            await self._dismiss_popups()
+            if await _wait_for_js("re-login+goto", 20, 15):
+                return True
+        except Exception as exc:
+            logger.warning("re-login retry failed: %s", exc)
+
+        # Capture diagnostic info BEFORE returning False so error includes
+        # what we saw (page title, current URL, snippet of HTML).
+        try:
+            url = self._page.url
+            title = await self._page.title()
+            html_snippet = (await self._page.content())[:500]
+            logger.error(
+                "All 3 attempts failed to reach Bidding list.\n"
+                "  Final URL: %s\n  Title: %s\n  HTML[:500]: %s",
+                url, title, html_snippet,
+            )
+        except Exception:
+            pass
 
         return False
 
     async def _dismiss_popups(self):
-        """Đóng IBSheet locale popup hay confirm dialog nếu hiện."""
-        for sel in [
-            'button:has-text("Confirm")',
-            'button:has-text("OK")',
-            'button:has-text("Yes")',
-            '.alert-dismiss',
-        ]:
-            try:
-                btn = self._page.locator(sel).first
-                if await btn.is_visible(timeout=1000):
-                    await btn.click()
-                    await asyncio.sleep(0.5)
-            except Exception:
-                continue
+        """Đóng IBSheet locale popup hay confirm dialog nếu hiện.
 
-    async def _goto_qt_detail(self, rfq_number: str):
+        Thang 2026-05-22: mirror scraper's `_dismiss_ibsheet_popup` pattern —
+        prioritize `.SheetMessage button` / `.SheetErrorMessage button` (the
+        actual IBSheet popup widget Samsung shows after navigation, không
+        phải confirm dialog thường), fallback to Enter key (works for native
+        alert + IBSheet's HTML popup). User confirmed: popup chỉ là thông
+        báo locale missing — click OK / press Enter là xong.
+
+        Thang 2026-06-19: extend to check BOTH main page AND edit frame.
+        Edit-mode popup ("Most Used Pieces share the VAT...") sometimes lives
+        inside the edit iframe, not main page. Previously _dismiss_popups
+        only checked main page → missed the V2/V3/V4 fill-blocking popup.
+        """
+        ibsheet_clicked = False
+        # Strategy 1: try IBSheet popup selectors on BOTH main page + edit frame
+        # (popup can render in either, depending on Samsung's frame routing)
+        scopes_to_try = [self._page]
+        if getattr(self, "_edit_frame", None) is not None:
+            scopes_to_try.append(self._edit_frame)
+        for scope in scopes_to_try:
+            for sel in [
+                '.SheetMessage button',
+                '.SheetErrorMessage button',
+            ]:
+                try:
+                    btn = await scope.query_selector(sel)
+                    if btn:
+                        txt = (await btn.text_content() or "").strip()
+                        if txt.upper() == "OK":
+                            await btn.click()
+                            ibsheet_clicked = True
+                            scope_name = "edit_frame" if scope is getattr(self, "_edit_frame", None) else "main_page"
+                            logger.info("IBSheet popup dismissed via %s in %s", sel, scope_name)
+                            await asyncio.sleep(0.5)
+                            break
+                except Exception:
+                    continue
+            if ibsheet_clicked:
+                break
+
+        # Strategy 2: generic confirm/OK buttons (Page locators handle frame chain)
+        if not ibsheet_clicked:
+            for sel in [
+                'button:has-text("Confirm")',
+                'button:has-text("OK")',
+                'button:has-text("Yes")',
+                '.alert-dismiss',
+            ]:
+                try:
+                    btn = self._page.locator(sel).first
+                    if await btn.is_visible(timeout=1000):
+                        await btn.click()
+                        await asyncio.sleep(0.5)
+                        break
+                except Exception:
+                    continue
+
+        # Strategy 3: Enter key fallback — clears native alert + IBSheet popup
+        # if buttons not clickable. Works because both popups have focus
+        # bound to OK/Enter.
+        try:
+            await self._page.keyboard.press("Enter")
+            await asyncio.sleep(0.3)
+        except Exception:
+            pass
+
+        # Strategy 4 (Thang 2026-06-19): one more shot per scope via Enter key
+        # inside the edit frame — some IBSheet popups capture focus inside
+        # the iframe and main-page Enter doesn't reach them.
+        if getattr(self, "_edit_frame", None) is not None:
+            try:
+                await self._edit_frame.evaluate(
+                    """() => {
+                        const ev = new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, bubbles: true });
+                        document.dispatchEvent(ev);
+                    }"""
+                )
+                await asyncio.sleep(0.3)
+            except Exception:
+                pass
+
+    async def _goto_qt_detail(self, rfq_number: str, progress_cb=None):
         """Navigate đến detail page của QT cụ thể.
 
         Refactor (Thang 2026-05-15 v2): theo flow user yêu cầu — filter UI thay
@@ -392,11 +663,25 @@ class BqmsQuotePusher:
         5. Wait IBSheet refresh
         6. Click first row's Subject link → Samsung tự navigate to detail
         """
-        # 1. Ensure on bidding list page
-        on_list = await self._ensure_on_bidding_list()
+        # 1. Ensure on bidding list page (with progress updates during wait loops)
+        on_list = await self._ensure_on_bidding_list(progress_cb=progress_cb)
         if not on_list:
+            # Capture screenshot AT failure point so user can see what page was shown
+            try:
+                fail_shot = await self._save_screenshot(rfq_number, suffix="NAV_FAIL")
+                shot_hint = f" Screenshot: {fail_shot.name}"
+            except Exception:
+                shot_hint = ""
+            try:
+                page_title = await self._page.title()
+            except Exception:
+                page_title = "?"
             raise RuntimeError(
-                f"Không thể vào trang Bidding list. URL: {self._page.url}"
+                f"Không vào được trang Bidding list sau 3 lần thử "
+                f"(selectLeftMenu, page.goto, re-login+goto). "
+                f"URL hiện tại: {self._page.url} | Title: {page_title}.{shot_hint} "
+                f"Khả năng: Samsung session bị block tạm thời, "
+                f"thử lại sau 5-10 phút hoặc liên hệ admin."
             )
 
         # 2. Fill Request Number input field
@@ -424,11 +709,20 @@ class BqmsQuotePusher:
             )
 
         # 6. Wait detail page load + verify URL change
-        await asyncio.sleep(7)
+        # Thang 2026-05-22: mirror scraper pattern — Samsung shows IBSheet
+        # locale popup AFTER moveQtSQuotContent, then 6-7s data loads.
+        # Need to dismiss popup BEFORE polling for content.
+        await asyncio.sleep(4)
+        await self._dismiss_popups()  # IBSheet popup after nav
+        await asyncio.sleep(5)
         try:
             await self._page.wait_for_load_state("networkidle", timeout=15_000)
         except Exception:
             pass
+        # Final popup sweep + extra wait — sometimes IBSheet popup fires
+        # in delayed waves after networkidle
+        await self._dismiss_popups()
+        await asyncio.sleep(2)
         final_url = self._page.url
         logger.info("After nav URL: %s", final_url)
         # Sanity check — detail URL không nên còn "bdEprSubmitListR" path
@@ -437,6 +731,129 @@ class BqmsQuotePusher:
                 f"Navigation appears stuck on list page: {final_url}. "
                 f"Samsung's moveQtSQuotContent() may have been blocked."
             )
+
+        # Thang 2026-05-22: detect "empty content" page — nav function ran but
+        # didn't load QT detail. Happens for QTs in saved_temp status where
+        # moveQtSQuotContent() doesn't render content (chỉ load chrome).
+        #
+        # Probe THE ACTUAL detail content: ContentR page should have either
+        # an Edit/Modify action button OR show the items grid. If neither
+        # exists after 10s of polling, page is empty → fallback POST.
+        try:
+            page_title = await self._page.title()
+        except Exception:
+            page_title = ""
+        # Poll up to 10s for either Edit/Modify button OR itemGrid → page ready
+        has_content = False
+        for _ in range(10):
+            try:
+                probe = await self._page.evaluate(
+                    """() => {
+                        // Check 1: Edit / Modify button visible
+                        const btns = document.querySelectorAll('button, a, input[type="button"], input[type="submit"]');
+                        for (const b of btns) {
+                            const t = (b.textContent || b.value || '').trim().toLowerCase();
+                            if (t === 'edit' || t === 'modify' || t === '수정') {
+                                const r = b.getBoundingClientRect();
+                                if (r.width > 0 && r.height > 0) return {has: true, why: 'edit_btn'};
+                            }
+                        }
+                        // Check 2: items grid present (any frame has itemGridBox)
+                        if (typeof itemGridBox !== 'undefined') return {has: true, why: 'itemGridBox'};
+                        // Check 3: Look for QT-specific basic info markers
+                        const body = (document.body && document.body.textContent || '').toLowerCase();
+                        if (body.includes('basic information') || body.includes('quotation amount')) {
+                            return {has: true, why: 'basic_info_text'};
+                        }
+                        return {has: false};
+                    }"""
+                )
+                if probe.get("has"):
+                    has_content = True
+                    logger.info(
+                        "QT detail content detected: %s", probe.get("why")
+                    )
+                    break
+            except Exception:
+                pass
+            await asyncio.sleep(1)
+
+        # Trigger staging-form fallback ONLY when no detail content found
+        # after extended polling — saved_temp QT silently rejecting moveQt.
+        if (not has_content
+            and "search" in (page_title or "").lower()
+            and "qtsquotcontentr" in final_url.lower()):
+            logger.warning(
+                "Detected stuck-on-search after nav (title=%r) — retrying via "
+                "staging-based form POST to EditU (re-push workaround)",
+                page_title,
+            )
+            # Fetch staging row to build form data with all required keys
+            try:
+                staging = await self._fetch_staging_row(rfq_number)
+                logger.info(
+                    "Staging row for QT %s: reqNo=%s reqSeq=%s secureKey=%s...",
+                    rfq_number, staging.get("reqNo"), staging.get("reqSeq"),
+                    str(staging.get("secureKey", ""))[:20],
+                )
+            except Exception as exc:
+                logger.warning("Staging fetch failed: %s", exc)
+                staging = None
+            if staging:
+                retry_ok = await self._page.evaluate(
+                    """(s) => {
+                        try {
+                            // Create fresh form (existing submitContentForm
+                            // was consumed by previous nav call)
+                            const form = document.createElement('form');
+                            form.method = 'post';
+                            form.action = '/bqms/eprPotal/quot/qtSQuotEditUVendor.do';
+                            form.style.display = 'none';
+                            const add = (name, val) => {
+                                const i = document.createElement('input');
+                                i.type = 'hidden';
+                                i.name = name;
+                                i.value = val == null ? '' : String(val);
+                                form.appendChild(i);
+                            };
+                            add('reqNo', s.reqNo);
+                            add('reqSeq', s.reqSeq);
+                            add('ctrChangeSeq', s.ctrChangeSeq || '');
+                            add('valutSeq', s.valutSeq || '');
+                            add('rndSysCode', s.rndSysCode || '');
+                            add('secureKey', s.secureKey);
+                            add('secureKeyBid', s.secureKeyBid || '');
+                            add('eprCode', s.eprCode || '');
+                            add('eprNo', s.eprNo || '');
+                            // Common Samsung menuId for Bidding Quotation Submit
+                            add('_menuId', 'AZib43qsAJIV-QNs');
+                            add('_menuF', 'true');
+                            document.body.appendChild(form);
+                            form.submit();
+                            return {ok: true, action: form.action};
+                        } catch (e) {
+                            return {ok: false, why: String(e).slice(0,300)};
+                        }
+                    }""",
+                    staging,
+                )
+                logger.info("Staging-form POST retry: %s", retry_ok)
+                if retry_ok.get("ok"):
+                    await asyncio.sleep(8)
+                    try:
+                        await self._page.wait_for_load_state("networkidle", timeout=15_000)
+                    except Exception:
+                        pass
+                    final_url = self._page.url
+                    new_title = ""
+                    try:
+                        new_title = await self._page.title()
+                    except Exception:
+                        pass
+                    logger.info(
+                        "After staging-form POST: url=%s title=%s",
+                        final_url, new_title,
+                    )
 
     async def _fill_request_number_filter(self, rfq_number: str) -> bool:
         """Fill ô input Request Number trên trang list filter."""
@@ -648,7 +1065,18 @@ class BqmsQuotePusher:
     async def _click_edit(self):
         """Click nút Edit ở góc trên phải. Search cả main page + tất cả iframes
         vì Samsung BQMS thường load detail content vào child frame.
+
+        Thang 2026-05-22: CRITICAL bug — search trước đây pick frame ĐẦU
+        TIÊN có "Edit" button. Samsung embed anonymous login iframe ở footer
+        (vendorLogin.do?_frameF=true) — frame này có cả "Edit" button trong
+        leftover HTML từ login page. Pusher pick login frame → click thành
+        công nhưng self._edit_frame = login frame → mọi op tiếp theo (find
+        item row, fill grid, save) đều fail vì frame login KHÔNG có item table.
+        Fix: SKIP frame URL chứa 'anonymous', 'login', '/vendorLogin'.
         """
+        # Reset stale frame from previous push first
+        self._edit_frame = None
+
         await self._dismiss_popups()
         # Wait detail content settle
         await asyncio.sleep(3)
@@ -659,28 +1087,60 @@ class BqmsQuotePusher:
         except Exception:
             pass
 
+        # Thang 2026-05-22: after `Save Temporarily`, Samsung's View page shows
+        # "Modify" button instead of "Edit" (QT is in draft-submitted state).
+        # Accept both Edit + Modify (+ Korean 수정) as the "enter edit mode" trigger.
         selectors = [
             'button:has-text("Edit"):not([disabled])',
             'a:has-text("Edit")',
             'input[type="button"][value="Edit"]',
             'input[type="submit"][value="Edit"]',
-            'button.btnEdit',
-            'a.btnEdit',
+            # Modify variants — appear after saved_temp
+            'button:has-text("Modify"):not([disabled])',
+            'a:has-text("Modify")',
+            'input[type="button"][value="Modify"]',
+            'input[type="submit"][value="Modify"]',
+            'button.btnEdit, button.btnModify',
+            'a.btnEdit, a.btnModify',
             'button:text-is("Edit")',
             'a:text-is("Edit")',
-            # Samsung pattern — onclick contains "Edit" or edit functions
+            'button:text-is("Modify")',
+            'a:text-is("Modify")',
+            # Korean
+            'button:has-text("수정")',
+            'a:has-text("수정")',
+            # Samsung pattern — onclick contains "edit" or "modify" or edit functions
             'button[onclick*="edit" i]',
             'a[onclick*="edit" i]',
+            'button[onclick*="modify" i]',
+            'a[onclick*="modify" i]',
         ]
 
-        # Search across all frames
+        def _is_login_frame(url: str) -> bool:
+            """Filter out Samsung's auth iframe — it CAN contain stale Edit
+            buttons but it's NOT the QT detail content frame."""
+            u = (url or "").lower()
+            return ("anonymous" in u
+                    or "vendorlogin" in u
+                    or "/login" in u)
+
+        # Search across all frames — main first, then NON-AUTH children
         frames = []
         try:
-            frames = list(self._page.frames)
+            all_frames = list(self._page.frames)
         except Exception:
-            frames = [self._page.main_frame]
+            all_frames = [self._page.main_frame]
+        # Reorder: main first, then non-login frames, then login frames LAST
+        main = self._page.main_frame
+        non_login = [f for f in all_frames if f is not main and not _is_login_frame(f.url)]
+        login_only = [f for f in all_frames if f is not main and _is_login_frame(f.url)]
+        frames = [main] + non_login + login_only
 
         for frame in frames:
+            # Skip auth/login frames unless they're the only option left
+            if _is_login_frame(frame.url) and frame is not main:
+                logger.info("Skipping auth frame for Edit click: %s", frame.url[:100])
+                continue
             for sel in selectors:
                 try:
                     btn = frame.locator(sel).first
@@ -697,15 +1157,19 @@ class BqmsQuotePusher:
                 except Exception:
                     continue
 
-        # Last resort: eval JS to find Edit button by text
+        # Last resort: eval JS to find Edit button by text — skip auth frames
         for frame in frames:
+            if _is_login_frame(frame.url) and frame is not main:
+                continue
             try:
                 clicked = await frame.evaluate(
                     """() => {
+                        const targets = ['edit', 'modify', '수정'];
                         const all = document.querySelectorAll('button, a, input[type="button"], input[type="submit"]');
                         for (const el of all) {
                             const t = (el.textContent || el.value || '').trim();
-                            if (t === 'Edit' || t.toLowerCase() === 'edit') {
+                            const tl = t.toLowerCase();
+                            if (targets.includes(tl) || targets.includes(t)) {
                                 const rect = el.getBoundingClientRect();
                                 if (rect.width > 0 && rect.height > 0) {
                                     el.click();
@@ -725,7 +1189,59 @@ class BqmsQuotePusher:
             except Exception:
                 continue
 
-        raise RuntimeError("Không tìm thấy nút Edit trong main page và tất cả iframes")
+        # Diagnostic: capture page state + screenshot when no Edit/Modify found
+        deadline_passed = False
+        try:
+            from datetime import datetime as _dt
+            ts = _dt.now().strftime("%Y%m%d_%H%M%S")
+            shot_path = f"/data/bqms-push-evidence/_no_edit_btn_{ts}.png"
+            await self._page.screenshot(path=shot_path, full_page=True)
+            page_title = await self._page.title()
+            # Check for "Submission deadline has passed" — Samsung blocks edit
+            # after deadline. This is a USER issue, not a code bug.
+            deadline_passed = await self._page.evaluate(
+                """() => {
+                    const body = (document.body && document.body.textContent || '').toLowerCase();
+                    return body.includes('submission deadline has passed')
+                        || body.includes('deadline has passed')
+                        || body.includes('hạn nộp đã qua')
+                        || body.includes('hết hạn nộp');
+                }"""
+            )
+            # List ALL buttons/links visible to give clue about what page shows
+            visible_btns = await self._page.evaluate(
+                """() => {
+                    const out = [];
+                    for (const el of document.querySelectorAll('button, a, input[type="button"], input[type="submit"]')) {
+                        const t = (el.textContent || el.value || '').trim();
+                        const r = el.getBoundingClientRect();
+                        if (t && r.width > 0 && r.height > 0) {
+                            out.push(t.slice(0, 40));
+                            if (out.length >= 20) break;
+                        }
+                    }
+                    return out;
+                }"""
+            )
+            logger.error(
+                "Edit button not found. URL=%s, Title=%s, deadline_passed=%s, "
+                "Visible buttons=%s, Screenshot=%s",
+                self._page.url, page_title, deadline_passed, visible_btns, shot_path,
+            )
+        except Exception as exc:
+            logger.warning("Diagnostic capture failed: %s", exc)
+
+        # User-friendly error message based on detected state
+        if deadline_passed:
+            raise RuntimeError(
+                "Hạn nộp báo giá của QT đã qua (Samsung hiển thị 'Submission "
+                "deadline has passed') → không thể edit nữa. Liên hệ Samsung "
+                "purchaser nếu cần extend deadline, hoặc QT này đã closed."
+            )
+        raise RuntimeError(
+            "Không tìm thấy nút Edit/Modify trong main page và non-auth iframes "
+            "(QT có thể đang ở trạng thái không cho edit — check screenshot evidence)"
+        )
 
     def _scope(self):
         """Return frame để dùng cho operation sau Edit. Fallback main page."""
@@ -740,9 +1256,27 @@ class BqmsQuotePusher:
         Round 2/3/4: SKIP image upload (Samsung reuses V1 image) + SKIP FREE_CHARGE +
                      SKIP SUBMIT_GIVEUP (preserve Samsung default per Thang 2026-05-15).
                      ONLY fill price + lead_time.
+
+        Thang 2026-05-22:
+        - SKIP image upload entirely khi abandonment='Y' (mã không báo giá →
+          không cần ảnh sản phẩm)
+        - IDEMPOTENT mode: trước khi set value, đọc current Samsung value.
+          Nếu Samsung đã có giá trị hợp lệ (price > 0, lead > 0) → skip set
+          để re-push lần thứ N chỉ bổ sung field thiếu.
         """
         code = item["bqms_code"]
         scope = self._scope()
+        # Normalize abandonment flag (Y/N) — drives "không báo giá" skip logic
+        abandoned = (item.get("abandonment") or "N").strip().upper() == "Y"
+
+        # Thang 2026-06-03: log when we push placeholder=0 for "không báo giá"
+        # items (was 1; Samsung sums line price into grand total even when
+        # SUBMIT_GIVEUP='Y' so placeholder must be 0 to avoid inflating totals).
+        if abandoned and (not item.get("quotation_price") or int(item.get("quotation_price") or 0) <= 0):
+            logger.info(
+                "BQMS push: bqms_code=%s status=khongbaogia -> price=0 (was defaulting to 1)",
+                code,
+            )
 
         # Debug screenshot at start of item fill
         try:
@@ -801,14 +1335,107 @@ class BqmsQuotePusher:
         # Locate row via Playwright now that em verify nó tồn tại
         row = scope.locator(f'tr:has(td:has-text("{code}"))').first
 
-        # ── C2. Upload image (round 1 ONLY) ──
-        if round_n == 1:
-            await self._upload_item_image(row, code, item["image_path"])
-        else:
+        # ── C2. Upload image (round 1 only, non-abandoned) ──
+        # Skip conditions (in priority order):
+        #   1. round_n != 1 → Samsung tự reuse V1 image cho V2/V3/V4
+        #   2. abandonment='Y' → mã không báo giá, không cần ảnh
+        #   3. (not re-push) AND Samsung row đã có IMG_FILE_NM → idempotent skip
+        # Re-push mode (Thang 2026-05-22): ALWAYS upload mới, bỏ qua idempotent
+        # vì user click "Đẩy lên SEC" lần 2 sau saved_temp = ý đồ thay ảnh.
+        is_repush = getattr(self, "_is_repush", False)
+        if round_n != 1:
             logger.info(
                 "Skip image upload for %s (round=%d, Samsung reuses V1 image)",
                 code, round_n,
             )
+        elif abandoned:
+            # User-spec (2026-05-22): mã abandonment='Y' (không báo giá) →
+            # KHÔNG đẩy ảnh lên Samsung. Tránh polluting form với ảnh không
+            # cần cho item bị bỏ qua.
+            logger.info("Skip image upload for %s (abandonment=Y, không báo giá)", code)
+        elif is_repush:
+            # Re-push override: always replace existing image
+            logger.info(
+                "RE-PUSH override for %s — bypassing idempotent skip, uploading new image",
+                code,
+            )
+            await self._upload_item_image(row, code, item["image_path"])
+        else:
+            # Idempotent probe: check if Samsung grid row already has an image
+            # filename. If yes (re-push case), skip the upload to save ~30s.
+            #
+            # FIX (Thang 2026-05-22): chỉ match cột FILE_NM/FILE_PATH thật chứa
+            # tên ảnh, KHÔNG match `CIS_CODE` (item identifier, luôn non-empty
+            # → trước đây gây false positive → skip upload sai trên FIRST push
+            # khi Samsung chưa có ảnh).
+            try:
+                has_img = await scope.evaluate(
+                    """(target) => {
+                        if (typeof itemGridBox === 'undefined') return false;
+                        const g = itemGridBox;
+                        const numRows = g.getRowsNum();
+                        const numCols = (g.getColumnsNum && g.getColumnsNum()) || 30;
+                        // Thang 2026-06-19: adaptive code col detection.
+                        // V2 page uses ITEM_ID (col 20), V1 uses col 15. Scan.
+                        let bqmsColIdx = -1;
+                        for (let c = 0; c < numCols; c++) {
+                            if ((g.getColumnId(c) || '').toUpperCase() === 'ITEM_ID') {
+                                bqmsColIdx = c; break;
+                            }
+                        }
+                        if (bqmsColIdx === -1) {
+                            const codeRe = /^(ITEM_ID|BQMS.*CODE|ITEM.*CODE|CIS.*CODE)$/i;
+                            for (let c = 0; c < numCols; c++) {
+                                if (codeRe.test(g.getColumnId(c) || '')) { bqmsColIdx = c; break; }
+                            }
+                        }
+                        if (bqmsColIdx === -1) bqmsColIdx = 15;
+                        let rowId = null;
+                        for (let i = 0; i < numRows; i++) {
+                            try {
+                                if (g.cells2(i, bqmsColIdx).getValue() === target) {
+                                    rowId = g.getRowId(i); break;
+                                }
+                            } catch(e) {}
+                        }
+                        if (!rowId) return false;
+                        // STRICT image-column matcher — must look like an image
+                        // FILENAME / FILE_NM / FILE_PATH column, AND value must
+                        // look like an image filename (ends with .png/.jpg/.jpeg/etc).
+                        // Excludes CIS_CODE / ITEM_CODE etc. which are identifiers,
+                        // not image data.
+                        const imageColRe = /(^|_)(IMG|IMAGE|CIS_IMG|ITEM_IMG)_?(FILE|FILE_NM|FILE_PATH|NM|PATH|URL)?$/i;
+                        const imageValRe = /\\.(png|jpg|jpeg|gif|bmp|webp)$/i;
+                        for (let i = 0; i < numCols; i++) {
+                            const cid = (g.getColumnId(i) || '').toUpperCase();
+                            // Require both column-id pattern + value looks like image filename
+                            const looksImageCol = imageColRe.test(cid);
+                            // Quick exclusion: never match these even by accident
+                            if (cid.endsWith('_CODE') || cid === 'CIS_CODE' || cid === 'ITEM_CODE') continue;
+                            if (!looksImageCol) continue;
+                            try {
+                                const v = g.getCellValueById(g.getColumnId(i), rowId);
+                                const s = (v == null) ? '' : String(v).trim();
+                                if (s && imageValRe.test(s)) {
+                                    return {colId: g.getColumnId(i), value: s.slice(0,80)};
+                                }
+                            } catch(e) {}
+                        }
+                        return false;
+                    }""",
+                    code,
+                )
+            except Exception as exc:
+                logger.warning("Image-existence probe failed (%s) — defaulting to upload", exc)
+                has_img = False
+
+            if has_img:
+                logger.info(
+                    "Skip image upload for %s (idempotent: Samsung already has %s)",
+                    code, has_img,
+                )
+            else:
+                await self._upload_item_image(row, code, item["image_path"])
 
         # ── C3+C5. Set price + lead_time DIRECTLY into dhtmlxGrid model ──
         # CRITICAL discovery (Thang 2026-05-15): Samsung's saveDcu() reads from
@@ -822,33 +1449,125 @@ class BqmsQuotePusher:
             """(args) => {
                 const g = itemGridBox;
                 if (!g) return { ok: false, why: 'itemGridBox missing' };
-                // Find row by bqms_code — known to be col 15 from earlier discovery
                 const numRows = g.getRowsNum();
-                let rowId = null;
-                for (let i = 0; i < numRows; i++) {
-                    const rid = g.getRowId(i);
-                    try {
-                        const v = g.cells2(i, 15).getValue();
-                        if (v === args.code) { rowId = rid; break; }
-                    } catch(e) {}
-                }
-                if (!rowId) return { ok: false, why: 'row not found for code', code: args.code };
+                // numCols defined later in this function for price-col scan,
+                // reuse via outer-scope `var` to avoid duplicate declaration.
+                var numCols = g.getColumnsNum();
 
-                // Auto-discover price column id: scan columns whose label/id
-                // suggests price/amount, or fallback to col 7 (known position from sample).
+                // Thang 2026-06-19: ADAPTIVE bqms_code column discovery.
+                // V1 page: col 15 = BQMS code. V2 page: col index may differ.
+                // Strategy: scan ALL columns to find one matching the target
+                // code value. If exact match found → that's the code column.
+                // If multiple columns match, prefer one whose column-id
+                // contains CODE/ITEM/CIS.
+                //
+                // Also dump debug info so we can diagnose if 0 rows found.
+                let rowId = null;
+                let bqmsColIdx = -1;
+                const colIds = [];
+                const sampleRow = [];
+                for (let c = 0; c < numCols; c++) {
+                    try { colIds.push(g.getColumnId(c) || ''); } catch(e) { colIds.push('?'); }
+                }
+                // Sample first row across all columns for diagnostics
+                if (numRows > 0) {
+                    for (let c = 0; c < numCols; c++) {
+                        try {
+                            const v = g.cells2(0, c).getValue();
+                            sampleRow.push((v == null ? '' : String(v)).slice(0, 40));
+                        } catch(e) { sampleRow.push('ERR'); }
+                    }
+                }
+                // Strategy 1: priority try columns whose ID looks like a code col.
+                // Thang 2026-06-19: V2 page exposes BQMS code as ITEM_ID (col 20),
+                // V1 page exposes it via different cell layout. Match both.
+                // Prefer ITEM_ID first since that's the Samsung-internal canonical
+                // identifier. CIS_CODE on V2 holds a different value (Q240-XXX).
+                const codeColCandidates = [];
+                const codeIdRe = /^(ITEM_ID|BQMS.*CODE|ITEM.*CODE|CIS.*CODE)$/i;
+                // Priority order: ITEM_ID first, then code variants
+                const priorityIds = ['ITEM_ID', 'BQMS_CODE', 'ITEM_CODE'];
+                for (const pid of priorityIds) {
+                    for (let c = 0; c < numCols; c++) {
+                        if ((colIds[c] || '').toUpperCase() === pid) {
+                            codeColCandidates.push(c);
+                        }
+                    }
+                }
+                // Then add other CODE-ish columns
+                for (let c = 0; c < numCols; c++) {
+                    if (codeColCandidates.includes(c)) continue;
+                    if (codeIdRe.test(colIds[c])) codeColCandidates.push(c);
+                }
+                // Fallback: scan every column
+                if (codeColCandidates.length === 0) {
+                    for (let c = 0; c < numCols; c++) codeColCandidates.push(c);
+                }
+                for (const c of codeColCandidates) {
+                    for (let i = 0; i < numRows; i++) {
+                        try {
+                            const v = g.cells2(i, c).getValue();
+                            if (v === args.code) {
+                                rowId = g.getRowId(i);
+                                bqmsColIdx = c;
+                                break;
+                            }
+                        } catch(e) {}
+                    }
+                    if (rowId) break;
+                }
+                if (!rowId) {
+                    return {
+                        ok: false,
+                        why: 'row not found for code',
+                        code: args.code,
+                        debug: {
+                            numRows,
+                            numCols,
+                            colIds,
+                            sampleRow,
+                            candidateCols: codeColCandidates,
+                        },
+                    };
+                }
+
+                // Auto-discover price column id.
+                // Thang 2026-06-19: V2 grid has 4 price-like cols:
+                //   FIR_SUBMISSION_UNIT_PRICE   (V1 first quote — historical, read-only)
+                //   BEFORE_SUBMISSION_UNIT_PRICE (prev round — historical)
+                //   SUBMISSION_UNIT_PRICE        (current round target — WRITE HERE)
+                //   SUBMISSION_AMOUNT            (total = unit_price × qty)
+                // Old logic took FIR_SUBMISSION_UNIT_PRICE because it matches
+                // /PRICE/ first → V2 price landed in V1 historical column.
+                // Fix: PRIORITY MATCH `SUBMISSION_UNIT_PRICE` exactly first,
+                // then fall back to other price-like cols. Exclude FIR_/BEFORE_
+                // prefix so historical cols never get picked.
                 let priceColId = null;
-                const numCols = g.getColumnsNum();
+                // numCols already declared at function top with var.
                 const labelOf = (i) => {
                     if (g.getColumnLabel) return (g.getColumnLabel(i) || '').replace(/<[^>]+>/g,'');
                     return '';
                 };
+                // Strategy A: exact id match for the canonical current-round col
                 for (let i = 0; i < numCols; i++) {
                     const cid = (g.getColumnId(i) || '').toUpperCase();
-                    const lbl = labelOf(i).toLowerCase();
-                    if (cid.includes('PRICE') || cid.includes('AMOUNT') || cid.includes('QUOT_AMT')
-                        || lbl.includes('quotation price')) {
+                    if (cid === 'SUBMISSION_UNIT_PRICE' || cid === 'QUOT_AMT'
+                        || cid === 'QUOTATION_PRICE') {
                         priceColId = g.getColumnId(i);
                         break;
+                    }
+                }
+                // Strategy B: fuzzy match, BUT skip historical FIR_/BEFORE_ cols
+                if (!priceColId) {
+                    for (let i = 0; i < numCols; i++) {
+                        const cid = (g.getColumnId(i) || '').toUpperCase();
+                        const lbl = labelOf(i).toLowerCase();
+                        if (cid.startsWith('FIR_') || cid.startsWith('BEFORE_')) continue;
+                        if (cid.includes('PRICE') || cid.includes('AMOUNT') || cid.includes('QUOT_AMT')
+                            || lbl.includes('quotation price')) {
+                            priceColId = g.getColumnId(i);
+                            break;
+                        }
                     }
                 }
                 if (!priceColId) {
@@ -860,9 +1579,46 @@ class BqmsQuotePusher:
                 // CRITICAL (Thang 2026-05-15): Samsung's getCellValueById uses
                 // signature `(colId, rowId)` — column first. setCellValueById
                 // must match. Try multiple methods/orderings + verify via get.
+                //
+                // IDEMPOTENT mode (Thang 2026-05-22): if Samsung already has a
+                // non-empty value AND it matches what we'd push, skip the set.
+                // For numeric fields (price, lead), "has value" = parseFloat > 0.
+                // For string fields (FREE_CHARGE, SUBMIT_GIVEUP), "has value"
+                // = non-empty string. Re-push lần thứ N chỉ bổ sung field thiếu.
+                //
+                // OVERRIDE mode (Thang 2026-05-22): if args.is_repush=true,
+                // disable idempotent — ALWAYS write user's new value to replace
+                // Samsung's stored value. Triggered when previous push was
+                // saved_temp + user pushes again (intent: thay đổi data).
                 const out = { ok: true, rowId: rowId, priceColId: priceColId, sets: {} };
-                const setCell = (colId, value) => {
+                const setCell = (colId, value, opts) => {
+                    opts = opts || {};
+                    // Re-push: force overwrite, disable idempotent check
+                    if (args.is_repush) {
+                        opts = Object.assign({}, opts, {idempotent: false});
+                    }
                     const before = g.getCellValueById(colId, rowId);
+                    // Idempotent: skip if Samsung already has the same value or
+                    // a "valid" non-empty value (for numeric, > 0)
+                    if (opts.idempotent) {
+                        if (opts.numeric) {
+                            const beforeNum = parseFloat(before);
+                            const valueNum = parseFloat(value);
+                            if (!isNaN(beforeNum) && beforeNum > 0) {
+                                // Samsung has a positive number; if user's value differs we still push.
+                                // If user passes 0 (placeholder), skip to preserve Samsung's value.
+                                if (valueNum === 0 || valueNum === beforeNum) {
+                                    return {method: 'idempotent_skip', ok: true, value: before, kept: true};
+                                }
+                            }
+                        } else {
+                            if (before != null && String(before).trim() !== '') {
+                                if (String(before) === String(value)) {
+                                    return {method: 'idempotent_skip', ok: true, value: before, kept: true};
+                                }
+                            }
+                        }
+                    }
                     let after = before;
                     // Method 1: setCellValueById(colId, rowId, val) — matches getCellValueById signature
                     try { g.setCellValueById(colId, rowId, value); after = g.getCellValueById(colId, rowId); } catch(e){}
@@ -883,15 +1639,41 @@ class BqmsQuotePusher:
                     if (String(after) === String(value)) return {method: 'cells.setValue', ok: true, value: after};
                     return {method: 'all_failed', ok: false, before: before, after: after};
                 };
-                out.sets.price = setCell(priceColId, args.price);
-                out.sets.lead = setCell('LEAD_TIME', args.lead);
-                // Round 1 only: set FREE_CHARGE='N' and SUBMIT_GIVEUP='Y' if abandoned.
-                // Round 2-4: preserve Samsung's stored values (anh không động vào).
-                if (args.round_n === 1) {
-                    out.sets.free_charge = setCell('FREE_CHARGE', 'N');
-                    if (args.abandonment === 'Y') {
-                        out.sets.giveup = setCell('SUBMIT_GIVEUP', 'Y');
-                    }
+                // For abandoned items (SUBMIT_GIVEUP='Y'), Samsung's saveDcu()
+                // STILL validates "Submitted Unit Price is mandatory" — won't
+                // accept empty price. Thang 2026-06-03: placeholder=0 (was 1)
+                // because Samsung's grand total SUMS the line price even when
+                // SUBMIT_GIVEUP='Y' — "không báo giá" items must contribute 0
+                // to the total, not 1.
+                const effectivePrice = (args.abandonment === 'Y' && (!args.price || args.price <= 0))
+                    ? 0
+                    : args.price;
+                out.sets.price = setCell(priceColId, effectivePrice, {idempotent: true, numeric: true});
+                out.sets.lead = setCell('LEAD_TIME', args.lead, {idempotent: true, numeric: true});
+                // Round 1: always write FREE_CHARGE + SUBMIT_GIVEUP.
+                // Round 2-4: skip BY DEFAULT (preserve Samsung values from V1).
+                // Round 2-4 RE-PUSH (Thang 2026-06-19): if user changed abandon
+                // status between rounds (e.g., V1 báo 2/6 mã → V2 muốn báo 5/6
+                // mã, 3 mã đổi abandon Y→N), MUST flip SUBMIT_GIVEUP/FREE_CHARGE
+                // to match new state. Without this, Samsung keeps SUBMIT_GIVEUP='Y'
+                // from V1 → 3 mã mới remain abandoned on Samsung side.
+                // Bypass idempotent for both fields so the write goes through.
+                const shouldWriteFlags = (args.round_n === 1) || args.is_repush;
+                const isAbandoned = (args.abandonment === 'Y');
+                if (shouldWriteFlags) {
+                    // FREE_CHARGE = 'N' always (Samsung default for paid quote)
+                    out.sets.free_charge = setCell(
+                        'FREE_CHARGE', 'N',
+                        {idempotent: !args.is_repush}
+                    );
+                    // SUBMIT_GIVEUP: 'Y' khi abandon, 'N' khi báo giá.
+                    // Quan trọng: V2+ re-push phải gửi cả 'N' để FLIP từ 'Y'
+                    // (mã trước abandon, giờ user báo giá lại). V1 logic cũ
+                    // chỉ set 'Y' khi abandon → never un-flip.
+                    out.sets.giveup = setCell(
+                        'SUBMIT_GIVEUP', isAbandoned ? 'Y' : 'N',
+                        {idempotent: !args.is_repush}
+                    );
                 } else {
                     out.skipped_for_round = ['FREE_CHARGE', 'SUBMIT_GIVEUP'];
                 }
@@ -903,12 +1685,27 @@ class BqmsQuotePusher:
                 "lead": int(item.get("lead_time_days", 30)),
                 "abandonment": item.get("abandonment", "N"),
                 "round_n": round_n,
+                "is_repush": getattr(self, "_is_repush", False),
             },
         )
         logger.info("Grid model set for %s: %s", code, grid_result)
         if not grid_result.get("ok"):
+            # Thang 2026-06-19: surface debug info into error message so log
+            # captures IBSheet state (numRows, colIds, first-row values) for
+            # diagnosis when V2 page layout differs from V1.
+            debug = grid_result.get("debug", {})
+            debug_summary = ""
+            if debug:
+                debug_summary = (
+                    f" | numRows={debug.get('numRows')} "
+                    f"numCols={debug.get('numCols')} "
+                    f"colIds={debug.get('colIds', [])[:30]} "
+                    f"sampleRow0={debug.get('sampleRow', [])[:30]}"
+                )
+                logger.error("Grid debug: %s", debug)
             raise RuntimeError(
-                f"Failed to write to grid model for {code}: {grid_result.get('why')}"
+                f"Failed to write to grid model for {code}: "
+                f"{grid_result.get('why')}{debug_summary}"
             )
         await asyncio.sleep(0.3)
 
@@ -921,6 +1718,44 @@ class BqmsQuotePusher:
             item.get("abandonment", "N"), grid_result.get("priceColId"),
         )
 
+    @staticmethod
+    def _prepare_upload_filename(src_path: str, bqms_code: str) -> str:
+        """Copy image to /tmp with filename = `{bqms_code}.{ext}` (Thang 2026-05-22).
+
+        Samsung lưu image với tên file y nguyên `set_input_files()` gửi lên.
+        Trước đây ta upload nguyên cache file (vd `cropped_1779424729_9b20d5e9.png`)
+        → Samsung hiển thị random hash → khó nhận diện. Fix: copy bytes sang
+        `/tmp/bqms_upload_{bqms_code}.{ext}` rồi upload từ đó.
+
+        Returns: absolute path of the renamed file.
+        Falls back to original path nếu copy fail (log warning).
+        """
+        import shutil, re
+        try:
+            src = Path(src_path)
+            if not src.exists():
+                return src_path
+            # Sanitize bqms code: keep alphanum + dash + underscore only
+            safe_code = re.sub(r"[^A-Za-z0-9_\-]", "_", (bqms_code or "unknown").strip())
+            ext = src.suffix.lower() or ".png"  # fallback .png if no extension
+            # Whitelist allowed image extensions
+            if ext not in (".png", ".jpg", ".jpeg", ".gif", ".bmp", ".webp"):
+                ext = ".png"
+            dst = Path("/tmp") / f"{safe_code}{ext}"
+            # Re-copy each push so stale renamed files don't persist between pushes
+            shutil.copy2(str(src), str(dst))
+            logger.info(
+                "Renamed upload file: %s → %s",
+                src.name, dst.name,
+            )
+            return str(dst)
+        except Exception as exc:
+            logger.warning(
+                "Failed to rename upload file %s (%s) — using original path",
+                src_path, exc,
+            )
+            return src_path
+
     async def _upload_item_image(self, row, code: str, image_path: str):
         """Upload image cho 1 item qua Samsung's flow.
 
@@ -930,9 +1765,15 @@ class BqmsQuotePusher:
           tới `/bqms/mro/common/CropImage/openViewer.do?itemCode=X&reqNo=Y&...`
         - Popup window mới chứa Edit button → mở Item Image Uploader
         - Uploader có `<input type="file">` để set_input_files()
+
+        Thang 2026-05-22: rename uploaded file to `{bqms_code}.{ext}` BEFORE
+        set_input_files so Samsung lưu tên có nghĩa thay vì random hash.
         """
         if not Path(image_path).exists():
             raise FileNotFoundError(f"Image not found: {image_path}")
+
+        # Copy file → /tmp/{bqms_code}.{ext} for clean filename on Samsung
+        upload_path = self._prepare_upload_filename(image_path, code)
 
         scope = self._scope()
 
@@ -1037,8 +1878,95 @@ class BqmsQuotePusher:
         await asyncio.sleep(0.5)
 
         # Step 2: Trigger imageViewerOpen — opens new popup window
+        # Thang 2026-05-22: locate scope where imageViewerOpen is defined.
+        # Poll all frames for up to 8s — Samsung's JS bundle may load async.
+        # Also dump frame inventory + window function names for diagnostic.
+        invoke_scope = None
+        for poll_attempt in range(8):
+            for fr in [self._page.main_frame] + list(self._page.frames):
+                fu = (fr.url or "").lower()
+                if "vendorlogin" in fu or "anonymous" in fu:
+                    continue
+                try:
+                    if await fr.evaluate("typeof imageViewerOpen === 'function'"):
+                        invoke_scope = fr
+                        logger.info(
+                            "imageViewerOpen located in frame (poll=%ds): %s",
+                            poll_attempt, (fr.url or "main")[:100],
+                        )
+                        break
+                except Exception:
+                    continue
+            if invoke_scope is not None:
+                break
+            await asyncio.sleep(1)
+
+        if invoke_scope is None:
+            # Likely Samsung is still on ContentR view (Edit click no-op'd due
+            # to deadline-passed silently). Check for deadline message before
+            # raising generic error.
+            try:
+                deadline_msg = await self._page.evaluate(
+                    """() => {
+                        const body = (document.body && document.body.textContent || '').toLowerCase();
+                        return body.includes('submission deadline has passed')
+                            || body.includes('deadline has passed')
+                            || body.includes('hạn nộp đã qua')
+                            || body.includes('hết hạn nộp');
+                    }"""
+                )
+            except Exception:
+                deadline_msg = False
+            # Also check frame URLs — if still on ContentR (not EditU), Edit
+            # click silently failed (likely deadline passed or Samsung-blocked)
+            still_on_content = any(
+                "qtsquotcontentr" in (f.url or "").lower()
+                for f in self._page.frames
+            )
+            # Diagnostic dump
+            frame_info = []
+            for fr in [self._page.main_frame] + list(self._page.frames):
+                try:
+                    fns = await fr.evaluate(
+                        """() => {
+                            const out = [];
+                            for (const k in window) {
+                                try {
+                                    if (typeof window[k] === 'function'
+                                        && /image|viewer|crop|popup/i.test(k)) {
+                                        out.push(k);
+                                    }
+                                } catch(e) {}
+                                if (out.length >= 12) break;
+                            }
+                            return out;
+                        }"""
+                    )
+                except Exception:
+                    fns = []
+                frame_info.append({
+                    "url": (fr.url or "main")[:100],
+                    "img_fns": fns,
+                })
+            logger.error(
+                "imageViewerOpen not found. deadline_msg=%s, still_on_content=%s, "
+                "Frame inventory: %s",
+                deadline_msg, still_on_content, frame_info,
+            )
+            if deadline_msg or still_on_content:
+                raise RuntimeError(
+                    "Không thể edit QT — hạn nộp báo giá đã qua. Samsung từ "
+                    "chối chuyển qua Edit mode (Edit click no-op). Liên hệ "
+                    "Samsung purchaser để extend deadline, hoặc QT đã closed."
+                )
+            raise RuntimeError(
+                "imageViewerOpen() không có trong scope của bất kỳ frame nào — "
+                "Samsung's Image Viewer JS chưa load. Có thể QT này dùng "
+                "image-upload flow khác (kiểm tra log Frame inventory)."
+            )
+
         async with self._context.expect_page(timeout=15_000) as new_page_info:
-            await scope.evaluate("imageViewerOpen()")
+            await invoke_scope.evaluate("imageViewerOpen()")
         uploader_window = await new_page_info.value
         popup_url = uploader_window.url
         logger.info("Opened image viewer popup: %s", popup_url[:160])
@@ -1121,9 +2049,12 @@ class BqmsQuotePusher:
             await uploader_window.screenshot(path=f"/data/bqms-push-evidence/_uploader_{code}_no_input.png")
             raise RuntimeError("No file input in Item Image Uploader")
 
-        await file_input.set_input_files(image_path)
+        await file_input.set_input_files(upload_path)
         await asyncio.sleep(3)
-        logger.info("set_input_files done for %s: %s", code, image_path)
+        logger.info(
+            "set_input_files done for %s: %s (renamed from %s)",
+            code, Path(upload_path).name, Path(image_path).name,
+        )
 
         # Step 5: Click Save in Item Image Uploader
         save_clicked = False
@@ -1264,6 +2195,186 @@ class BqmsQuotePusher:
                 results["errors"].append(str(exc)[:150])
         return results
 
+    async def _clear_existing_attachments(self) -> dict:
+        """Xóa toàn bộ file đính kèm cũ trong DextUpload5 widget (re-push mode).
+
+        Thang 2026-05-22: khi user push lần 2 sau saved_temp, file cũ đã có
+        trên Samsung. Nếu chỉ inject file mới thì widget sẽ ADD vào list →
+        Samsung lưu cả 2 file → trùng lặp + sai version. Phải clear trước.
+
+        Strategy (multi-attempt, all silent failures fine — clear là best-effort):
+        1. Tìm global DEXTX5_* instance objects + call .RemoveAll() / .Clear()
+        2. Tìm SDK helper functions: dx5RemoveAllFiles, Dext5RemoveAll, v.v.
+        3. Trong main-grid frame: select all rows + click Delete button
+        4. Fallback: dispatch click event lên row checkboxes + Delete button
+
+        Returns: dict with diagnostic info about what worked.
+        """
+        out = {"strategies_tried": [], "rows_removed": 0, "errors": []}
+
+        # ── Strategy A: probe global DEXTX5_* instance objects in MAIN frame ──
+        try:
+            main_result = await self._page.evaluate(
+                """() => {
+                    const out = {found_instances: [], removeAll_called: []};
+                    // Scan window for DEXTX5_* globals (instance objects)
+                    for (const key in window) {
+                        if (!key.startsWith('DEXTX5_')) continue;
+                        const obj = window[key];
+                        if (!obj || typeof obj !== 'object') continue;
+                        out.found_instances.push(key);
+                        // Try known removal methods
+                        for (const meth of ['RemoveAll', 'removeAll', 'Clear', 'clear',
+                                            'RemoveAllFiles', 'removeAllFiles',
+                                            'DeleteAll', 'deleteAll']) {
+                            if (typeof obj[meth] === 'function') {
+                                try {
+                                    obj[meth]();
+                                    out.removeAll_called.push(`${key}.${meth}()`);
+                                    break;
+                                } catch (e) {
+                                    out.errors = out.errors || [];
+                                    out.errors.push(`${key}.${meth}: ${String(e).slice(0,80)}`);
+                                }
+                            }
+                        }
+                    }
+                    return out;
+                }"""
+            )
+            out["strategies_tried"].append({"strategy": "main_DEXTX5_globals", "result": main_result})
+            if main_result.get("removeAll_called"):
+                logger.info("Re-push clear: called %s",
+                            main_result["removeAll_called"])
+        except Exception as exc:
+            out["errors"].append(f"strategy_A: {str(exc)[:150]}")
+
+        # ── Strategy B: probe DextUpload5 instances inside ALL frames ──
+        # Each DEXTX5 widget has 6 sub-frames (icons + main-grid + main-list);
+        # the instance object may be in any of them.
+        for frame in self._page.frames:
+            u = (frame.url or "").lower()
+            # Skip auth/login frames; targets are dextuploadx5 SDK frames
+            if "vendorlogin" in u or "anonymous" in u:
+                continue
+            try:
+                fr_result = await frame.evaluate(
+                    """() => {
+                        const out = {found: [], called: []};
+                        // Look for any object with removeAll-style method that mentions File
+                        for (const key in window) {
+                            const v = window[key];
+                            if (!v || typeof v !== 'object') continue;
+                            // Heuristic: dextupload SDK instance has properties like
+                            // getFileList / removeFile / addFile
+                            const hints = ['getFileList', 'removeFile', 'addFile',
+                                          'getFileCount', 'RemoveAll', 'clearFiles'];
+                            const hasHint = hints.some(h => typeof v[h] === 'function');
+                            if (!hasHint) continue;
+                            out.found.push(key);
+                            // Try removal methods
+                            for (const meth of ['RemoveAll', 'removeAll', 'clearFiles',
+                                               'ClearAll', 'clearAll',
+                                               'RemoveAllFiles', 'removeAllFiles']) {
+                                if (typeof v[meth] === 'function') {
+                                    try {
+                                        v[meth]();
+                                        out.called.push(`${key}.${meth}()`);
+                                        break;
+                                    } catch (e) {
+                                        out.errors = out.errors || [];
+                                        out.errors.push(`${key}.${meth}: ${String(e).slice(0,80)}`);
+                                    }
+                                }
+                            }
+                        }
+                        return out;
+                    }"""
+                )
+                if fr_result.get("called"):
+                    logger.info(
+                        "Re-push clear via frame %s: %s",
+                        u[-60:], fr_result["called"],
+                    )
+                    out["strategies_tried"].append({
+                        "strategy": "frame_dx5_instance",
+                        "frame": u[-60:], "result": fr_result,
+                    })
+            except Exception:
+                continue
+
+        # ── Strategy C: select all rows + click Delete in toolbar frame ──
+        # Find the frame containing both file rows + Delete button.
+        try:
+            for frame in self._page.frames:
+                u = (frame.url or "").lower()
+                if "vendorlogin" in u or "anonymous" in u:
+                    continue
+                try:
+                    has_toolbar = await frame.evaluate(
+                        """() => {
+                            const t = (document.body && document.body.textContent) || '';
+                            return t.includes('Delete') && t.includes('Add')
+                                && (t.includes('Upper') || t.includes('Move'));
+                        }"""
+                    )
+                except Exception:
+                    has_toolbar = False
+                if not has_toolbar:
+                    continue
+                # Select all + click Delete in this frame
+                try:
+                    res_c = await frame.evaluate(
+                        """() => {
+                            const out = {checked: 0, clicked: false};
+                            // Find file row checkboxes (DextUpload5 grid renders <input type=checkbox>
+                            // for row selection). Click header checkbox if present, else each row.
+                            const headerCb = document.querySelector('thead input[type="checkbox"], .grid-header input[type="checkbox"]');
+                            if (headerCb && !headerCb.checked) {
+                                headerCb.click();
+                                out.checked = 1;
+                            } else {
+                                const rowCbs = document.querySelectorAll('tbody input[type="checkbox"], tr input[type="checkbox"]');
+                                for (const cb of rowCbs) {
+                                    if (!cb.checked) { cb.click(); out.checked++; }
+                                }
+                            }
+                            // Then click Delete button
+                            const all = document.querySelectorAll('button, a, input[type="button"]');
+                            for (const el of all) {
+                                const t = (el.textContent || el.value || '').trim().toLowerCase();
+                                if (t === 'delete') {
+                                    el.click();
+                                    out.clicked = true;
+                                    out.clicked_text = el.tagName + ':' + (el.textContent || el.value || '');
+                                    break;
+                                }
+                            }
+                            return out;
+                        }"""
+                    )
+                    if res_c.get("clicked"):
+                        logger.info(
+                            "Re-push clear via Delete button (frame %s): %s",
+                            u[-60:], res_c,
+                        )
+                        out["rows_removed"] = int(res_c.get("checked", 0))
+                        out["strategies_tried"].append({
+                            "strategy": "delete_button_click",
+                            "result": res_c,
+                        })
+                        break
+                except Exception as exc:
+                    out["errors"].append(f"strategy_C: {str(exc)[:120]}")
+                    continue
+        except Exception as exc:
+            out["errors"].append(f"strategy_C_outer: {str(exc)[:120]}")
+
+        # Brief wait for SDK to process removal before subsequent upload
+        await asyncio.sleep(2)
+        logger.info("Re-push: clear_existing_attachments done — %s", out)
+        return out
+
     async def _upload_attachments(self, paths: list[str]):
         """Upload file attachments — Samsung dùng DextUpload5 widget.
 
@@ -1275,12 +2386,22 @@ class BqmsQuotePusher:
         3. Use Playwright Page.expect_file_chooser() to intercept native file
            picker khi gọi dx5AddFile() — works if widget opens browser picker.
         4. Fallback: SKIP với warning, user upload manual.
+
+        Thang 2026-05-22: re-push mode → xóa toàn bộ file đính kèm cũ trước
+        khi upload mới (tránh duplicate khi user đẩy hồ sơ V1 lần 2).
         """
         scope = self._scope()
         existing = [p for p in paths if Path(p).exists()]
         if not existing:
             logger.warning("No valid attachment paths — skipping")
             return
+
+        # ── Re-push: clear existing files in DextUpload5 trước khi upload mới ──
+        # Without this, the new PDF appears as SECOND file → Samsung saves both
+        # → confusion + invalid quote attachments.
+        is_repush = getattr(self, "_is_repush", False)
+        if is_repush:
+            await self._clear_existing_attachments()
 
         # ── Strategy 0a (Thang 2026-05-15 v4 — DataTransfer JS injection) ──
         # Discovery from v14: DextUpload5 mỗi instance có 1 input
@@ -1710,6 +2831,12 @@ class BqmsQuotePusher:
         """
         scope = self._scope()
 
+        # Reset validation alert tracker — only alerts fired AFTER this point
+        # belong to THIS save attempt. Without reset, a stale alert from a
+        # previous step (e.g. validDt change triggering early validation)
+        # would mis-attribute the failure.
+        self._last_validation_alert = None
+
         # Verify saveDcu exists in scope
         save_check = await scope.evaluate(
             """() => ({
@@ -1770,20 +2897,60 @@ class BqmsQuotePusher:
                         const g = itemGridBox;
                         if (!g) return {err: 'no grid'};
                         const out = [];
-                        // For each item: find row by bqms_code (col 15), set price + lead + free_charge
+
+                        // Thang 2026-06-19: V2 page has different col layout.
+                        // Adaptive price col detection: prefer SUBMISSION_UNIT_PRICE
+                        // (current round), skip FIR_/BEFORE_ historical cols.
                         let priceColId = null;
-                        for (let i = 0; i < g.getColumnsNum(); i++) {
+                        const numColsP = g.getColumnsNum();
+                        // Strategy A: exact match canonical id
+                        for (let i = 0; i < numColsP; i++) {
                             const cid = (g.getColumnId(i) || '').toUpperCase();
-                            if (cid.includes('PRICE') || cid.includes('SUBMISSION_UNIT')) {
+                            if (cid === 'SUBMISSION_UNIT_PRICE' || cid === 'QUOT_AMT'
+                                || cid === 'QUOTATION_PRICE') {
                                 priceColId = g.getColumnId(i); break;
                             }
                         }
+                        // Strategy B: fuzzy + skip historical
+                        if (!priceColId) {
+                            for (let i = 0; i < numColsP; i++) {
+                                const cid = (g.getColumnId(i) || '').toUpperCase();
+                                if (cid.startsWith('FIR_') || cid.startsWith('BEFORE_')) continue;
+                                if (cid.includes('PRICE') || cid.includes('SUBMISSION_UNIT')) {
+                                    priceColId = g.getColumnId(i); break;
+                                }
+                            }
+                        }
+
+                        // Adaptive code col detection: V2 uses ITEM_ID at col 20.
+                        // V1 uses col 15 (a different layout). Prior code hardcoded
+                        // col 15 → V2 row lookup always failed → re-apply skipped
+                        // → grid model values from earlier _fill_one_item got
+                        // wiped by Samsung's pre-save reset → saveDcu rejected.
+                        let bqmsColIdx = -1;
+                        const numColsC = g.getColumnsNum();
+                        // Priority: exact ITEM_ID
+                        for (let c = 0; c < numColsC; c++) {
+                            if ((g.getColumnId(c) || '').toUpperCase() === 'ITEM_ID') {
+                                bqmsColIdx = c; break;
+                            }
+                        }
+                        // Fallback: scan any column containing code/item/cis ID-like pattern
+                        if (bqmsColIdx === -1) {
+                            const codeRe = /^(ITEM_ID|BQMS.*CODE|ITEM.*CODE|CIS.*CODE)$/i;
+                            for (let c = 0; c < numColsC; c++) {
+                                if (codeRe.test(g.getColumnId(c) || '')) { bqmsColIdx = c; break; }
+                            }
+                        }
+                        // Last resort: legacy col 15 (V1 layout)
+                        if (bqmsColIdx === -1) bqmsColIdx = 15;
+
                         const numRows = g.getRowsNum();
                         for (const item of items) {
                             let rowId = null;
                             for (let i = 0; i < numRows; i++) {
                                 try {
-                                    if (g.cells2(i, 15).getValue() === item.bqms_code) {
+                                    if (g.cells2(i, bqmsColIdx).getValue() === item.bqms_code) {
                                         rowId = g.getRowId(i); break;
                                     }
                                 } catch(e) {}
@@ -1793,19 +2960,43 @@ class BqmsQuotePusher:
                                 continue;
                             }
                             try {
-                                g.setCellValueById(priceColId, rowId, item.quotation_price);
+                                // For abandoned items: placeholder price=0
+                                // (Thang 2026-06-03, was 1) to pass Samsung's
+                                // "Submitted Unit Price is mandatory" validation
+                                // WITHOUT inflating the grand total. Samsung
+                                // sums the line price into totals even when
+                                // SUBMIT_GIVEUP='Y', so placeholder must be 0.
+                                const isAbandoned = ((item.abandonment || 'N') === 'Y');
+                                // BUG FIX (Thang 2026-06-17): Samsung's grid stores a NUMERIC 0 as
+                                // EMPTY (getCellValueById → ''), which then fails saveDcu's
+                                // "Submitted Unit Price is mandatory" for abandoned rows — so the
+                                // whole push was rejected (price + attachments never saved, only the
+                                // pre-uploaded image stuck). Use the STRING '0': the cell stays
+                                // non-empty AND Samsung still sums it as 0 (no grand-total inflation).
+                                const effPrice = (isAbandoned && (!item.quotation_price || item.quotation_price <= 0))
+                                    ? '0'
+                                    : item.quotation_price;
+                                g.setCellValueById(priceColId, rowId, effPrice);
                                 g.setCellValueById('LEAD_TIME', rowId, item.lead_time_days || 30);
-                                // Round 2-4: KHÔNG động FREE_CHARGE + SUBMIT_GIVEUP
-                                if (round_n === 1) {
+                                // Round 1: always flip flags.
+                                // Round 2-4 + re-push (Thang 2026-06-19): also flip
+                                // so user can change abandon state between rounds.
+                                // E.g., V1 báo 2/6 mã → V2 báo 5/6 mã, 3 mã đổi
+                                // Y→N. Without flip here, Samsung keeps stale 'Y'.
+                                const shouldWriteFlags = (round_n === 1) || args.is_repush;
+                                if (shouldWriteFlags) {
                                     g.setCellValueById('FREE_CHARGE', rowId, 'N');
-                                    if ((item.abandonment || 'N') === 'Y') {
-                                        g.setCellValueById('SUBMIT_GIVEUP', rowId, 'Y');
-                                    }
+                                    // Always write SUBMIT_GIVEUP — 'Y' if abandon,
+                                    // 'N' if báo giá (allows un-flip from V1 'Y').
+                                    g.setCellValueById('SUBMIT_GIVEUP', rowId, isAbandoned ? 'Y' : 'N');
                                 }
                                 out.push({
                                     code: item.bqms_code, rid: rowId,
                                     price_after: g.getCellValueById(priceColId, rowId),
                                     lead_after: g.getCellValueById('LEAD_TIME', rowId),
+                                    giveup_after: g.getCellValueById('SUBMIT_GIVEUP', rowId),
+                                    free_after: g.getCellValueById('FREE_CHARGE', rowId),
+                                    flags_written: shouldWriteFlags,
                                 });
                             } catch(e) {
                                 out.push({code: item.bqms_code, err: String(e).slice(0,150)});
@@ -1816,6 +3007,7 @@ class BqmsQuotePusher:
                     {
                         "items": payload.get("items", []),
                         "round_n": int(payload.get("round", 1)),
+                        "is_repush": getattr(self, "_is_repush", False),
                     },
                 )
                 logger.info("Re-apply result: %s", reapply)
@@ -1843,15 +3035,53 @@ class BqmsQuotePusher:
                         out.valid_date_err = 'input not found';
                     }
                     // Submission Opinion — textarea
-                    let op = document.querySelector('textarea[name*="opinion" i], textarea[id*="opinion" i], textarea[name*="Opinion"], textarea[id*="Opinion"]');
+                    // CSS `[attr*="x" i]` (case-insensitive flag) is non-standard
+                    // and silently fails on some browsers. Use multiple selectors
+                    // + fallback to scanning all textareas for one matching "opinion"
+                    // (case-insensitive via lower()) or the first VISIBLE textarea
+                    // on the form.
+                    let op = (
+                        document.querySelector('textarea[name*="opinion"]')
+                        || document.querySelector('textarea[id*="opinion"]')
+                        || document.querySelector('textarea[name*="Opinion"]')
+                        || document.querySelector('textarea[id*="Opinion"]')
+                        || document.querySelector('textarea[placeholder*="enter it"]')
+                        || document.querySelector('textarea[placeholder*="Please enter"]')
+                    );
+                    if (!op) {
+                        // Last resort — scan ALL textareas, pick first visible one
+                        // whose name/id/placeholder/aria-label hints at "opinion"
+                        const allTas = document.querySelectorAll('textarea');
+                        for (const t of allTas) {
+                            if (!t.offsetParent) continue;  // invisible
+                            const hints = (
+                                (t.name || '') + '|' +
+                                (t.id || '') + '|' +
+                                (t.placeholder || '') + '|' +
+                                (t.getAttribute('aria-label') || '')
+                            ).toLowerCase();
+                            if (hints.includes('opinion') || hints.includes('comment')
+                                || hints.includes('remark')) {
+                                op = t; break;
+                            }
+                        }
+                    }
+                    if (!op) {
+                        // Final fallback — first visible textarea on the page
+                        for (const t of document.querySelectorAll('textarea')) {
+                            if (t.offsetParent) { op = t; break; }
+                        }
+                    }
                     if (op) {
                         op.value = args.opinion;
                         op.dispatchEvent(new Event('change', {bubbles: true}));
                         op.dispatchEvent(new Event('input', {bubbles: true}));
+                        op.dispatchEvent(new Event('blur', {bubbles: true}));
                         if (typeof $ === 'function') $(op).val(args.opinion).trigger('change');
                         out.opinion_set = (op.value || '').slice(0, 50);
+                        out.opinion_selector_hint = (op.name || op.id || op.placeholder || 'fallback').slice(0, 50);
                     } else {
-                        out.opinion_err = 'textarea not found';
+                        out.opinion_err = 'textarea not found (no opinion textarea + no visible textarea)';
                     }
                     return out;
                 }""",
@@ -1923,11 +3153,30 @@ class BqmsQuotePusher:
         # Final wait for server response
         await asyncio.sleep(4)
         url_after = self._page.url
+        url_changed = url_before != url_after
         logger.info(
             "Post-saveDcu: url_before=%s url_after=%s changed=%s",
             url_before[-80:], url_after[-80:],
-            "YES" if url_before != url_after else "NO",
+            "YES" if url_changed else "NO",
         )
+
+        # Thang 2026-05-22: detect silent save failure.
+        # Samsung's saveDcu() validates required fields BEFORE persisting. If
+        # a field is missing (e.g. "Submitted Unit Price is mandatory"), it
+        # fires native alert() → our dialog handler auto-accepts → saveDcu
+        # returns without persisting → URL does NOT change. Push reports
+        # SUCCESS in the old code; user opens Samsung and sees fields blank.
+        # NEW: if URL didn't change AND a "mandatory/required" alert fired
+        # during this save, raise RuntimeError → push correctly reports
+        # FAILED with Samsung's exact validation message.
+        if not url_changed and self._last_validation_alert:
+            err_msg = self._last_validation_alert
+            self._last_validation_alert = None
+            raise RuntimeError(
+                f"Samsung từ chối save: '{err_msg}'. "
+                f"URL không đổi sau saveDcu → form chưa được lưu. "
+                f"Kiểm tra field còn thiếu (price, lead, opinion...) rồi thử lại."
+            )
 
         logger.info("Save Temporarily completed via direct saveDcu() call")
         return

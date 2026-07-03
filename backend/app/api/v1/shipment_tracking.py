@@ -6,6 +6,7 @@ Covers full lifecycle: pending → in_transit → arrived_port → received.
 from __future__ import annotations
 
 from datetime import date
+from decimal import Decimal
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 import asyncpg
@@ -512,42 +513,73 @@ async def receive_shipment(
 
             # Only update inventory if product_id is known
             if shi["product_id"]:
-                # Insert inventory movement
+                # Resolve product for the NOT NULL inventory / movement columns.
+                prod = await conn.fetchrow(
+                    """
+                    SELECT bqms_code, imv_code, customer_code, product_name, unit
+                    FROM products
+                    WHERE id = $1
+                    """,
+                    shi["product_id"],
+                )
+                product_code = (
+                    (prod and (prod["bqms_code"] or prod["imv_code"] or prod["customer_code"]))
+                    or shi["bqms_code"]
+                    or f"P{shi['product_id']}"
+                )
+                product_name = (
+                    (prod and prod["product_name"]) or shi["description"] or product_code
+                )
+                unit = (prod and prod["unit"]) or shi["unit"] or "EA"
+                qty = Decimal(str(recv.quantity_received))
+
+                # Upsert inventory stock. available_qty is GENERATED — never write
+                # it; timestamp column is last_updated (not updated_at).
+                inv_row = await conn.fetchrow(
+                    """
+                    INSERT INTO inventory
+                        (product_id, product_code, product_name, unit, quantity)
+                    VALUES ($1, $2, $3, $4, $5)
+                    ON CONFLICT (product_id) DO UPDATE
+                        SET quantity     = inventory.quantity + EXCLUDED.quantity,
+                            last_updated = NOW()
+                    RETURNING product_code, quantity
+                    """,
+                    shi["product_id"], product_code, product_name, unit, qty,
+                )
+                # Use the PERSISTED product_code (on conflict the pre-existing row
+                # keeps its code) to honour the FK movements.product_code → inventory.
+                product_code = inv_row["product_code"]
+                after_qty = inv_row["quantity"]
+                before_qty = after_qty - qty
+
+                # Record movement. product_code / before_qty / after_qty NOT NULL;
+                # reference_type 'po' + reference_id = po_id (bigint) satisfy the
+                # CHECK; column is `notes`.
                 await conn.execute(
                     """
                     INSERT INTO inventory_movements
-                        (product_id, movement_type, quantity, reference_type,
-                         reference_id, note, created_by)
-                    VALUES ($1, 'in', $2, 'shipment', $3, $4, $5::uuid)
+                        (product_id, product_code, movement_type, quantity,
+                         reference_type, reference_id, before_qty, after_qty,
+                         notes, created_by)
+                    VALUES ($1, $2, 'in', $3, 'po', $4, $5, $6, $7, $8::uuid)
                     """,
                     shi["product_id"],
-                    recv.quantity_received,
-                    str(shipment_id),
+                    product_code,
+                    qty,
+                    shipment["po_id"],
+                    before_qty,
+                    after_qty,
                     recv.notes or f"Nhập kho từ lô {shipment['shipment_number']}",
                     token_data.user_id,
-                )
-
-                # Update inventory stock — upsert
-                await conn.execute(
-                    """
-                    INSERT INTO inventory (product_id, quantity, available_qty)
-                    VALUES ($1, $2, $2)
-                    ON CONFLICT (product_id)
-                    DO UPDATE SET
-                        quantity      = inventory.quantity + $2,
-                        available_qty = inventory.available_qty + $2,
-                        updated_at    = NOW()
-                    """,
-                    shi["product_id"],
-                    recv.quantity_received,
                 )
 
                 receipt_summary.append({
                     "shipment_item_id": recv.shipment_item_id,
                     "product_id": shi["product_id"],
-                    "bqms_code": shi.get("bqms_code"),
+                    "bqms_code": shi["bqms_code"],
                     "quantity_received": recv.quantity_received,
-                    "unit": shi.get("unit", "EA"),
+                    "unit": unit,
                 })
 
         # Mark shipment as received
@@ -566,7 +598,7 @@ async def receive_shipment(
         # Update linked PO status
         await conn.execute(
             """
-            UPDATE purchase_orders SET status = 'received', received_at = NOW(), updated_at = NOW()
+            UPDATE purchase_orders SET status = 'received', received_date = NOW(), updated_at = NOW()
             WHERE id = $1 AND status NOT IN ('received', 'cancelled')
             """,
             shipment["po_id"],

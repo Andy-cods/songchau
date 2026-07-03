@@ -9,6 +9,7 @@ import {
   Files, CloudOff, CloudCheck, FileClock, Eye, Download, SkipForward,
 } from 'lucide-react';
 import { api } from '@/lib/api';
+import { PageHeader } from '@/components/shared/page-header';
 
 function withToken(url: string): string {
   if (typeof window === 'undefined') return url;
@@ -583,7 +584,7 @@ function OneDriveFileExplorer() {
             value={search}
             onChange={e => setSearch(e.target.value)}
             placeholder="Tìm kiếm tên file..."
-            className="w-full pl-8 pr-3 py-1.5 text-sm border border-slate-200 rounded-lg focus:outline-none focus:border-blue-400 focus:ring-1 focus:ring-blue-100"
+            className="w-full pl-8 pr-3 py-1.5 text-sm border border-slate-200 rounded-lg focus:outline-none focus:border-brand-400 focus:ring-2 focus:ring-brand-100"
           />
         </div>
         <div className="flex items-center justify-between">
@@ -594,7 +595,7 @@ function OneDriveFileExplorer() {
                 onClick={() => setActiveTab(t.key)}
                 className={`px-3 py-1 text-xs rounded-full font-medium transition-colors ${
                   activeTab === t.key
-                    ? 'bg-blue-600 text-white'
+                    ? 'bg-brand-600 text-white'
                     : 'text-slate-500 hover:text-slate-700 hover:bg-slate-100'
                 }`}
               >
@@ -860,7 +861,7 @@ function OneDriveFileExplorer() {
                 )}
               </div>
               {importResult.output && (
-                <pre className="mt-2 p-2 bg-white/60 rounded text-[10px] font-mono text-slate-600 overflow-x-auto whitespace-pre-wrap max-h-32">
+                <pre className="mt-2 p-2 bg-white/60 rounded text-[11px] font-mono text-slate-600 overflow-x-auto whitespace-pre-wrap max-h-32">
                   {importResult.output}
                 </pre>
               )}
@@ -968,10 +969,11 @@ export default function MigrationPage() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div>
-        <h2 className="text-xl font-display font-bold text-slate-900">Đồng bộ dữ liệu</h2>
-        <p className="text-sm text-slate-500 mt-0.5">Quản lý đồng bộ BQMS Samsung và OneDrive Song Châu</p>
-      </div>
+      <PageHeader
+        icon={Database}
+        title="Đồng bộ dữ liệu"
+        subtitle="Quản lý đồng bộ BQMS Samsung và OneDrive Song Châu"
+      />
 
       {/* ═══ Section 1: OneDrive File Explorer ═══ */}
       <OneDriveFileExplorer />
@@ -996,7 +998,7 @@ export default function MigrationPage() {
 
         <div className="bg-white rounded-lg shadow-sm border border-slate-100 p-4">
           <div className="flex items-center gap-2 mb-2">
-            <RefreshCw className={`h-4 w-4 ${onedriveStatus?.status === 'running' ? 'animate-spin text-indigo-500' : 'text-slate-400'}`} />
+            <RefreshCw className={`h-4 w-4 ${onedriveStatus?.status === 'running' ? 'animate-spin text-brand-500' : 'text-slate-400'}`} />
             <span className="text-xs text-slate-500 uppercase tracking-wider">OneDrive Song Châu</span>
           </div>
           <p className="text-sm font-semibold text-slate-700">
@@ -1029,7 +1031,7 @@ export default function MigrationPage() {
         <button
           onClick={() => triggerBqms.mutate()}
           disabled={triggerBqms.isPending || isAnySyncing}
-          className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-60 transition-colors"
+          className="flex items-center gap-2 px-4 py-2 bg-brand-600 text-white rounded-lg text-sm font-medium hover:bg-brand-700 disabled:opacity-60 transition-colors"
         >
           {triggerBqms.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <PlayCircle className="h-4 w-4" />}
           Đồng bộ BQMS
@@ -1037,7 +1039,7 @@ export default function MigrationPage() {
         <button
           onClick={() => triggerOnedrive.mutate()}
           disabled={triggerOnedrive.isPending || isAnySyncing}
-          className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 disabled:opacity-60 transition-colors"
+          className="flex items-center gap-2 px-4 py-2 bg-brand-600 text-white rounded-lg text-sm font-medium hover:bg-brand-700 disabled:opacity-60 transition-colors"
         >
           {triggerOnedrive.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <PlayCircle className="h-4 w-4" />}
           Đồng bộ OneDrive
@@ -1163,7 +1165,7 @@ export default function MigrationPage() {
       <div className="bg-white rounded-lg shadow-sm border border-slate-100 overflow-hidden">
         <div className="flex items-center justify-between p-4 border-b border-slate-100">
           <div className="flex items-center gap-2">
-            <ShieldCheck className="h-4 w-4 text-purple-600" />
+            <ShieldCheck className="h-4 w-4 text-brand-600" />
             <h3 className="text-sm font-semibold text-slate-700">Chất lượng dữ liệu</h3>
             {qualityItems.length > 0 && (
               <div className="flex gap-2 ml-4">
@@ -1176,7 +1178,7 @@ export default function MigrationPage() {
           <button
             onClick={() => runQuality.mutate()}
             disabled={runQuality.isPending}
-            className="flex items-center gap-2 px-3 py-1.5 bg-purple-600 text-white rounded-lg text-xs font-medium hover:bg-purple-700 disabled:opacity-60"
+            className="flex items-center gap-2 px-3 py-1.5 bg-brand-600 text-white rounded-lg text-xs font-medium hover:bg-brand-700 disabled:opacity-60"
           >
             {runQuality.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <PlayCircle className="h-3.5 w-3.5" />}
             Kiểm tra chất lượng

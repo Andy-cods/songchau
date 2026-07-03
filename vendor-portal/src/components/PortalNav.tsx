@@ -3,6 +3,9 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
+import { LogOut } from 'lucide-react';
+import { api } from '@/lib/api';
+import type { NotificationsResponse } from '@/lib/types';
 
 interface UserInfo {
   company_name: string;
@@ -13,13 +16,21 @@ interface UserInfo {
 const NAV_LINKS = [
   { href: '/dashboard', label: 'Dashboard' },
   { href: '/quotes', label: 'Báo giá' },
+  { href: '/contracts', label: 'Hợp đồng' },
+  { href: '/orders', label: 'Đơn hàng' },
+  { href: '/notifications', label: 'Thông báo' },
+  { href: '/nang-luc', label: 'Năng lực' },
   { href: '/profile', label: 'Hồ sơ' },
 ];
+
+// Poll the unread badge every 90s — simple + reliable, no websockets.
+const NOTIF_POLL_MS = 90_000;
 
 export default function PortalNav() {
   const pathname = usePathname();
   const router = useRouter();
   const [user, setUser] = useState<UserInfo | null>(null);
+  const [unread, setUnread] = useState(0);
 
   useEffect(() => {
     const stored = localStorage.getItem('vendor_user');
@@ -27,50 +38,91 @@ export default function PortalNav() {
       router.replace('/login');
       return;
     }
-    setUser(JSON.parse(stored));
+    try {
+      setUser(JSON.parse(stored));
+    } catch {
+      localStorage.removeItem('vendor_user');
+      router.replace('/login');
+    }
   }, [router]);
+
+  // Unread-count badge poll (90s). Failures are swallowed silently so a transient
+  // blip never disrupts the nav; the next tick recovers. Re-runs on pathname so
+  // landing on /notifications (which marks rows read) promptly refreshes the dot.
+  useEffect(() => {
+    if (!user) return;
+    let alive = true;
+    const fetchUnread = () => {
+      api
+        .get<NotificationsResponse>('/api/vendor/notifications?limit=1')
+        .then(res => {
+          if (alive) setUnread(res.unread_count || 0);
+        })
+        .catch(() => {});
+    };
+    fetchUnread();
+    const t = setInterval(fetchUnread, NOTIF_POLL_MS);
+    return () => {
+      alive = false;
+      clearInterval(t);
+    };
+  }, [user, pathname]);
 
   const handleLogout = () => {
     localStorage.removeItem('vendor_token');
     localStorage.removeItem('vendor_user');
-    window.location.href = '/login';
+    window.location.href = '/ncc/login';
+  };
+
+  const renderLink = (link: (typeof NAV_LINKS)[number], mobile: boolean) => {
+    const isActive =
+      link.href === '/dashboard'
+        ? pathname === '/dashboard'
+        : pathname.startsWith(link.href);
+    const base = mobile
+      ? 'flex-1 text-center py-1.5 rounded-md text-sm font-medium transition-colors'
+      : 'px-3 py-1.5 rounded-md text-sm font-medium transition-colors';
+    const tone = isActive
+      ? 'bg-brand-50 text-brand-700'
+      : mobile
+        ? 'text-slate-500 hover:text-slate-800'
+        : 'text-slate-500 hover:text-slate-800 hover:bg-slate-100';
+    const showDot = link.href === '/notifications' && unread > 0;
+    return (
+      <Link
+        key={link.href}
+        href={link.href}
+        aria-current={isActive ? 'page' : undefined}
+        className={`relative ${base} ${tone}`}
+      >
+        {link.label}
+        {showDot && (
+          <span
+            className="absolute top-1 right-1 inline-flex h-1.5 w-1.5 rounded-full bg-brand-500 ring-2 ring-white"
+            aria-label={`${unread} thông báo chưa đọc`}
+          />
+        )}
+      </Link>
+    );
   };
 
   return (
     <header className="bg-white border-b border-slate-200 sticky top-0 z-30">
-      <div className="max-w-6xl mx-auto px-6 h-14 flex items-center justify-between">
+      <div className="max-w-[1400px] mx-auto px-6 h-14 flex items-center justify-between">
         {/* Logo + nav */}
         <div className="flex items-center gap-6">
           <Link href="/dashboard" className="flex items-center gap-2">
-            <div className="w-7 h-7 bg-brand-600 rounded-md flex items-center justify-center">
+            <div className="w-7 h-7 rounded-md bg-brand-600 flex items-center justify-center">
               <span className="text-white text-xs font-bold">SC</span>
             </div>
             <span className="font-bold text-slate-800 text-base">Song Châu</span>
-            <span className="text-xs bg-brand-50 text-brand-600 px-2 py-0.5 rounded-full font-medium hidden sm:inline">
+            <span className="text-xs bg-brand-50 text-brand-700 px-2 py-0.5 rounded-full font-medium hidden sm:inline">
               Nhà Cung Cấp
             </span>
           </Link>
 
           <nav className="hidden sm:flex items-center gap-1">
-            {NAV_LINKS.map(link => {
-              const isActive =
-                link.href === '/dashboard'
-                  ? pathname === '/dashboard'
-                  : pathname.startsWith(link.href);
-              return (
-                <Link
-                  key={link.href}
-                  href={link.href}
-                  className={`px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
-                    isActive
-                      ? 'bg-brand-50 text-brand-700'
-                      : 'text-slate-500 hover:text-slate-800 hover:bg-slate-100'
-                  }`}
-                >
-                  {link.label}
-                </Link>
-              );
-            })}
+            {NAV_LINKS.map(link => renderLink(link, false))}
           </nav>
         </div>
 
@@ -90,34 +142,36 @@ export default function PortalNav() {
           )}
           <button
             onClick={handleLogout}
-            className="text-xs text-red-500 hover:text-red-700 hover:bg-red-50 px-3 py-1.5 rounded-md transition-colors font-medium"
+            className="inline-flex items-center gap-1.5 text-sm text-slate-600 hover:text-slate-900 hover:bg-slate-100 px-3 py-1.5 rounded-lg transition-colors"
           >
-            Đăng xuất
+            <LogOut className="h-4 w-4" />
+            <span className="hidden sm:inline">Đăng xuất</span>
           </button>
         </div>
       </div>
 
       {/* Mobile nav */}
-      <div className="sm:hidden border-t border-slate-100 px-4 pb-2 pt-1 flex gap-1">
-        {NAV_LINKS.map(link => {
-          const isActive =
-            link.href === '/dashboard'
-              ? pathname === '/dashboard'
-              : pathname.startsWith(link.href);
-          return (
-            <Link
-              key={link.href}
-              href={link.href}
-              className={`flex-1 text-center py-1.5 rounded-md text-sm font-medium transition-colors ${
-                isActive
-                  ? 'bg-brand-50 text-brand-700'
-                  : 'text-slate-500 hover:text-slate-800'
-              }`}
-            >
-              {link.label}
-            </Link>
-          );
-        })}
+      <div className="sm:hidden border-t border-slate-100 px-4 pb-2 pt-1 flex items-center gap-1">
+        {user && (
+          <div className="flex items-center gap-1.5 pr-2 mr-1 border-r border-slate-100 shrink-0">
+            <div className="w-6 h-6 rounded-full bg-brand-100 flex items-center justify-center">
+              <span className="text-brand-700 text-[11px] font-bold">
+                {user.company_name?.charAt(0)?.toUpperCase() ?? 'V'}
+              </span>
+            </div>
+            <span className="text-xs text-slate-600 max-w-[96px] truncate">
+              {user.company_name}
+            </span>
+          </div>
+        )}
+        {NAV_LINKS.map(link => renderLink(link, true))}
+        <button
+          onClick={handleLogout}
+          aria-label="Đăng xuất"
+          className="shrink-0 inline-flex items-center justify-center py-1.5 px-2 rounded-md text-slate-500 hover:text-slate-900 hover:bg-slate-100 transition-colors"
+        >
+          <LogOut className="h-4 w-4" />
+        </button>
       </div>
     </header>
   );

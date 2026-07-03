@@ -9,12 +9,31 @@ import {
   Plus,
   CheckCircle,
   XCircle,
-  Loader2,
-  X,
   CalendarDays,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/providers/auth-provider';
+import { PageHeader } from '@/components/shared/page-header';
+import { Card } from '@/components/shared/card';
+import {
+  Table,
+  TableHeader,
+  TableBody,
+  TableRow,
+  TableHead,
+  TableCell,
+} from '@/components/shared/table';
+import { EmptyState } from '@/components/shared/empty-state';
+import { ConfirmDialog } from '@/components/shared/confirm-dialog';
+import { Skeleton } from '@/components/ui/skeleton';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from '@/components/ui/dialog';
+import { Button } from '@/components/ui/button';
 import {
   leaveApi,
   attendanceApi,
@@ -40,14 +59,11 @@ export default function HRPage() {
 
   return (
     <div className="space-y-6">
-      <header className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-bold text-slate-900">Nhân sự</h1>
-          <p className="text-sm text-slate-500">
-            Quản lý đơn xin nghỉ phép, ghi nhận đi muộn / về sớm.
-          </p>
-        </div>
-      </header>
+      <PageHeader
+        icon={CalendarOff}
+        title="Nhân sự"
+        subtitle="Quản lý đơn xin nghỉ phép, ghi nhận đi muộn / về sớm."
+      />
 
       <nav className="flex gap-1 border-b border-slate-200">
         <TabButton active={tab === 'leave'} onClick={() => setTab('leave')} icon={<CalendarOff className="w-4 h-4" />}>
@@ -87,7 +103,7 @@ function TabButton({
       className={cn(
         'inline-flex items-center gap-2 px-4 py-2 text-sm font-medium border-b-2 -mb-px transition',
         active
-          ? 'border-blue-600 text-blue-700'
+          ? 'border-brand-600 text-brand-700'
           : 'border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300'
       )}
     >
@@ -128,7 +144,7 @@ function LeaveTab() {
         <h2 className="text-base font-semibold text-slate-800">Đơn của tôi</h2>
         <button
           onClick={() => setShowCreate(true)}
-          className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-sm rounded-md font-medium transition"
+          className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-brand-600 hover:bg-brand-700 text-white text-sm rounded-md font-medium transition"
         >
           <Plus className="w-4 h-4" />
           Xin nghỉ phép
@@ -136,13 +152,17 @@ function LeaveTab() {
       </div>
 
       {isLoading ? (
-        <div className="text-center py-12 text-slate-400">
-          <Loader2 className="w-6 h-6 animate-spin mx-auto" />
-        </div>
+        <Card padded={false}>
+          <div className="p-4 space-y-3">
+            {Array.from({ length: 4 }).map((_, i) => (
+              <Skeleton key={i} className="h-10 w-full" />
+            ))}
+          </div>
+        </Card>
       ) : requests.length === 0 ? (
-        <div className="text-center py-12 bg-slate-50 rounded-lg border border-dashed border-slate-200 text-slate-500">
-          Bạn chưa có đơn xin nghỉ nào.
-        </div>
+        <Card padded={false}>
+          <EmptyState icon={CalendarOff} heading="Bạn chưa có đơn xin nghỉ nào." />
+        </Card>
       ) : (
         <LeaveTable requests={requests} />
       )}
@@ -170,7 +190,7 @@ function BalanceCard({ balance }: { balance: LeaveBalance }) {
           </div>
           <div className="mt-2 h-1.5 bg-slate-100 rounded-full overflow-hidden">
             <div
-              className="h-full bg-blue-500"
+              className="h-full bg-brand-500"
               style={{ width: `${Math.min(100, (it.used / Math.max(1, it.total)) * 100)}%` }}
             />
           </div>
@@ -182,56 +202,68 @@ function BalanceCard({ balance }: { balance: LeaveBalance }) {
 
 function LeaveTable({ requests }: { requests: LeaveRequest[] }) {
   const qc = useQueryClient();
+  const [confirmId, setConfirmId] = useState<number | null>(null);
   const cancelMut = useMutation({
     mutationFn: (id: number) => leaveApi.cancel(id),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['hr', 'leave'] }),
+    onSettled: () => setConfirmId(null),
   });
 
   return (
-    <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
-      <table className="min-w-full text-sm">
-        <thead className="bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">
-          <tr>
-            <th className="px-4 py-2.5">Loại</th>
-            <th className="px-4 py-2.5">Từ ngày</th>
-            <th className="px-4 py-2.5">Đến ngày</th>
-            <th className="px-4 py-2.5">Số ngày</th>
-            <th className="px-4 py-2.5">Trạng thái</th>
-            <th className="px-4 py-2.5">Lý do</th>
-            <th className="px-4 py-2.5 text-right">Thao tác</th>
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-slate-100">
+    <Card padded={false} className="overflow-hidden">
+      <Table>
+        <TableHeader>
+          <TableRow>
+            <TableHead>Loại</TableHead>
+            <TableHead>Từ ngày</TableHead>
+            <TableHead>Đến ngày</TableHead>
+            <TableHead>Số ngày</TableHead>
+            <TableHead>Trạng thái</TableHead>
+            <TableHead>Lý do</TableHead>
+            <TableHead className="text-right">Thao tác</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
           {requests.map((r) => (
-            <tr key={r.id} className="hover:bg-slate-50">
-              <td className="px-4 py-2.5">{LEAVE_TYPE_LABELS[r.leave_type]}</td>
-              <td className="px-4 py-2.5 text-slate-600">{r.start_date}</td>
-              <td className="px-4 py-2.5 text-slate-600">{r.end_date}</td>
-              <td className="px-4 py-2.5 font-medium">{r.days_count}</td>
-              <td className="px-4 py-2.5">
+            <TableRow key={r.id}>
+              <TableCell>{LEAVE_TYPE_LABELS[r.leave_type]}</TableCell>
+              <TableCell className="text-slate-600">{r.start_date}</TableCell>
+              <TableCell className="text-slate-600">{r.end_date}</TableCell>
+              <TableCell className="font-medium">{r.days_count}</TableCell>
+              <TableCell>
                 <span className={cn('inline-flex items-center px-2 py-0.5 rounded text-xs font-medium', LEAVE_STATUS_BADGE[r.status])}>
                   {LEAVE_STATUS_LABELS[r.status]}
                 </span>
-              </td>
-              <td className="px-4 py-2.5 text-slate-500 max-w-xs truncate">{r.reason ?? '—'}</td>
-              <td className="px-4 py-2.5 text-right">
+              </TableCell>
+              <TableCell className="text-slate-500 max-w-xs truncate">{r.reason ?? '—'}</TableCell>
+              <TableCell className="text-right">
                 {r.status === 'pending' && (
                   <button
-                    onClick={() => {
-                      if (confirm('Hủy đơn xin nghỉ này?')) cancelMut.mutate(r.id);
-                    }}
+                    onClick={() => setConfirmId(r.id)}
                     disabled={cancelMut.isPending}
                     className="text-xs text-rose-600 hover:underline disabled:opacity-50"
                   >
                     Hủy
                   </button>
                 )}
-              </td>
-            </tr>
+              </TableCell>
+            </TableRow>
           ))}
-        </tbody>
-      </table>
-    </div>
+        </TableBody>
+      </Table>
+
+      <ConfirmDialog
+        open={confirmId !== null}
+        onOpenChange={(o) => { if (!o) setConfirmId(null); }}
+        title="Hủy đơn xin nghỉ"
+        description="Hủy đơn xin nghỉ này?"
+        confirmLabel="Hủy đơn"
+        cancelLabel="Đóng"
+        destructive
+        loading={cancelMut.isPending}
+        onConfirm={() => { if (confirmId !== null) cancelMut.mutate(confirmId); }}
+      />
+    </Card>
   );
 }
 
@@ -256,14 +288,11 @@ function LeaveCreateModal({ onClose }: { onClose: () => void }) {
   });
 
   return (
-    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-lg max-w-md w-full shadow-xl">
-        <div className="flex items-center justify-between border-b border-slate-200 px-5 py-3">
-          <h3 className="font-semibold text-slate-900">Xin nghỉ phép</h3>
-          <button onClick={onClose} className="text-slate-400 hover:text-slate-600">
-            <X className="w-5 h-5" />
-          </button>
-        </div>
+    <Dialog open onOpenChange={(o) => { if (!o) onClose(); }}>
+      <DialogContent className="max-w-md p-0">
+        <DialogHeader className="flex-row items-center justify-between border-b border-slate-200 px-5 py-3">
+          <DialogTitle>Xin nghỉ phép</DialogTitle>
+        </DialogHeader>
         <div className="p-5 space-y-3">
           <Field label="Loại nghỉ">
             <select
@@ -319,20 +348,20 @@ function LeaveCreateModal({ onClose }: { onClose: () => void }) {
             </p>
           )}
         </div>
-        <div className="flex justify-end gap-2 border-t border-slate-200 px-5 py-3">
+        <DialogFooter className="flex-row justify-end gap-2 border-t border-slate-200 px-5 py-3">
           <button onClick={onClose} className="px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-100 rounded-md">
             Hủy
           </button>
           <button
             onClick={() => mut.mutate()}
             disabled={mut.isPending}
-            className="px-3 py-1.5 text-sm bg-blue-600 hover:bg-blue-700 text-white rounded-md disabled:opacity-50"
+            className="px-3 py-1.5 text-sm bg-brand-600 hover:bg-brand-700 text-white rounded-md disabled:opacity-50"
           >
             {mut.isPending ? 'Đang gửi...' : 'Gửi đơn'}
           </button>
-        </div>
-      </div>
-    </div>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -369,7 +398,7 @@ function AttendanceTab() {
   return (
     <div className="space-y-4">
       {workHours && (
-        <div className="bg-blue-50 border border-blue-200 rounded-lg px-4 py-2.5 text-sm text-blue-900">
+        <div className="bg-sky-50 border border-sky-200 rounded-lg px-4 py-2.5 text-sm text-sky-900">
           <CalendarDays className="w-4 h-4 inline-block mr-1.5 align-text-bottom" />
           Giờ làm chuẩn: <b>{workHours.work_start_time}</b> – <b>{workHours.work_end_time}</b>
         </div>
@@ -379,7 +408,7 @@ function AttendanceTab() {
         <h2 className="text-base font-semibold text-slate-800">Ghi nhận của tôi</h2>
         <button
           onClick={() => setShowCreate(true)}
-          className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-sm rounded-md font-medium transition"
+          className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-brand-600 hover:bg-brand-700 text-white text-sm rounded-md font-medium transition"
         >
           <Plus className="w-4 h-4" />
           Báo cáo đi muộn / về sớm
@@ -387,13 +416,17 @@ function AttendanceTab() {
       </div>
 
       {isLoading ? (
-        <div className="text-center py-12 text-slate-400">
-          <Loader2 className="w-6 h-6 animate-spin mx-auto" />
-        </div>
+        <Card padded={false}>
+          <div className="p-4 space-y-3">
+            {Array.from({ length: 4 }).map((_, i) => (
+              <Skeleton key={i} className="h-10 w-full" />
+            ))}
+          </div>
+        </Card>
       ) : incidents.length === 0 ? (
-        <div className="text-center py-12 bg-slate-50 rounded-lg border border-dashed border-slate-200 text-slate-500">
-          Chưa có ghi nhận nào.
-        </div>
+        <Card padded={false}>
+          <EmptyState icon={Clock} heading="Chưa có ghi nhận nào." />
+        </Card>
       ) : (
         <IncidentTable incidents={incidents} />
       )}
@@ -410,33 +443,33 @@ function AttendanceTab() {
 
 function IncidentTable({ incidents }: { incidents: AttendanceIncident[] }) {
   return (
-    <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
-      <table className="min-w-full text-sm">
-        <thead className="bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">
-          <tr>
-            <th className="px-4 py-2.5">Ngày</th>
-            <th className="px-4 py-2.5">Loại</th>
-            <th className="px-4 py-2.5">Giờ chuẩn</th>
-            <th className="px-4 py-2.5">Giờ thực tế</th>
-            <th className="px-4 py-2.5">Lệch</th>
-            <th className="px-4 py-2.5">Lý do</th>
-            <th className="px-4 py-2.5">Ghi nhận</th>
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-slate-100">
+    <Card padded={false} className="overflow-hidden">
+      <Table>
+        <TableHeader>
+          <TableRow>
+            <TableHead>Ngày</TableHead>
+            <TableHead>Loại</TableHead>
+            <TableHead>Giờ chuẩn</TableHead>
+            <TableHead>Giờ thực tế</TableHead>
+            <TableHead>Lệch</TableHead>
+            <TableHead>Lý do</TableHead>
+            <TableHead>Ghi nhận</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
           {incidents.map((it) => (
-            <tr key={it.id} className="hover:bg-slate-50">
-              <td className="px-4 py-2.5 text-slate-600">{it.incident_date}</td>
-              <td className="px-4 py-2.5">
+            <TableRow key={it.id}>
+              <TableCell className="text-slate-600">{it.incident_date}</TableCell>
+              <TableCell>
                 <span className={cn('inline-flex items-center px-2 py-0.5 rounded text-xs font-medium', INCIDENT_TYPE_BADGE[it.incident_type])}>
                   {INCIDENT_TYPE_LABELS[it.incident_type]}
                 </span>
-              </td>
-              <td className="px-4 py-2.5 text-slate-600">{it.expected_time?.slice(0, 5) ?? '—'}</td>
-              <td className="px-4 py-2.5 text-slate-600">{it.actual_time?.slice(0, 5) ?? '—'}</td>
-              <td className="px-4 py-2.5 font-medium">{formatMinutes(it.minutes_off)}</td>
-              <td className="px-4 py-2.5 text-slate-500 max-w-xs truncate">{it.reason ?? '—'}</td>
-              <td className="px-4 py-2.5">
+              </TableCell>
+              <TableCell className="text-slate-600">{it.expected_time?.slice(0, 5) ?? '—'}</TableCell>
+              <TableCell className="text-slate-600">{it.actual_time?.slice(0, 5) ?? '—'}</TableCell>
+              <TableCell className="font-medium">{formatMinutes(it.minutes_off)}</TableCell>
+              <TableCell className="text-slate-500 max-w-xs truncate">{it.reason ?? '—'}</TableCell>
+              <TableCell>
                 {it.acknowledged_at ? (
                   <span className="inline-flex items-center gap-1 text-xs text-emerald-700">
                     <CheckCircle className="w-3.5 h-3.5" />
@@ -447,12 +480,12 @@ function IncidentTable({ incidents }: { incidents: AttendanceIncident[] }) {
                     Chưa ghi nhận
                   </span>
                 )}
-              </td>
-            </tr>
+              </TableCell>
+            </TableRow>
           ))}
-        </tbody>
-      </table>
-    </div>
+        </TableBody>
+      </Table>
+    </Card>
   );
 }
 
@@ -488,14 +521,11 @@ function IncidentCreateModal({
   });
 
   return (
-    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-lg max-w-md w-full shadow-xl">
-        <div className="flex items-center justify-between border-b border-slate-200 px-5 py-3">
-          <h3 className="font-semibold text-slate-900">Ghi nhận chuyên cần</h3>
-          <button onClick={onClose} className="text-slate-400 hover:text-slate-600">
-            <X className="w-5 h-5" />
-          </button>
-        </div>
+    <Dialog open onOpenChange={(o) => { if (!o) onClose(); }}>
+      <DialogContent className="max-w-md p-0">
+        <DialogHeader className="flex-row items-center justify-between border-b border-slate-200 px-5 py-3">
+          <DialogTitle>Ghi nhận chuyên cần</DialogTitle>
+        </DialogHeader>
         <div className="p-5 space-y-3">
           <Field label="Loại sự cố">
             <div className="flex gap-2">
@@ -506,7 +536,7 @@ function IncidentCreateModal({
                   className={cn(
                     'flex-1 px-3 py-1.5 text-sm rounded-md border transition',
                     type === t
-                      ? 'bg-blue-50 border-blue-300 text-blue-700 font-medium'
+                      ? 'bg-brand-50 border-brand-300 text-brand-700 font-medium'
                       : 'bg-white border-slate-300 text-slate-600 hover:bg-slate-50'
                   )}
                 >
@@ -560,20 +590,20 @@ function IncidentCreateModal({
             </p>
           )}
         </div>
-        <div className="flex justify-end gap-2 border-t border-slate-200 px-5 py-3">
+        <DialogFooter className="flex-row justify-end gap-2 border-t border-slate-200 px-5 py-3">
           <button onClick={onClose} className="px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-100 rounded-md">
             Hủy
           </button>
           <button
             onClick={() => mut.mutate()}
             disabled={mut.isPending || (type !== 'no_show' && !actualTime)}
-            className="px-3 py-1.5 text-sm bg-blue-600 hover:bg-blue-700 text-white rounded-md disabled:opacity-50"
+            className="px-3 py-1.5 text-sm bg-brand-600 hover:bg-brand-700 text-white rounded-md disabled:opacity-50"
           >
             {mut.isPending ? 'Đang gửi...' : 'Gửi'}
           </button>
-        </div>
-      </div>
-    </div>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -596,6 +626,9 @@ function PendingTab() {
   });
   const unacked = incidentRes?.data.items ?? [];
 
+  const [rejectTarget, setRejectTarget] = useState<number | null>(null);
+  const [rejectNote, setRejectNote] = useState('');
+
   const approveMut = useMutation({
     mutationFn: (id: number) => leaveApi.approve(id),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['hr'] }),
@@ -604,6 +637,10 @@ function PendingTab() {
     mutationFn: ({ id, note }: { id: number; note?: string }) =>
       leaveApi.reject(id, note),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['hr'] }),
+    onSettled: () => {
+      setRejectTarget(null);
+      setRejectNote('');
+    },
   });
   const ackMut = useMutation({
     mutationFn: (id: number) => attendanceApi.acknowledge(id),
@@ -621,29 +658,29 @@ function PendingTab() {
             Không có đơn nào đang chờ.
           </div>
         ) : (
-          <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
-            <table className="min-w-full text-sm">
-              <thead className="bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">
-                <tr>
-                  <th className="px-4 py-2.5">Nhân viên</th>
-                  <th className="px-4 py-2.5">Phòng</th>
-                  <th className="px-4 py-2.5">Loại</th>
-                  <th className="px-4 py-2.5">Khoảng ngày</th>
-                  <th className="px-4 py-2.5">Số ngày</th>
-                  <th className="px-4 py-2.5">Lý do</th>
-                  <th className="px-4 py-2.5 text-right">Thao tác</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
+          <Card padded={false} className="overflow-hidden">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Nhân viên</TableHead>
+                  <TableHead>Phòng</TableHead>
+                  <TableHead>Loại</TableHead>
+                  <TableHead>Khoảng ngày</TableHead>
+                  <TableHead>Số ngày</TableHead>
+                  <TableHead>Lý do</TableHead>
+                  <TableHead className="text-right">Thao tác</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
                 {pendingLeaves.map((r) => (
-                  <tr key={r.id} className="hover:bg-slate-50">
-                    <td className="px-4 py-2.5 font-medium">{r.user_name ?? r.user_id.slice(0, 8)}</td>
-                    <td className="px-4 py-2.5 text-slate-600">{r.department ?? '—'}</td>
-                    <td className="px-4 py-2.5">{LEAVE_TYPE_LABELS[r.leave_type]}</td>
-                    <td className="px-4 py-2.5 text-slate-600">{r.start_date} → {r.end_date}</td>
-                    <td className="px-4 py-2.5">{r.days_count}</td>
-                    <td className="px-4 py-2.5 text-slate-500 max-w-xs truncate">{r.reason ?? '—'}</td>
-                    <td className="px-4 py-2.5 text-right space-x-2">
+                  <TableRow key={r.id}>
+                    <TableCell className="font-medium">{r.user_name ?? r.user_id.slice(0, 8)}</TableCell>
+                    <TableCell className="text-slate-600">{r.department ?? '—'}</TableCell>
+                    <TableCell>{LEAVE_TYPE_LABELS[r.leave_type]}</TableCell>
+                    <TableCell className="text-slate-600">{r.start_date} → {r.end_date}</TableCell>
+                    <TableCell>{r.days_count}</TableCell>
+                    <TableCell className="text-slate-500 max-w-xs truncate">{r.reason ?? '—'}</TableCell>
+                    <TableCell className="text-right space-x-2">
                       <button
                         onClick={() => approveMut.mutate(r.id)}
                         disabled={approveMut.isPending}
@@ -654,8 +691,8 @@ function PendingTab() {
                       </button>
                       <button
                         onClick={() => {
-                          const note = prompt('Lý do từ chối (tùy chọn):') || undefined;
-                          rejectMut.mutate({ id: r.id, note });
+                          setRejectNote('');
+                          setRejectTarget(r.id);
                         }}
                         disabled={rejectMut.isPending}
                         className="inline-flex items-center gap-1 text-xs text-rose-700 hover:underline disabled:opacity-50"
@@ -663,14 +700,70 @@ function PendingTab() {
                         <XCircle className="w-3.5 h-3.5" />
                         Từ chối
                       </button>
-                    </td>
-                  </tr>
+                    </TableCell>
+                  </TableRow>
                 ))}
-              </tbody>
-            </table>
-          </div>
+              </TableBody>
+            </Table>
+          </Card>
         )}
       </section>
+
+      {/* Reject reason dialog (replaces native prompt) */}
+      <Dialog
+        open={rejectTarget !== null}
+        onOpenChange={(o) => {
+          if (!o) {
+            setRejectTarget(null);
+            setRejectNote('');
+          }
+        }}
+      >
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Từ chối đơn xin nghỉ</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-2">
+            <label className="text-xs font-medium text-slate-700">
+              Lý do từ chối (tùy chọn)
+            </label>
+            <textarea
+              value={rejectNote}
+              onChange={(e) => setRejectNote(e.target.value)}
+              rows={3}
+              autoFocus
+              className="w-full border border-slate-300 rounded-md px-3 py-2 text-sm"
+              placeholder="(không bắt buộc)"
+            />
+          </div>
+          <DialogFooter className="gap-2 sm:gap-2">
+            <Button
+              variant="outline"
+              onClick={() => {
+                setRejectTarget(null);
+                setRejectNote('');
+              }}
+              disabled={rejectMut.isPending}
+            >
+              Hủy
+            </Button>
+            <Button
+              variant="destructive"
+              loading={rejectMut.isPending}
+              onClick={() => {
+                if (rejectTarget !== null) {
+                  rejectMut.mutate({
+                    id: rejectTarget,
+                    note: rejectNote.trim() || undefined,
+                  });
+                }
+              }}
+            >
+              Xác nhận từ chối
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <section>
         <h2 className="text-base font-semibold text-slate-800 mb-2">
@@ -681,47 +774,47 @@ function PendingTab() {
             Không có ghi nhận chưa xử lý.
           </div>
         ) : (
-          <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
-            <table className="min-w-full text-sm">
-              <thead className="bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">
-                <tr>
-                  <th className="px-4 py-2.5">Nhân viên</th>
-                  <th className="px-4 py-2.5">Phòng</th>
-                  <th className="px-4 py-2.5">Ngày</th>
-                  <th className="px-4 py-2.5">Loại</th>
-                  <th className="px-4 py-2.5">Lệch</th>
-                  <th className="px-4 py-2.5">Lý do</th>
-                  <th className="px-4 py-2.5 text-right">Thao tác</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
+          <Card padded={false} className="overflow-hidden">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Nhân viên</TableHead>
+                  <TableHead>Phòng</TableHead>
+                  <TableHead>Ngày</TableHead>
+                  <TableHead>Loại</TableHead>
+                  <TableHead>Lệch</TableHead>
+                  <TableHead>Lý do</TableHead>
+                  <TableHead className="text-right">Thao tác</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
                 {unacked.map((it) => (
-                  <tr key={it.id} className="hover:bg-slate-50">
-                    <td className="px-4 py-2.5 font-medium">{it.user_name ?? it.user_id.slice(0, 8)}</td>
-                    <td className="px-4 py-2.5 text-slate-600">{it.department ?? '—'}</td>
-                    <td className="px-4 py-2.5 text-slate-600">{it.incident_date}</td>
-                    <td className="px-4 py-2.5">
+                  <TableRow key={it.id}>
+                    <TableCell className="font-medium">{it.user_name ?? it.user_id.slice(0, 8)}</TableCell>
+                    <TableCell className="text-slate-600">{it.department ?? '—'}</TableCell>
+                    <TableCell className="text-slate-600">{it.incident_date}</TableCell>
+                    <TableCell>
                       <span className={cn('inline-flex items-center px-2 py-0.5 rounded text-xs font-medium', INCIDENT_TYPE_BADGE[it.incident_type])}>
                         {INCIDENT_TYPE_LABELS[it.incident_type]}
                       </span>
-                    </td>
-                    <td className="px-4 py-2.5 font-medium">{formatMinutes(it.minutes_off)}</td>
-                    <td className="px-4 py-2.5 text-slate-500 max-w-xs truncate">{it.reason ?? '—'}</td>
-                    <td className="px-4 py-2.5 text-right">
+                    </TableCell>
+                    <TableCell className="font-medium">{formatMinutes(it.minutes_off)}</TableCell>
+                    <TableCell className="text-slate-500 max-w-xs truncate">{it.reason ?? '—'}</TableCell>
+                    <TableCell className="text-right">
                       <button
                         onClick={() => ackMut.mutate(it.id)}
                         disabled={ackMut.isPending}
-                        className="inline-flex items-center gap-1 text-xs text-blue-700 hover:underline disabled:opacity-50"
+                        className="inline-flex items-center gap-1 text-xs text-brand-700 hover:underline disabled:opacity-50"
                       >
                         <CheckCircle className="w-3.5 h-3.5" />
                         Đã xem
                       </button>
-                    </td>
-                  </tr>
+                    </TableCell>
+                  </TableRow>
                 ))}
-              </tbody>
-            </table>
-          </div>
+              </TableBody>
+            </Table>
+          </Card>
         )}
       </section>
     </div>

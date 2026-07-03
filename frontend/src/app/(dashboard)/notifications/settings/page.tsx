@@ -19,6 +19,9 @@ import {
 } from 'lucide-react';
 import { useAuth } from '@/providers/auth-provider';
 import { formatRelativeTime } from '@/lib/utils';
+import { PageHeader } from '@/components/shared/page-header';
+import { Card } from '@/components/shared/card';
+import { EmptyState } from '@/components/shared/empty-state';
 
 // ─── Types ─────────────────────────────────────────────────────
 
@@ -59,7 +62,7 @@ function getTypeIcon(type: string): React.ElementType {
 
 function getTypeColor(type: string): string {
   if (type.includes('rfq') || type.includes('quotation')) return 'bg-amber-50 text-amber-600';
-  if (type.includes('po') || type.includes('purchase')) return 'bg-blue-50 text-blue-600';
+  if (type.includes('po') || type.includes('purchase')) return 'bg-cyan-50 text-cyan-600';
   if (type.includes('delivery') || type.includes('shipment')) return 'bg-cyan-50 text-cyan-600';
   if (type.includes('mention')) return 'bg-brand-50 text-brand-600';
   return 'bg-slate-50 text-slate-600';
@@ -247,40 +250,39 @@ export default function NotificationSettingsPage() {
   return (
     <div>
       {/* Header */}
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <h2 className="text-xl font-display font-bold text-slate-900 flex items-center gap-2">
-            <Bell className="h-5 w-5 text-brand-600" />
-            Trung tâm thông báo
-          </h2>
-          <p className="text-sm text-slate-500 mt-0.5">Quản lý thông báo hệ thống</p>
-        </div>
-        <div className="flex items-center gap-3">
-          {isAdminOrManager && (
-            <button
-              onClick={() => setShowSendModal(true)}
-              className="flex items-center gap-2 px-4 py-2 border border-slate-200 rounded-lg text-sm text-slate-700 hover:bg-slate-50 transition-colors"
-            >
-              <Users className="h-4 w-4" />
-              Gửi thông báo
-            </button>
-          )}
-          {unreadCount > 0 && (
-            <button
-              onClick={() => markAllReadMutation.mutate()}
-              disabled={markAllReadMutation.isPending}
-              className="flex items-center gap-2 px-4 py-2 bg-brand-600 text-white rounded-lg text-sm font-medium hover:bg-brand-700 disabled:opacity-60 transition-colors"
-            >
-              {markAllReadMutation.isPending ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : (
-                <CheckCheck className="h-4 w-4" />
-              )}
-              Đánh dấu tất cả đã đọc
-            </button>
-          )}
-        </div>
-      </div>
+      <PageHeader
+        icon={Bell}
+        title="Trung tâm thông báo"
+        subtitle="Quản lý thông báo hệ thống"
+        actions={
+          <>
+            {isAdminOrManager && (
+              <button
+                onClick={() => setShowSendModal(true)}
+                className="flex items-center gap-2 px-4 py-2 border border-slate-200 rounded-lg text-sm text-slate-700 hover:bg-slate-50 transition-colors"
+              >
+                <Users className="h-4 w-4" />
+                Gửi thông báo
+              </button>
+            )}
+            {unreadCount > 0 && (
+              <button
+                onClick={() => markAllReadMutation.mutate()}
+                disabled={markAllReadMutation.isPending}
+                className="flex items-center gap-2 px-4 py-2 bg-brand-600 text-white rounded-lg text-sm font-medium hover:bg-brand-700 disabled:opacity-60 transition-colors"
+              >
+                {markAllReadMutation.isPending ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <CheckCheck className="h-4 w-4" />
+                )}
+                Đánh dấu tất cả đã đọc
+              </button>
+            )}
+          </>
+        }
+        className="mb-6"
+      />
 
       {/* Success feedback */}
       {markAllReadMutation.isSuccess && (
@@ -332,13 +334,15 @@ export default function NotificationSettingsPage() {
           ))}
         </div>
       ) : notifications.length === 0 ? (
-        <div className="bg-white rounded-lg shadow-sm border border-slate-200 flex flex-col items-center justify-center py-16">
-          <BellOff className="h-10 w-10 text-slate-300 mb-3" />
-          <p className="text-sm font-medium text-slate-500">Không có thông báo</p>
-          <p className="text-xs text-slate-400 mt-1">
-            {activeTab === 'unread' ? 'Bạn đã đọc tất cả thông báo' : 'Chưa có thông báo nào'}
-          </p>
-        </div>
+        <Card padded={false}>
+          <EmptyState
+            icon={BellOff}
+            heading="Không có thông báo"
+            description={
+              activeTab === 'unread' ? 'Bạn đã đọc tất cả thông báo' : 'Chưa có thông báo nào'
+            }
+          />
+        </Card>
       ) : (
         <div className="space-y-2">
           {notifications.map((notif) => {

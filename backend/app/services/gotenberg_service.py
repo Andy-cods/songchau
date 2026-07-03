@@ -160,7 +160,12 @@ async def _convert_via_gotenberg(xlsx_path: str, output_pdf_path: str) -> str:
             resp = await client.post(
                 f"{GOTENBERG_URL}/forms/libreoffice/convert",
                 files={"files": (Path(xlsx_path).name, f, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
-                data={"landscape": "true"},
+                # Thang 2026-05-20: send landscape=false so Gotenberg respects
+                # the xlsx's own page_setup (which we now set to PORTRAIT in
+                # gc_template_quotation.py + autofill_service.py). The explicit
+                # data hint here is belt-and-braces for files whose embedded
+                # page_setup is missing/ambiguous.
+                data={"landscape": "false"},
             )
         resp.raise_for_status()
 
@@ -172,15 +177,56 @@ async def _convert_via_gotenberg(xlsx_path: str, output_pdf_path: str) -> str:
     return output_pdf_path
 
 
+async def convert_html_to_pdf(html: str, output_pdf_path: str) -> str:
+    """Convert an HTML string to PDF via Gotenberg's Chromium HTML route.
+
+    Used for documents we render as HTML (e.g. procurement contracts) — distinct
+    from convert_xlsx_to_pdf which goes through the LibreOffice route. Posts the
+    HTML as `index.html` (the filename Gotenberg's Chromium route requires) and
+    asks for A4 portrait. Mirrors the structure of _convert_via_gotenberg.
+
+    Canonical engine per PLAN §8. Gotenberg is the sole PDF engine for báo
+    giá now — there is no hand-built fallback (the AMA WeasyPrint mirror was
+    removed); failures surface as a clear error to the caller.
+    """
+    async with httpx.AsyncClient(timeout=120.0) as client:
+        resp = await client.post(
+            f"{GOTENBERG_URL}/forms/chromium/convert/html",
+            files={"index.html": ("index.html", html.encode("utf-8"), "text/html")},
+            data={
+                # A4 portrait in inches (Gotenberg/Chromium uses inches).
+                "paperWidth": "8.27",
+                "paperHeight": "11.7",
+                "marginTop": "0.6",
+                "marginBottom": "0.6",
+                "marginLeft": "0.5",
+                "marginRight": "0.5",
+                "printBackground": "true",
+            },
+        )
+        resp.raise_for_status()
+
+        Path(output_pdf_path).parent.mkdir(parents=True, exist_ok=True)
+        with open(output_pdf_path, "wb") as out:
+            out.write(resp.content)
+
+    logger.info("Gotenberg (chromium) rendered HTML -> %s (%d bytes)",
+                output_pdf_path, len(resp.content))
+    return output_pdf_path
+
+
 async def convert_xlsx_to_pdf(xlsx_path: str, output_pdf_path: str) -> str:
-    """Convert Excel to PDF. Tries OnlyOffice first, falls back to Gotenberg."""
+    """Convert Excel to PDF.
+
+    Per Thang 2026-05-11: switched to GOTENBERG ONLY. The OnlyOffice path
+    was silently stripping product images because `_repair_xlsx_for_x2t`
+    overwrites the entire `xl/media/` folder with the template's stamp+logo
+    PNGs (originally needed because openpyxl-saved drawing XML couldn't be
+    parsed by x2t — but it nukes our per-item product photos along the way).
+    Gotenberg/LibreOffice handles openpyxl-saved xlsx natively and preserves
+    all embedded images. Verified end-to-end: direct Gotenberg call on the
+    same xlsx yielded 5 image objects in the resulting PDF (vs 1 via
+    OnlyOffice).
+    """
     Path(output_pdf_path).parent.mkdir(parents=True, exist_ok=True)
-
-    # Try OnlyOffice first (better quality)
-    try:
-        return await _convert_via_onlyoffice(xlsx_path, output_pdf_path)
-    except Exception as exc:
-        logger.warning("OnlyOffice failed, falling back to Gotenberg: %s", exc)
-
-    # Fallback to Gotenberg
     return await _convert_via_gotenberg(xlsx_path, output_pdf_path)

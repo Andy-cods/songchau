@@ -9,7 +9,6 @@ import {
   Calendar,
   ShoppingCart,
   ArrowLeft,
-  Loader2,
   BarChart2,
 } from 'lucide-react';
 import Link from 'next/link';
@@ -23,6 +22,11 @@ import {
   Tooltip,
   ResponsiveContainer,
 } from 'recharts';
+import { CHART } from '@/lib/chart-colors';
+import { StatCard, type StatTone } from '@/components/shared/stat-card';
+import { Card } from '@/components/shared/card';
+import { EmptyState } from '@/components/shared/empty-state';
+import { Skeleton } from '@/components/ui/skeleton';
 
 // ─── Types ─────────────────────────────────────────────────────
 
@@ -45,35 +49,6 @@ interface MovementItem {
   after_qty: number;
   notes?: string;
   created_at: string;
-}
-
-// ─── Stat Card ──────────────────────────────────────────────────
-
-function StatCard({
-  label,
-  value,
-  icon: Icon,
-  colorClass,
-  sublabel,
-}: {
-  label: string;
-  value: string | number;
-  icon: React.ElementType;
-  colorClass: string;
-  sublabel?: string;
-}) {
-  return (
-    <div className="bg-white rounded-lg shadow-sm border border-slate-200 p-5">
-      <div className="flex items-center gap-3 mb-3">
-        <div className={`flex h-9 w-9 items-center justify-center rounded-full ${colorClass}`}>
-          <Icon className="h-4 w-4" />
-        </div>
-        <p className="text-xs text-slate-500 uppercase tracking-wider font-medium">{label}</p>
-      </div>
-      <p className="text-2xl font-bold text-slate-900">{value}</p>
-      {sublabel && <p className="text-xs text-slate-400 mt-1">{sublabel}</p>}
-    </div>
-  );
 }
 
 // ─── Page ───────────────────────────────────────────────────────
@@ -135,7 +110,7 @@ export default function ProductForecastPage({
       </div>
 
       {/* Product Info Card */}
-      <div className="bg-white rounded-lg shadow-sm border border-slate-200 p-6 mb-6">
+      <Card className="p-6 mb-6">
         <div className="flex items-start gap-4">
           <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-full bg-brand-50 text-brand-600">
             <Package className="h-7 w-7" />
@@ -143,8 +118,8 @@ export default function ProductForecastPage({
           <div>
             {forecastLoading ? (
               <div className="space-y-2">
-                <div className="h-5 w-48 bg-slate-200 rounded animate-pulse" />
-                <div className="h-4 w-32 bg-slate-200 rounded animate-pulse" />
+                <Skeleton className="h-5 w-48" />
+                <Skeleton className="h-4 w-32" />
               </div>
             ) : (
               <>
@@ -156,13 +131,14 @@ export default function ProductForecastPage({
             )}
           </div>
         </div>
-      </div>
+      </Card>
 
       {/* Forecast Stats */}
       {forecastLoading ? (
-        <div className="flex items-center justify-center py-12 text-slate-400">
-          <Loader2 className="h-6 w-6 animate-spin mr-2" />
-          <span className="text-sm">Đang tải dự báo...</span>
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+          {Array.from({ length: 4 }).map((_, i) => (
+            <StatCard key={i} label="" value="" loading />
+          ))}
         </div>
       ) : forecast ? (
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
@@ -170,8 +146,8 @@ export default function ProductForecastPage({
             label="TB tiêu thụ/ngày"
             value={(forecast.avg_daily_consumption ?? 0).toLocaleString('vi-VN')}
             icon={TrendingDown}
-            colorClass="bg-blue-50 text-blue-600"
-            sublabel="đơn vị/ngày"
+            tone="brand"
+            sub="đơn vị/ngày"
           />
           <StatCard
             label="Ngày hết hàng"
@@ -181,28 +157,28 @@ export default function ProductForecastPage({
                 : 'Đã hết hàng'
             }
             icon={Calendar}
-            colorClass={
-              forecast.days_until_stockout <= 7
-                ? 'bg-red-50 text-red-600'
+            tone={
+              (forecast.days_until_stockout <= 7
+                ? 'danger'
                 : forecast.days_until_stockout <= 30
-                ? 'bg-amber-50 text-amber-600'
-                : 'bg-green-50 text-green-600'
+                ? 'warning'
+                : 'success') as StatTone
             }
-            sublabel="kể từ hôm nay"
+            sub="kể từ hôm nay"
           />
           <StatCard
             label="Dự báo 30 ngày"
             value={(forecast.forecast_30d ?? 0).toLocaleString('vi-VN')}
             icon={BarChart2}
-            colorClass="bg-purple-50 text-purple-600"
-            sublabel="đơn vị cần dùng"
+            tone="brand"
+            sub="đơn vị cần dùng"
           />
           <StatCard
             label="Đề xuất đặt hàng"
             value={(forecast.suggested_reorder_qty ?? 0).toLocaleString('vi-VN')}
             icon={ShoppingCart}
-            colorClass="bg-green-50 text-green-600"
-            sublabel="đơn vị"
+            tone="brand"
+            sub="đơn vị"
           />
         </div>
       ) : (
@@ -212,14 +188,12 @@ export default function ProductForecastPage({
       )}
 
       {/* Consumption Bar Chart */}
-      <div className="bg-white rounded-lg shadow-sm border border-slate-200 p-6 mb-6">
+      <Card className="p-6 mb-6">
         <h3 className="text-sm font-semibold text-slate-700 mb-4">
           Lịch sử xuất kho 30 ngày gần nhất
         </h3>
         {movementsLoading ? (
-          <div className="h-64 flex items-center justify-center text-slate-400">
-            <Loader2 className="h-6 w-6 animate-spin" />
-          </div>
+          <Skeleton className="h-64 w-full" />
         ) : chartData.length === 0 ? (
           <div className="h-64 flex items-center justify-center text-slate-400">
             <p className="text-sm">Không có dữ liệu xuất kho</p>
@@ -234,14 +208,14 @@ export default function ProductForecastPage({
                 formatter={(v: number) => [v.toLocaleString('vi-VN'), 'Xuất kho']}
                 labelFormatter={(label) => `Ngày ${label}`}
               />
-              <Bar dataKey="qty" fill="#6366f1" radius={[3, 3, 0, 0]} name="Xuất kho" />
+              <Bar dataKey="qty" fill={CHART.brand} radius={[3, 3, 0, 0]} name="Xuất kho" />
             </BarChart>
           </ResponsiveContainer>
         )}
-      </div>
+      </Card>
 
       {/* CTA */}
-      <div className="bg-white rounded-lg shadow-sm border border-slate-200 p-6">
+      <Card className="p-6">
         <div className="flex items-center justify-between">
           <div>
             <h3 className="text-sm font-semibold text-slate-700">Tạo yêu cầu mua hàng</h3>
@@ -261,7 +235,7 @@ export default function ProductForecastPage({
             Tạo yêu cầu mua hàng
           </button>
         </div>
-      </div>
+      </Card>
     </div>
   );
 }

@@ -59,7 +59,7 @@ def _format_vn_date(d: date) -> str:
 async def morning_report(
     report_date: date | None = Query(None, description="Default today"),
     token_data: TokenData = Depends(
-        require_role("staff", "manager", "admin", "accountant", "procurement")
+        require_role("staff", "manager", "admin", "accountant", "procurement", "sales", "director", "viewer")
     ),
     conn: asyncpg.Connection = Depends(get_db),
 ) -> dict[str, Any]:
@@ -228,7 +228,7 @@ async def morning_report(
 async def revenue_summary(
     report_date: date | None = Query(None),
     token_data: TokenData = Depends(
-        require_role("staff", "manager", "admin", "accountant", "procurement")
+        require_role("staff", "manager", "admin", "accountant", "procurement", "sales", "director", "viewer")
     ),
     conn: asyncpg.Connection = Depends(get_db),
 ) -> dict[str, Any]:
@@ -326,7 +326,7 @@ async def request_trend(
     period: str = Query("day", pattern="^(day|week|month)$"),
     n: int = Query(30, ge=1, le=400),
     token_data: TokenData = Depends(
-        require_role("staff", "manager", "admin", "accountant", "procurement")
+        require_role("staff", "manager", "admin", "accountant", "procurement", "sales", "director", "viewer")
     ),
     conn: asyncpg.Connection = Depends(get_db),
 ) -> dict[str, Any]:
@@ -420,7 +420,7 @@ async def top_codes_heatmap(
     days: int = Query(28, ge=7, le=90),
     limit: int = Query(20, ge=5, le=100),
     token_data: TokenData = Depends(
-        require_role("staff", "manager", "admin", "accountant", "procurement")
+        require_role("staff", "manager", "admin", "accountant", "procurement", "sales", "director", "viewer")
     ),
     conn: asyncpg.Connection = Depends(get_db),
 ) -> dict[str, Any]:
@@ -497,7 +497,7 @@ async def top_codes_heatmap(
 async def report_history(
     year: int = Query(2026, ge=2020, le=2100),
     token_data: TokenData = Depends(
-        require_role("staff", "manager", "admin", "accountant", "procurement")
+        require_role("staff", "manager", "admin", "accountant", "procurement", "sales", "director", "viewer")
     ),
     conn: asyncpg.Connection = Depends(get_db),
 ) -> dict[str, Any]:
@@ -599,3 +599,74 @@ async def log_quote_action(
         )
 
     return {"log_id": log_id, "status": "ok"}
+
+
+# ─── Import status + force-import (Thang 2026-06-01) ─────────────────
+#
+# Cron `bqms_excel_auto_import` chạy mỗi 2 phút quét file
+# `/data/.../Thong ke giao hang 2026.xlsx`, UPSERT vào bqms_deliveries.
+# 2 endpoint sau cho frontend hiển trạng thái + force-import thủ công.
+
+
+@router.get("/import-status")
+async def daily_report_import_status(
+    token_data: TokenData = Depends(
+        require_role("staff", "manager", "admin", "accountant", "procurement", "sales", "director", "viewer")
+    ),
+    conn: asyncpg.Connection = Depends(get_db),
+):
+    """Trạng thái import gần nhất của Excel doanh thu hàng ngày."""
+    row = await conn.fetchrow(
+        """
+        SELECT status, started_at, completed_at, rows_inserted,
+               LEFT(COALESCE(error_message, ''), 200) AS error_message
+          FROM etl_sync_log
+         WHERE sync_type = 'auto_import_bqms_deliveries'
+         ORDER BY id DESC
+         LIMIT 1
+        """
+    )
+    flag = await conn.fetchval(
+        "SELECT value FROM app_config WHERE key = 'bqms_excel_auto_import_enabled'"
+    )
+    enabled = str(flag or "").strip().lower().strip('"') not in ("false", "0", "no", "off")
+    max_delivery = await conn.fetchval(
+        "SELECT MAX(delivery_date) FROM bqms_deliveries"
+    )
+    return {
+        "data": {
+            "enabled": enabled,
+            "last_status": row["status"] if row else None,
+            "last_completed_at": row["completed_at"] if row else None,
+            "last_started_at": row["started_at"] if row else None,
+            "last_rows_inserted": row["rows_inserted"] if row else 0,
+            "last_error": row["error_message"] if row else None,
+            "max_delivery_date": max_delivery,
+        }
+    }
+
+
+@router.post("/force-import")
+async def force_import_daily_report(
+    token_data: TokenData = Depends(
+        require_role("staff", "manager", "admin", "accountant", "procurement", "sales", "director")
+    ),
+):
+    """Trigger CẢ 2 task import chạy ngay (defer Procrastinate task):
+      1. bqms_excel_auto_import → bqms_deliveries (revenue / KPI doanh thu)
+      2. bqms_report_blob_import → bqms_rfq.report (Báo cáo DD/MM blob, drive trend chart)
+
+    Truyền force=True để bỏ qua mtime + flag check — luôn re-import."""
+    try:
+        from app.tasks.bqms_excel_auto_import import bqms_excel_auto_import as deliveries_task
+        from app.tasks.bqms_report_blob_import import bqms_report_blob_import as report_task
+        from app.core.procrastinate_app import app as proc_app
+        async with proc_app.open_async():
+            del_job = await deliveries_task.defer_async(force=True)
+            rep_job = await report_task.defer_async(force=True)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Không enqueue được task: {exc}")
+    return {
+        "data": {"deliveries_job_id": del_job, "report_blob_job_id": rep_job},
+        "message": "Đã yêu cầu import lại (deliveries + báo cáo) — cập nhật trong vài giây",
+    }

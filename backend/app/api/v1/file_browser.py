@@ -21,7 +21,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File, Form as FastAPIForm
 from fastapi.responses import FileResponse
 
 from app.core.rbac import require_role
@@ -300,19 +300,47 @@ async def file_preview(
 # GET /file/download — Serve file
 # ---------------------------------------------------------------------------
 
+# mimetypes inside the slim container does NOT know the Office Open XML types
+# (guess_type('.xlsx') → None), so downloads fell back to octet-stream. Map them
+# explicitly so the Content-Type is correct too.
+_EXT_MIME = {
+    ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    ".xls": "application/vnd.ms-excel",
+    ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    ".doc": "application/msword",
+    ".pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    ".ppt": "application/vnd.ms-powerpoint",
+    ".csv": "text/csv",
+}
+
+
 @router.get("/file/download")
 async def file_download(
     path: str = Query(...),
     token: str | None = Query(None),
+    dl: int = Query(0, description="1 = tải về (attachment + filename); 0 = xem inline (preview iframe)"),
     token_data: TokenData = Depends(require_role(*ALL_ROLES)),
 ):
-    """Serve file for download or inline preview."""
+    """Serve file for download (dl=1) or inline preview (dl=0).
+
+    BUG FIX (Thang 2026-06-17): the old code forced ``Content-Disposition: inline``
+    via a manual header WITHOUT a filename. The "Tải về" link opens the URL in a new
+    tab, so the browser saved the file as "download" with NO extension → Office files
+    "không xem được" on Windows. Now dl=1 → ``attachment; filename*=...`` (FileResponse
+    handles RFC-5987 encoding for Vietnamese names); dl=0 keeps inline for the preview.
+    """
     fp = _safe(path)
     if not fp.is_file():
         raise HTTPException(404, "File khong ton tai")
     ct, _ = mimetypes.guess_type(str(fp))
-    return FileResponse(str(fp), media_type=ct or "application/octet-stream",
-                        filename=fp.name, headers={"Content-Disposition": "inline"})
+    if not ct:
+        ct = _EXT_MIME.get(fp.suffix.lower())
+    return FileResponse(
+        str(fp),
+        media_type=ct or "application/octet-stream",
+        filename=fp.name,
+        content_disposition_type="attachment" if dl else "inline",
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -347,6 +375,100 @@ async def folder_stats(
                 pass
 
     return {"data": {"path": path, "total_files": total_files, "total_size": total_size, "by_category": stats}}
+
+
+# ---------------------------------------------------------------------------
+# POST /file/upload — Upload file(s) to a folder
+# Per Thang 2026-05-11: add upload PDF/xlsx/etc into Quản lý tài liệu folders.
+# ---------------------------------------------------------------------------
+
+@router.post("/file/upload")
+async def upload_files(
+    parent_path: str = FastAPIForm("", description="Folder where to drop the files"),
+    overwrite: bool = FastAPIForm(False, description="Overwrite if file exists"),
+    files: list[UploadFile] = File(..., description="One or more files to upload"),
+    token_data: TokenData = Depends(require_role("admin", "manager", "staff")),
+):
+    """Upload one or more files into a folder under onedrive-staging.
+
+    Constraints:
+      - parent_path must resolve under STAGING_DIR (path traversal blocked).
+      - Each file max 100 MB.
+      - Allowed extensions: pdf, xlsx, xls, docx, doc, png, jpg, jpeg, gif,
+        txt, csv, zip, 7z, dwg, dxf, step, stp, x_t.
+      - If `overwrite=False` and filename exists → 409.
+    """
+    parent = _safe(parent_path)
+    if not parent.is_dir():
+        raise HTTPException(404, f"Thu muc cha khong ton tai: {parent_path}")
+
+    ALLOWED = {
+        ".pdf", ".xlsx", ".xls", ".docx", ".doc", ".png", ".jpg", ".jpeg",
+        ".gif", ".txt", ".csv", ".zip", ".7z", ".dwg", ".dxf",
+        ".step", ".stp", ".x_t", ".igs", ".iges",
+    }
+    MAX_SIZE = 100 * 1024 * 1024  # 100 MB
+
+    results: list[dict] = []
+    for upload in files:
+        fname = (upload.filename or "").strip()
+        if not fname:
+            results.append({"name": "(empty)", "error": "Tên file rỗng"})
+            continue
+        # Strip any path components for safety
+        fname = Path(fname).name
+        if any(c in fname for c in '/\\:*?"<>|'):
+            results.append({"name": fname, "error": "Tên file chứa ký tự cấm"})
+            continue
+        ext = Path(fname).suffix.lower()
+        if ext not in ALLOWED:
+            results.append({"name": fname, "error": f"Đuôi {ext} không cho phép"})
+            continue
+
+        target = parent / fname
+        if target.exists() and not overwrite:
+            results.append({"name": fname, "error": "File đã tồn tại (dùng overwrite=true để ghi đè)"})
+            continue
+
+        try:
+            # Stream the upload to disk in chunks to avoid OOM on big files
+            total = 0
+            with open(target, "wb") as out_f:
+                while True:
+                    chunk = await upload.read(1024 * 1024)  # 1 MB
+                    if not chunk:
+                        break
+                    total += len(chunk)
+                    if total > MAX_SIZE:
+                        out_f.close()
+                        target.unlink(missing_ok=True)
+                        raise HTTPException(413, f"File {fname} vượt 100 MB")
+                    out_f.write(chunk)
+            rel = str(target.relative_to(STAGING_DIR)).replace("\\", "/")
+            results.append({
+                "name": fname,
+                "size": total,
+                "path": rel,
+            })
+            logger.info("Uploaded %s (%d B) to %s by %s",
+                        fname, total, parent_path, token_data.email)
+        except HTTPException:
+            raise
+        except Exception as exc:
+            logger.exception("Upload failed for %s", fname)
+            results.append({"name": fname, "error": str(exc)[:200]})
+
+    succeeded = [r for r in results if "error" not in r]
+    failed = [r for r in results if "error" in r]
+    return {
+        "data": {
+            "uploaded": succeeded,
+            "failed": failed,
+            "total_uploaded": len(succeeded),
+            "total_failed": len(failed),
+        },
+        "message": f"Upload xong: {len(succeeded)} OK, {len(failed)} lỗi",
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -459,20 +581,55 @@ async def rename_item(
 @router.delete("/file/delete")
 async def delete_item(
     path: str = Query(...),
+    recursive: bool = Query(
+        False,
+        description="When true, non-empty folders are soft-deleted by renaming "
+                    "to `.trash_<timestamp>_<name>` in the same parent. "
+                    "Recover via shell mv. Empty folders + files always delete.",
+    ),
     token_data: TokenData = Depends(require_role("admin", "manager")),
 ):
-    """Xoa file hoac thu muc trong (chi admin/manager)."""
+    """Xóa file hoặc thư mục (chỉ admin/manager).
+
+    Thang 2026-05-22: thêm soft-delete cho thư mục có file. Pass recursive=true
+    → rename folder → `.trash_<ts>_<original-name>` cùng parent. Không xóa thật
+    → file vẫn còn đó, lúc nào cần recover thì shell `mv` lại.
+    """
+    import time
     target = _safe(path)
     if not target.exists():
-        raise HTTPException(404, f"Khong tim thay: {path}")
+        raise HTTPException(404, f"Không tìm thấy: {path}")
 
     if target.is_dir():
         children = list(target.iterdir())
         if children:
-            raise HTTPException(400, "Khong the xoa thu muc co file ben trong")
+            if not recursive:
+                raise HTTPException(
+                    400,
+                    "Thư mục có file bên trong. Gửi recursive=true để "
+                    "chuyển vào thùng rác (có thể khôi phục).",
+                )
+            ts = int(time.time())
+            trash_name = f".trash_{ts}_{target.name}"
+            trash_path = target.parent / trash_name
+            # If collision (unlikely with timestamp), append counter
+            n = 1
+            while trash_path.exists():
+                trash_path = target.parent / f"{trash_name}_{n}"
+                n += 1
+            target.rename(trash_path)
+            logger.info(
+                "Soft-deleted folder %s → %s by %s",
+                path, trash_path.name, token_data.email,
+            )
+            return {
+                "message": f"Đã chuyển '{target.name}' vào thùng rác",
+                "trash_path": str(trash_path.relative_to(target.parent.anchor)) if trash_path.is_absolute() else str(trash_path),
+                "trash_name": trash_path.name,
+            }
         target.rmdir()
+        logger.info("Deleted empty folder %s by %s", path, token_data.email)
     else:
         target.unlink()
-
-    logger.info("Deleted %s by %s", path, token_data.email)
-    return {"message": f"Da xoa '{target.name}'"}
+        logger.info("Deleted file %s by %s", path, token_data.email)
+    return {"message": f"Đã xóa '{target.name}'"}

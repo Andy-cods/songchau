@@ -20,6 +20,11 @@ import { Button } from '@/components/ui/button';
 import { useAuth } from '@/providers/auth-provider';
 import { ROLE_LABELS } from '@/lib/constants';
 import type { User as UserModel } from '@/types/models';
+import ScraperSettingsCard from '@/components/bqms/ScraperSettingsCard';
+import { PageHeader } from '@/components/shared/page-header';
+import { Card } from '@/components/shared/card';
+import { EmptyState } from '@/components/shared/empty-state';
+import { Skeleton } from '@/components/ui/skeleton';
 
 // ─── Types ───────────────────────────────────────────────────────
 
@@ -79,8 +84,8 @@ function SectionTitle({
 }) {
   return (
     <div className="flex items-start gap-3 mb-5">
-      <div className="p-2 bg-indigo-50 rounded-lg mt-0.5">
-        <Icon className="h-4 w-4 text-indigo-600" />
+      <div className="p-2 bg-brand-50 rounded-lg mt-0.5">
+        <Icon className="h-4 w-4 text-brand-600" />
       </div>
       <div>
         <h3 className="text-sm font-semibold text-slate-800">{title}</h3>
@@ -199,8 +204,10 @@ export default function SettingsPage() {
 
   if (meLoading) {
     return (
-      <div className="flex items-center justify-center py-24">
-        <div className="h-8 w-8 rounded-full border-2 border-indigo-500 border-t-transparent animate-spin" />
+      <div className="max-w-3xl space-y-6">
+        <Skeleton className="h-9 w-48" />
+        <Skeleton className="h-64 w-full rounded-lg" />
+        <Skeleton className="h-48 w-full rounded-lg" />
       </div>
     );
   }
@@ -208,18 +215,16 @@ export default function SettingsPage() {
   return (
     <div className="max-w-3xl">
       {/* Page Header */}
-      <div className="mb-6">
-        <h2 className="text-xl font-display font-bold text-slate-900">
-          Cài đặt
-        </h2>
-        <p className="text-sm text-slate-500 mt-0.5">
-          Quản lý hồ sơ cá nhân và cài đặt hệ thống
-        </p>
-      </div>
+      <PageHeader
+        icon={User}
+        title="Cài đặt"
+        subtitle="Quản lý hồ sơ cá nhân và cài đặt hệ thống"
+        className="mb-6"
+      />
 
       <div className="space-y-6">
         {/* Profile Section */}
-        <div className="bg-white rounded-lg shadow-sm border border-slate-200 p-6">
+        <Card padded={false} className="p-6">
           <SectionTitle
             icon={User}
             title="Thông tin cá nhân"
@@ -228,7 +233,7 @@ export default function SettingsPage() {
 
           {/* Avatar + role row */}
           <div className="flex items-center gap-4 mb-6 p-4 bg-slate-50 rounded-lg">
-            <div className="h-14 w-14 rounded-full bg-indigo-100 text-indigo-700 flex items-center justify-center text-xl font-bold flex-shrink-0">
+            <div className="h-14 w-14 rounded-full bg-brand-100 text-brand-700 flex items-center justify-center text-xl font-bold flex-shrink-0">
               {(me?.display_name || me?.full_name || 'U').charAt(0).toUpperCase()}
             </div>
             <div>
@@ -237,8 +242,8 @@ export default function SettingsPage() {
               </p>
               <p className="text-xs text-slate-500">{me?.email}</p>
               <div className="flex items-center gap-1.5 mt-1">
-                <Shield className="h-3 w-3 text-indigo-500" />
-                <span className="text-xs text-indigo-600 font-medium">
+                <Shield className="h-3 w-3 text-brand-500" />
+                <span className="text-xs text-brand-600 font-medium">
                   {me?.role ? ROLE_LABELS[me.role] : '—'}
                 </span>
               </div>
@@ -254,7 +259,7 @@ export default function SettingsPage() {
                 {...regProfile('full_name')}
                 placeholder="Nguyễn Văn A"
                 className={cn(
-                  'w-full h-9 px-3 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500',
+                  'w-full h-9 px-3 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500',
                   profileErrors.full_name ? 'border-red-400' : 'border-slate-300'
                 )}
               />
@@ -264,7 +269,7 @@ export default function SettingsPage() {
               <input
                 {...regProfile('display_name')}
                 placeholder="Tên ngắn"
-                className="w-full h-9 px-3 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                className="w-full h-9 px-3 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500"
               />
             </FormField>
 
@@ -272,7 +277,7 @@ export default function SettingsPage() {
               <input
                 {...regProfile('phone')}
                 placeholder="+84 xxx xxx xxx"
-                className="w-full h-9 px-3 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                className="w-full h-9 px-3 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500"
               />
             </FormField>
 
@@ -280,7 +285,7 @@ export default function SettingsPage() {
               <input
                 {...regProfile('department')}
                 placeholder="Phòng kinh doanh..."
-                className="w-full h-9 px-3 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                className="w-full h-9 px-3 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500"
               />
             </FormField>
 
@@ -309,10 +314,10 @@ export default function SettingsPage() {
               )}
             </div>
           </form>
-        </div>
+        </Card>
 
         {/* Change Password Section */}
-        <div className="bg-white rounded-lg shadow-sm border border-slate-200 p-6">
+        <Card padded={false} className="p-6">
           <SectionTitle
             icon={Lock}
             title="Đổi mật khẩu"
@@ -332,7 +337,7 @@ export default function SettingsPage() {
                 {...regPassword('current_password')}
                 placeholder="••••••••"
                 className={cn(
-                  'w-full h-9 px-3 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500',
+                  'w-full h-9 px-3 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500',
                   pwErrors.current_password ? 'border-red-400' : 'border-slate-300'
                 )}
               />
@@ -347,7 +352,7 @@ export default function SettingsPage() {
                 {...regPassword('new_password')}
                 placeholder="••••••••"
                 className={cn(
-                  'w-full h-9 px-3 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500',
+                  'w-full h-9 px-3 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500',
                   pwErrors.new_password ? 'border-red-400' : 'border-slate-300'
                 )}
               />
@@ -362,7 +367,7 @@ export default function SettingsPage() {
                 {...regPassword('confirm_password')}
                 placeholder="••••••••"
                 className={cn(
-                  'w-full h-9 px-3 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500',
+                  'w-full h-9 px-3 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500',
                   pwErrors.confirm_password ? 'border-red-400' : 'border-slate-300'
                 )}
               />
@@ -372,11 +377,14 @@ export default function SettingsPage() {
               Đổi mật khẩu
             </Button>
           </form>
-        </div>
+        </Card>
+
+        {/* BQMS Scraper Settings — Admin only */}
+        {authUser?.role === 'admin' && <ScraperSettingsCard />}
 
         {/* System Info — Admin only */}
         {authUser?.role === 'admin' && (
-          <div className="bg-white rounded-lg shadow-sm border border-slate-200 p-6">
+          <Card padded={false} className="p-6">
             <SectionTitle
               icon={Info}
               title="Thông tin hệ thống"
@@ -412,14 +420,14 @@ export default function SettingsPage() {
                 ))}
               </div>
             ) : (
-              <div className="flex items-center gap-2 text-slate-400 py-4">
-                <AlertCircle className="h-4 w-4" />
-                <p className="text-sm">
-                  Không thể tải thông tin hệ thống
-                </p>
-              </div>
+              <EmptyState
+                variant="error"
+                icon={AlertCircle}
+                heading="Không thể tải thông tin hệ thống"
+                className="py-8"
+              />
             )}
-          </div>
+          </Card>
         )}
       </div>
     </div>

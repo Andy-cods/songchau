@@ -4,6 +4,16 @@ import { useState, useEffect } from 'react';
 import { Globe, Check, RefreshCw } from 'lucide-react';
 import { getLocale, setLocale, t, type Locale } from '@/lib/i18n';
 import { Button } from '@/components/ui/button';
+import { PageHeader } from '@/components/shared/page-header';
+import { Card } from '@/components/shared/card';
+import {
+  Table,
+  TableHeader,
+  TableBody,
+  TableRow,
+  TableHead,
+  TableCell,
+} from '@/components/shared/table';
 import { cn } from '@/lib/utils';
 
 // Preview keys to display in the translation preview table
@@ -53,20 +63,15 @@ export default function LanguagePage() {
   return (
     <div className="max-w-2xl">
       {/* Header */}
-      <div className="mb-6">
-        <div className="flex items-center gap-2.5 mb-1">
-          <Globe className="h-5 w-5 text-indigo-600" />
-          <h2 className="text-xl font-display font-bold text-slate-900">
-            Ngôn ngữ / Language
-          </h2>
-        </div>
-        <p className="text-sm text-slate-500">
-          Chọn ngôn ngữ hiển thị của hệ thống — Select the display language for the system.
-        </p>
-      </div>
+      <PageHeader
+        icon={Globe}
+        title="Ngôn ngữ / Language"
+        subtitle="Chọn ngôn ngữ hiển thị của hệ thống — Select the display language for the system."
+        className="mb-6"
+      />
 
       {/* Language selector cards */}
-      <div className="bg-white rounded-lg shadow-sm border border-slate-200 p-6 mb-6">
+      <Card padded={false} className="p-6 mb-6">
         <h3 className="text-sm font-semibold text-slate-700 mb-4">
           Ngôn ngữ hiện tại / Current Language
         </h3>
@@ -81,15 +86,15 @@ export default function LanguagePage() {
                 disabled={pending}
                 className={cn(
                   'relative flex flex-col items-center gap-2 p-5 rounded-xl border-2 transition-all duration-150',
-                  'hover:border-indigo-400 hover:bg-indigo-50 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2',
+                  'hover:border-brand-400 hover:bg-brand-50 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:ring-offset-2',
                   isActive
-                    ? 'border-indigo-600 bg-indigo-50 shadow-sm'
+                    ? 'border-brand-600 bg-brand-50 shadow-sm'
                     : 'border-slate-200 bg-white',
                   pending && 'opacity-60 cursor-not-allowed'
                 )}
               >
                 {isActive && (
-                  <span className="absolute top-2.5 right-2.5 flex items-center justify-center h-5 w-5 rounded-full bg-indigo-600">
+                  <span className="absolute top-2.5 right-2.5 flex items-center justify-center h-5 w-5 rounded-full bg-brand-600">
                     <Check className="h-3 w-3 text-white" />
                   </span>
                 )}
@@ -97,7 +102,7 @@ export default function LanguagePage() {
                   {option.flag}
                 </span>
                 <div className="text-center">
-                  <p className={cn('text-sm font-semibold', isActive ? 'text-indigo-700' : 'text-slate-800')}>
+                  <p className={cn('text-sm font-semibold', isActive ? 'text-brand-700' : 'text-slate-800')}>
                     {option.nativeLabel}
                   </p>
                   <p className="text-xs text-slate-400">{option.label}</p>
@@ -108,7 +113,7 @@ export default function LanguagePage() {
         </div>
 
         {pending && (
-          <div className="flex items-center gap-2 mt-4 text-sm text-indigo-600">
+          <div className="flex items-center gap-2 mt-4 text-sm text-brand-600">
             <RefreshCw className="h-4 w-4 animate-spin" />
             Đang áp dụng / Applying...
           </div>
@@ -119,54 +124,47 @@ export default function LanguagePage() {
             Thay đổi ngôn ngữ sẽ tải lại trang — Language change will reload the page.
           </p>
         )}
-      </div>
+      </Card>
 
       {/* Translation preview table */}
-      <div className="bg-white rounded-lg shadow-sm border border-slate-200 p-6">
+      <Card padded={false} className="p-6">
         <h3 className="text-sm font-semibold text-slate-700 mb-4">
           Xem trước bản dịch / Translation Preview
         </h3>
 
         <div className="overflow-hidden rounded-lg border border-slate-100">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="bg-slate-50">
-                <th className="text-left px-4 py-2.5 text-xs font-semibold text-slate-500 uppercase tracking-wide">
-                  Key
-                </th>
-                <th className="text-left px-4 py-2.5 text-xs font-semibold text-slate-500 uppercase tracking-wide">
-                  Tiếng Việt
-                </th>
-                <th className="text-left px-4 py-2.5 text-xs font-semibold text-slate-500 uppercase tracking-wide">
-                  English
-                </th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-50">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Key</TableHead>
+                <TableHead>Tiếng Việt</TableHead>
+                <TableHead>English</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
               {PREVIEW_KEYS.map((key, idx) => (
-                <tr
+                <TableRow
                   key={key}
                   className={cn(
-                    'transition-colors',
                     idx % 2 === 0 ? 'bg-white' : 'bg-slate-50/40',
                     currentLocale === 'vi'
-                      ? '[&>td:nth-child(2)]:font-medium [&>td:nth-child(2)]:text-indigo-700'
-                      : '[&>td:nth-child(3)]:font-medium [&>td:nth-child(3)]:text-indigo-700'
+                      ? '[&>td:nth-child(2)]:font-medium [&>td:nth-child(2)]:text-brand-700'
+                      : '[&>td:nth-child(3)]:font-medium [&>td:nth-child(3)]:text-brand-700'
                   )}
                 >
-                  <td className="px-4 py-2 font-mono text-xs text-slate-400">{key}</td>
-                  <td className="px-4 py-2 text-slate-700">{t(key, 'vi')}</td>
-                  <td className="px-4 py-2 text-slate-700">{t(key, 'en')}</td>
-                </tr>
+                  <TableCell className="py-2 font-mono text-xs text-slate-400">{key}</TableCell>
+                  <TableCell className="py-2 text-slate-700">{t(key, 'vi')}</TableCell>
+                  <TableCell className="py-2 text-slate-700">{t(key, 'en')}</TableCell>
+                </TableRow>
               ))}
-            </tbody>
-          </table>
+            </TableBody>
+          </Table>
         </div>
 
         <p className="text-xs text-slate-400 mt-3">
           Cột được tô đậm là ngôn ngữ đang kích hoạt — Bold column is the active language.
         </p>
-      </div>
+      </Card>
 
       {/* Quick apply button */}
       <div className="mt-4 flex gap-3">

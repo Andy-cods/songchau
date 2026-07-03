@@ -15,6 +15,10 @@ import { toast } from 'sonner';
 import { api } from '@/lib/api';
 import { cn, formatCurrency, formatDate, formatRelativeTime } from '@/lib/utils';
 import { StatusBadge } from '@/components/shared/status-badge';
+import { PageHeader } from '@/components/shared/page-header';
+import { Card } from '@/components/shared/card';
+import { EmptyState } from '@/components/shared/empty-state';
+import { Skeleton } from '@/components/ui/skeleton';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { STATUS_CONFIG } from '@/lib/constants';
@@ -58,9 +62,9 @@ function RejectForm({
   };
 
   return (
-    <div className="mt-3 p-3 bg-red-50 border border-red-200 rounded-lg">
-      <label className="block text-xs font-medium text-red-700 mb-1.5">
-        Lý do từ chối <span className="text-red-500">*</span>
+    <div className="mt-3 p-3 bg-rose-50 border border-rose-200 rounded-lg">
+      <label className="block text-xs font-medium text-rose-700 mb-1.5">
+        Lý do từ chối <span className="text-rose-500">*</span>
       </label>
       <textarea
         value={comment}
@@ -71,11 +75,11 @@ function RejectForm({
         placeholder="Nhập lý do từ chối yêu cầu này..."
         rows={2}
         className={cn(
-          'w-full px-3 py-2 text-sm border rounded-md bg-white focus:outline-none focus:ring-1 focus:ring-red-500 resize-none',
-          error ? 'border-red-400' : 'border-red-200'
+          'w-full px-3 py-2 text-sm border rounded-md bg-white focus:outline-none focus:ring-1 focus:ring-rose-500 resize-none',
+          error ? 'border-rose-400' : 'border-rose-200'
         )}
       />
-      {error && <p className="text-xs text-red-600 mt-1">{error}</p>}
+      {error && <p className="text-xs text-rose-600 mt-1">{error}</p>}
       <div className="flex items-center justify-end gap-2 mt-2">
         <Button
           size="sm"
@@ -139,14 +143,14 @@ function PendingCard({ workflow }: { workflow: Workflow }) {
   const priorityCfg = PRIORITY_LABELS[priority] ?? PRIORITY_LABELS.medium;
 
   return (
-    <div className="bg-white rounded-lg shadow-sm border border-slate-200 p-5 hover:shadow-md transition-shadow">
+    <Card className="hover:shadow-md transition-shadow">
       <div className="flex items-start justify-between">
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 mb-1">
             <h4 className="text-sm font-semibold text-slate-900 truncate">
               {workflow.title}
             </h4>
-            <Badge variant={priorityCfg.variant} className="text-[10px] shrink-0">
+            <Badge variant={priorityCfg.variant} className="text-[11px] shrink-0">
               {priorityCfg.label}
             </Badge>
           </div>
@@ -212,7 +216,7 @@ function PendingCard({ workflow }: { workflow: Workflow }) {
           isLoading={rejectMutation.isPending}
         />
       )}
-    </div>
+    </Card>
   );
 }
 
@@ -250,23 +254,21 @@ export default function ApprovalsPage() {
   return (
     <div>
       {/* Header */}
-      <div className="flex items-center justify-between mb-6">
-        <div className="flex items-center gap-3">
-          <div>
-            <h2 className="text-xl font-display font-bold text-slate-900">
-              Phê duyệt
-            </h2>
-            <p className="text-sm text-slate-500 mt-0.5">
-              Xem xét và xử lý các yêu cầu phê duyệt
-            </p>
-          </div>
-          {pendingItems.length > 0 && (
-            <span className="inline-flex items-center justify-center h-6 min-w-[24px] px-2 rounded-full bg-amber-100 text-amber-700 text-xs font-bold">
-              {pendingItems.length}
-            </span>
-          )}
-        </div>
-      </div>
+      <PageHeader
+        className="mb-6"
+        icon={FileCheck}
+        title={
+          <span className="inline-flex items-center gap-3">
+            Phê duyệt
+            {pendingItems.length > 0 && (
+              <span className="inline-flex items-center justify-center h-6 min-w-[24px] px-2 rounded-full bg-amber-100 text-amber-700 text-xs font-bold">
+                {pendingItems.length}
+              </span>
+            )}
+          </span>
+        }
+        subtitle="Xem xét và xử lý các yêu cầu phê duyệt"
+      />
 
       {/* Pending count alert */}
       {!pendingLoading && pendingItems.length > 0 && (
@@ -288,34 +290,27 @@ export default function ApprovalsPage() {
         {pendingLoading ? (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {Array.from({ length: 3 }).map((_, i) => (
-              <div
-                key={i}
-                className="bg-white rounded-lg border border-slate-200 p-5"
-              >
+              <Card key={i}>
                 <div className="space-y-3">
-                  <div className="h-4 w-48 bg-slate-200 rounded animate-pulse" />
-                  <div className="h-3 w-32 bg-slate-200 rounded animate-pulse" />
-                  <div className="h-3 w-64 bg-slate-200 rounded animate-pulse" />
+                  <Skeleton className="h-4 w-48" />
+                  <Skeleton className="h-3 w-32" />
+                  <Skeleton className="h-3 w-64" />
                   <div className="flex gap-2 mt-2">
-                    <div className="h-8 w-20 bg-slate-200 rounded animate-pulse" />
-                    <div className="h-8 w-20 bg-slate-200 rounded animate-pulse" />
+                    <Skeleton className="h-8 w-20" />
+                    <Skeleton className="h-8 w-20" />
                   </div>
                 </div>
-              </div>
+              </Card>
             ))}
           </div>
         ) : pendingItems.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-12 bg-white rounded-lg border border-slate-200">
-            <div className="flex h-12 w-12 items-center justify-center rounded-full bg-emerald-50 mb-3">
-              <Check className="h-6 w-6 text-emerald-500" />
-            </div>
-            <p className="text-sm text-slate-500 font-medium">
-              Không có yêu cầu nào đang chờ
-            </p>
-            <p className="text-xs text-slate-400 mt-1">
-              Tất cả yêu cầu đã được xử lý
-            </p>
-          </div>
+          <Card padded={false}>
+            <EmptyState
+              icon={Check}
+              heading="Không có yêu cầu nào đang chờ"
+              description="Tất cả yêu cầu đã được xử lý"
+            />
+          </Card>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {pendingItems.map((wf) => (
@@ -346,22 +341,19 @@ export default function ApprovalsPage() {
         </button>
 
         {showHistory && (
-          <div className="bg-white rounded-lg shadow-sm border border-slate-200 overflow-hidden">
+          <Card padded={false} className="overflow-hidden">
             {historyLoading ? (
               <div className="p-4 space-y-3">
                 {Array.from({ length: 4 }).map((_, i) => (
                   <div key={i} className="flex items-center gap-4">
-                    <div className="h-4 w-48 bg-slate-200 rounded animate-pulse" />
-                    <div className="h-5 w-20 bg-slate-200 rounded-full animate-pulse" />
-                    <div className="h-4 w-32 bg-slate-200 rounded animate-pulse ml-auto" />
+                    <Skeleton className="h-4 w-48" />
+                    <Skeleton className="h-5 w-20 rounded-full" />
+                    <Skeleton className="h-4 w-32 ml-auto" />
                   </div>
                 ))}
               </div>
             ) : historyItems.length === 0 ? (
-              <div className="flex flex-col items-center justify-center py-12 text-slate-300">
-                <FileCheck className="h-10 w-10 mb-3" />
-                <p className="text-sm text-slate-400">Chưa có lịch sử xử lý</p>
-              </div>
+              <EmptyState icon={FileCheck} heading="Chưa có lịch sử xử lý" />
             ) : (
               <div className="divide-y divide-slate-100">
                 {historyItems.map((wf) => {
@@ -395,7 +387,7 @@ export default function ApprovalsPage() {
                 })}
               </div>
             )}
-          </div>
+          </Card>
         )}
       </div>
     </div>

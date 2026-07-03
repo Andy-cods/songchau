@@ -5,6 +5,9 @@ import { useQuery } from '@tanstack/react-query';
 import { Mail, Paperclip, Send, Inbox, Loader2, ChevronDown, ChevronUp } from 'lucide-react';
 import { api } from '@/lib/api';
 import { cn } from '@/lib/utils';
+import { PageHeader } from '@/components/shared/page-header';
+import { StatCard } from '@/components/shared/stat-card';
+import { EmptyState } from '@/components/shared/empty-state';
 
 // ─── Types ─────────────────────────────────────────────────────
 
@@ -82,48 +85,32 @@ export default function EmailsPage() {
   }
 
   return (
-    <div>
+    <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <h2 className="text-xl font-display font-bold text-slate-900">
-            <Mail className="h-5 w-5 inline mr-2 text-brand-600" />
-            Email Samsung
-          </h2>
-          <p className="text-sm text-slate-500 mt-0.5">
-            Lịch sử email giao dịch với Samsung
-          </p>
-        </div>
-      </div>
+      <PageHeader
+        icon={Mail}
+        title="Email Samsung"
+        subtitle="Lịch sử email giao dịch với Samsung"
+      />
 
       {/* Stats Cards */}
-      <div className="grid grid-cols-2 gap-4 mb-6">
-        <div className="bg-white rounded-lg shadow-sm border border-slate-200 p-4 flex items-center gap-4">
-          <div className="h-10 w-10 rounded-lg bg-blue-50 flex items-center justify-center">
-            <Send className="h-5 w-5 text-blue-600" />
-          </div>
-          <div>
-            <p className="text-xs text-slate-500">Tổng gửi</p>
-            <p className="text-2xl font-bold text-slate-900">
-              {stats?.sent_count?.toLocaleString('vi-VN') ?? '—'}
-            </p>
-          </div>
-        </div>
-        <div className="bg-white rounded-lg shadow-sm border border-slate-200 p-4 flex items-center gap-4">
-          <div className="h-10 w-10 rounded-lg bg-emerald-50 flex items-center justify-center">
-            <Inbox className="h-5 w-5 text-emerald-600" />
-          </div>
-          <div>
-            <p className="text-xs text-slate-500">Tổng nhận</p>
-            <p className="text-2xl font-bold text-slate-900">
-              {stats?.received_count?.toLocaleString('vi-VN') ?? '—'}
-            </p>
-          </div>
-        </div>
+      <div className="grid grid-cols-2 gap-4">
+        <StatCard
+          label="Tổng gửi"
+          value={stats?.sent_count?.toLocaleString('vi-VN') ?? '—'}
+          icon={Send}
+          tone="info"
+        />
+        <StatCard
+          label="Tổng nhận"
+          value={stats?.received_count?.toLocaleString('vi-VN') ?? '—'}
+          icon={Inbox}
+          tone="success"
+        />
       </div>
 
       {/* Tabs */}
-      <div className="flex items-center gap-1 bg-white rounded-lg border border-slate-200 p-1 mb-4 w-fit">
+      <div className="flex items-center gap-1 bg-white rounded-lg border border-slate-200 p-1 w-fit">
         {TABS.map((tab) => (
           <button
             key={tab.value}
@@ -146,8 +133,8 @@ export default function EmailsPage() {
 
       {/* Error */}
       {error && !isLoading && (
-        <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-lg">
-          <p className="text-sm text-red-700">Có lỗi khi tải email</p>
+        <div className="bg-white rounded-lg shadow-sm border border-slate-200 overflow-hidden">
+          <EmptyState variant="error" heading="Có lỗi khi tải email" />
         </div>
       )}
 
@@ -156,10 +143,7 @@ export default function EmailsPage() {
         {isLoading ? (
           <EmailListSkeleton />
         ) : emails.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-16 text-slate-300">
-            <Mail className="h-12 w-12 mb-3" />
-            <p className="text-sm text-slate-400">Không có email nào</p>
-          </div>
+          <EmptyState icon={Mail} heading="Không có email nào" />
         ) : (
           <ul className="divide-y divide-slate-100">
             {emails.map((email) => {
@@ -262,7 +246,7 @@ export default function EmailsPage() {
 
       {/* Pagination */}
       {total > 20 && (
-        <div className="flex items-center justify-between mt-4">
+        <div className="flex items-center justify-between">
           <p className="text-sm text-slate-500">
             Hiển thị {(page - 1) * 20 + 1}–{Math.min(page * 20, total)} / {total} email
           </p>

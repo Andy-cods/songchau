@@ -148,7 +148,7 @@ export function SamsungSyncWidget() {
     : latest?.status === 'error'
     ? <XCircle className="h-4 w-4 text-red-500" />
     : latest?.status === 'running'
-    ? <Loader2 className="h-4 w-4 text-blue-500 animate-spin" />
+    ? <Loader2 className="h-4 w-4 text-sky-500 animate-spin" />
     : <Clock className="h-4 w-4 text-slate-400" />;
 
   const statusText = latest?.status === 'success' ? 'Thành công'
@@ -242,7 +242,7 @@ export function SamsungSyncWidget() {
                   <div className={cn(
                     'w-7 h-7 rounded-full flex items-center justify-center border-2 transition-all',
                     isDone && 'bg-emerald-500 border-emerald-500',
-                    isRunning && 'bg-blue-500 border-blue-500 animate-pulse',
+                    isRunning && 'bg-sky-500 border-sky-500 animate-pulse',
                     isError && 'bg-red-500 border-red-500',
                     isPending && 'bg-white border-slate-200',
                   )}>
@@ -269,7 +269,7 @@ export function SamsungSyncWidget() {
                   <p className={cn(
                     'text-xs font-medium',
                     isDone && 'text-emerald-700',
-                    isRunning && 'text-blue-700',
+                    isRunning && 'text-sky-700',
                     isError && 'text-red-700',
                     isPending && 'text-slate-400',
                   )}>
@@ -278,7 +278,7 @@ export function SamsungSyncWidget() {
                   {step?.message && (
                     <p className={cn(
                       'text-[11px] mt-0.5',
-                      isDone ? 'text-emerald-600' : isRunning ? 'text-blue-600' : isError ? 'text-red-600' : 'text-slate-400',
+                      isDone ? 'text-emerald-600' : isRunning ? 'text-sky-600' : isError ? 'text-red-600' : 'text-slate-400',
                     )}>
                       {step.message}
                     </p>
@@ -303,7 +303,7 @@ export function SamsungSyncWidget() {
         <div className="mt-2 border-t border-slate-100 pt-2">
           <table className="w-full">
             <thead>
-              <tr className="text-[10px] text-slate-400 uppercase">
+              <tr className="text-[11px] text-slate-400 uppercase">
                 <th className="text-left py-1">Thời gian</th>
                 <th className="text-left py-1">Trạng thái</th>
                 <th className="text-right py-1">Kết quả</th>
@@ -316,7 +316,7 @@ export function SamsungSyncWidget() {
                   <td className="py-1 text-slate-600">{formatDate(h.started_at)}</td>
                   <td className="py-1">
                     <span className={cn(
-                      'inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-medium',
+                      'inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[11px] font-medium',
                       h.status === 'success' ? 'bg-emerald-50 text-emerald-700' :
                       h.status === 'error' ? 'bg-red-50 text-red-700' :
                       'bg-slate-50 text-slate-600'

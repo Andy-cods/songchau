@@ -1,3 +1,5 @@
+import re
+
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, EmailStr
 import asyncpg
@@ -109,3 +111,57 @@ async def deactivate_user(
         "UPDATE users SET is_active = false WHERE id = $1", user_id
     )
     return {"message": "Đã vô hiệu hóa tài khoản"}
+
+
+@router.post("/{user_id}/reset-password")
+async def reset_user_password(
+    user_id: str,
+    body: dict,
+    token_data: TokenData = Depends(require_role("admin")),
+    conn: asyncpg.Connection = Depends(get_db),
+):
+    """Admin đặt lại mật khẩu cho NGƯỜI DÙNG KHÁC.
+
+    FE (users.ts:63) gửi ``{password: newPassword}`` — đọc body['password'].
+    Bump ``password_version`` → mọi token cũ của user đích đều 401 (revoke). Endpoint
+    này KHÔNG cấp token (admin reset người khác). user_id là str; users.id là UUID
+    → asyncpg tự ép str→UUID (giống update_user/deactivate_user), KHÔNG cast bigint.
+    """
+    new_password = body.get("password") or ""
+    if len(new_password) < 8 or not re.search(r"[A-Za-z]", new_password) or not re.search(r"\d", new_password):
+        raise HTTPException(
+            status_code=400,
+            detail="Mật khẩu mới phải có ít nhất 8 ký tự, gồm cả chữ và số",
+        )
+
+    async with conn.transaction():
+        target_role = await conn.fetchval(
+            "UPDATE users SET hashed_password = $1, "
+            "password_version = password_version + 1, updated_at = NOW() "
+            "WHERE id = $2 RETURNING role",
+            hash_password(new_password), user_id,
+        )
+        if target_role is None:
+            raise HTTPException(status_code=404, detail="Người dùng không tồn tại")
+
+        # NCC → gửi thông báo password_changed (recipient_id NOT NULL → set cả 2 cột).
+        if str(target_role) == "vendor":
+            vendor_id = await conn.fetchval(
+                "SELECT id FROM vendor_accounts WHERE user_id = $1", user_id
+            )
+            if vendor_id is not None:
+                await conn.execute(
+                    """
+                    INSERT INTO notifications
+                        (recipient_id, recipient_vendor_id, type, title, body)
+                    VALUES ($1::uuid, $2, 'password_changed',
+                            'Mật khẩu đã được thay đổi',
+                            'Mật khẩu tài khoản NCC của bạn vừa được Song Châu đặt lại. '
+                            'Vui lòng đăng nhập lại bằng mật khẩu mới.')
+                    """,
+                    user_id, vendor_id,
+                )
+
+    return {
+        "message": "Đã đặt lại mật khẩu — mọi phiên cũ của người dùng đã bị vô hiệu hoá"
+    }

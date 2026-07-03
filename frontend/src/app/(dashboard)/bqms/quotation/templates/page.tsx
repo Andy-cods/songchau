@@ -4,6 +4,8 @@ import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 import { Upload, FileSpreadsheet, Trash2, Star, Loader2 } from 'lucide-react';
+import { PageHeader } from '@/components/shared/page-header';
+import { EmptyState } from '@/components/shared/empty-state';
 
 interface Template {
   id: number;
@@ -18,7 +20,7 @@ interface Template {
 const TYPE_LABELS: Record<string, { label: string; cls: string }> = {
   cam_ket: { label: 'Cam kết', cls: 'bg-blue-100 text-blue-700' },
   commercial: { label: 'Thương mại', cls: 'bg-amber-100 text-amber-700' },
-  combined: { label: 'Kết hợp', cls: 'bg-purple-100 text-purple-700' },
+  combined: { label: 'Kết hợp', cls: 'bg-slate-100 text-slate-700' },
 };
 
 export default function QuotationTemplatesPage() {
@@ -54,18 +56,19 @@ export default function QuotationTemplatesPage() {
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <h2 className="text-xl font-display font-bold text-slate-900">Quản Lý Template</h2>
-          <p className="text-sm text-slate-500 mt-0.5">Upload và quản lý template Excel cho báo giá</p>
-        </div>
-        <button
-          onClick={() => setShowUpload(!showUpload)}
-          className="flex items-center gap-2 px-4 py-2 bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium rounded-lg transition-colors"
-        >
-          <Upload className="h-4 w-4" />Upload template
-        </button>
-      </div>
+      <PageHeader
+        title="Quản Lý Template"
+        subtitle="Upload và quản lý template Excel cho báo giá"
+        className="mb-6"
+        actions={
+          <button
+            onClick={() => setShowUpload(!showUpload)}
+            className="flex items-center gap-2 px-4 py-2 bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium rounded-lg transition-colors"
+          >
+            <Upload className="h-4 w-4" />Upload template
+          </button>
+        }
+      />
 
       {/* Upload Form */}
       {showUpload && (
@@ -112,10 +115,7 @@ export default function QuotationTemplatesPage() {
         {isLoading ? (
           <div className="p-8 text-center text-slate-400"><Loader2 className="h-6 w-6 animate-spin mx-auto mb-2" />Đang tải...</div>
         ) : templates.length === 0 ? (
-          <div className="p-8 text-center text-slate-400">
-            <FileSpreadsheet className="h-8 w-8 mx-auto mb-2 text-slate-300" />
-            Chưa có template nào
-          </div>
+          <EmptyState icon={FileSpreadsheet} heading="Chưa có template nào" />
         ) : (
           <div className="divide-y divide-slate-100">
             {templates.map((tpl) => {

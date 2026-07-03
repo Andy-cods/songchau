@@ -542,7 +542,7 @@ class BQMSService:
             await conn.execute(
                 """
                 INSERT INTO workflow_history (
-                    instance_id, from_status, to_status, action, acted_by, comment
+                    instance_id, from_status, to_status, action, actor_id, comment
                 ) VALUES ($1, 'draft', 'pending_l1', 'submit', $2, NULL)
                 """,
                 workflow["id"],
@@ -568,11 +568,12 @@ class BQMSService:
             # Notify managers
             await conn.execute(
                 """
-                INSERT INTO notifications (recipient_id, type, title, body, link)
+                INSERT INTO notifications (recipient_id, type, title, body, ref_type, metadata)
                 SELECT u.id, 'workflow_request',
                        'Phê duyệt báo giá BQMS',
                        $1,
-                       '/bqms/submissions/' || $2::text
+                       'bqms_submission',
+                       jsonb_build_object('link', '/bqms/submissions/' || $2::text)
                 FROM users u
                 WHERE u.role IN ('manager', 'admin') AND u.is_active = true
                 """,

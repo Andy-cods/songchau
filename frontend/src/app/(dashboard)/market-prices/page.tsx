@@ -9,6 +9,7 @@ import {
   CalendarRange,
   Filter,
   FolderSearch,
+  Layers,
   PackageSearch,
   RefreshCw,
   Search,
@@ -20,7 +21,7 @@ import {
   X,
 } from 'lucide-react';
 import { api } from '@/lib/api';
-import { cn, formatDate } from '@/lib/utils';
+import { cn, formatDate, toNum } from '@/lib/utils';
 import { EmptyState } from '@/components/shared/empty-state';
 import { PageTransition } from '@/components/shared/page-transition';
 
@@ -73,6 +74,37 @@ interface HistoryStats {
   min_usd?: number;
   max_usd?: number;
   latest_rfq?: string;
+}
+
+// ─── Giá đa nguồn (multi-source, all VND) ───────────────────────
+// price_role known values: market_xnk | quote_v1 | cost_ncc | sale_sourcing | imv_buy.
+// Keep it a string so an unknown role from the backend never crashes the UI
+// (we fall back to a neutral tone + the raw role text).
+type MultiSourcePriceRole = string;
+
+interface MultiSourceEntry {
+  src: string;
+  price_role: MultiSourcePriceRole;
+  n?: number;
+  median_vnd?: number | string | null;
+  min_vnd?: number | string | null;
+  max_vnd?: number | string | null;
+  last_date?: string | null;
+}
+
+interface MultiSourceObservation {
+  src: string;
+  price_role: MultiSourcePriceRole;
+  price_vnd?: number | string | null;
+  obs_date?: string | null;
+  party_name?: string | null;
+  party_role?: string | null;
+}
+
+interface MultiSourceData {
+  bqms_code: string;
+  sources: Record<string, MultiSourceEntry | undefined>;
+  observations: MultiSourceObservation[];
 }
 
 type WidgetStatus = 'ready' | 'limited' | 'empty';
@@ -271,6 +303,43 @@ function compactUsd(value: number | null | undefined): string {
   return fmtUsd(n);
 }
 
+// Postgres numeric columns serialize as strings in JSON, so coerce first.
+function fmtVnd(value: number | string | null | undefined): string {
+  if (value == null || value === '') return '—';
+  const n = toNum(value, NaN);
+  if (!Number.isFinite(n)) return '—';
+  return `${n.toLocaleString('vi-VN', { maximumFractionDigits: 0 })} ₫`;
+}
+
+// Vietnamese label per price_role (spec-provided).
+const PRICE_ROLE_LABELS: Record<string, string> = {
+  market_xnk: 'Thị trường (đối thủ)',
+  quote_v1: 'Mình chào (V1)',
+  cost_ncc: 'Giá vốn NCC',
+  sale_sourcing: 'Nguồn cung (giá bán)',
+  imv_buy: 'IMV (mua)',
+};
+
+// Color tone per price_role: market=slate, quote=brand, cost=amber,
+// sourcing=emerald, imv=violet. Neutral slate fallback for unknown roles.
+const PRICE_ROLE_TONES: Record<string, { chip: string; value: string; dot: string }> = {
+  market_xnk: { chip: 'border-slate-200 bg-slate-50 text-slate-600', value: 'text-slate-900', dot: 'bg-slate-400' },
+  quote_v1: { chip: 'border-brand-200 bg-brand-50 text-brand-700', value: 'text-brand-700', dot: 'bg-brand-500' },
+  cost_ncc: { chip: 'border-amber-200 bg-amber-50 text-amber-700', value: 'text-amber-700', dot: 'bg-amber-500' },
+  sale_sourcing: { chip: 'border-emerald-200 bg-emerald-50 text-emerald-700', value: 'text-emerald-700', dot: 'bg-emerald-500' },
+  imv_buy: { chip: 'border-violet-200 bg-violet-50 text-violet-700', value: 'text-violet-700', dot: 'bg-violet-500' },
+};
+
+const DEFAULT_ROLE_TONE = { chip: 'border-slate-200 bg-slate-50 text-slate-600', value: 'text-slate-900', dot: 'bg-slate-400' };
+
+function roleLabel(role: MultiSourcePriceRole): string {
+  return PRICE_ROLE_LABELS[role] ?? role;
+}
+
+function roleTone(role: MultiSourcePriceRole): { chip: string; value: string; dot: string } {
+  return PRICE_ROLE_TONES[role] ?? DEFAULT_ROLE_TONE;
+}
+
 function getRawValue(row: XnkRow, key: string): string | number | null | undefined {
   if (!row.raw_data) return undefined;
   if (typeof row.raw_data === 'string') {
@@ -321,15 +390,15 @@ function HeroStat({
   hint: string;
 }) {
   return (
-    <div className="rounded-2xl border border-white/70 bg-white/80 px-4 py-3 shadow-sm">
+    <div className="rounded-xl border border-slate-200 bg-white px-4 py-3.5 shadow-sm">
       <div className="mb-2 flex items-center justify-between">
-        <span className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">{label}</span>
-        <div className="rounded-xl bg-slate-100 p-2">
-          <Icon className="h-4 w-4 text-slate-600" />
+        <span className="text-[11px] font-bold uppercase tracking-[0.16em] text-slate-500">{label}</span>
+        <div className="rounded-lg bg-brand-50 p-1.5">
+          <Icon className="h-3.5 w-3.5 text-brand-600" strokeWidth={2.2} />
         </div>
       </div>
-      <div className="text-xl font-semibold text-slate-900">{value}</div>
-      <div className="mt-1 text-xs text-slate-500">{hint}</div>
+      <div className="text-2xl font-bold tabular-nums tracking-tight text-slate-900">{value}</div>
+      <div className="mt-0.5 text-[11px] text-slate-500 font-medium">{hint}</div>
     </div>
   );
 }
@@ -361,7 +430,7 @@ function SearchField({
         value={value}
         onChange={(event) => onChange(event.target.value)}
         placeholder={placeholder}
-        className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-sky-200"
+        className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 placeholder:text-slate-400 focus:outline-none focus:border-brand-400 focus:ring-2 focus:ring-brand-100"
       />
     </label>
   );
@@ -384,23 +453,36 @@ function WidgetCard({
 }) {
   const tone =
     status === 'ready'
-      ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+      ? { bg: 'bg-emerald-50', text: 'text-emerald-700', ring: 'ring-emerald-200/80', dot: 'bg-emerald-500' }
       : status === 'limited'
-        ? 'border-amber-200 bg-amber-50 text-amber-700'
-        : 'border-slate-200 bg-slate-100 text-slate-500';
+        ? { bg: 'bg-amber-50', text: 'text-amber-800', ring: 'ring-amber-200/80', dot: 'bg-amber-500' }
+        : { bg: 'bg-slate-50', text: 'text-slate-600', ring: 'ring-slate-200/80', dot: 'bg-slate-400' };
 
   const label = status === 'ready' ? 'Dữ liệu tốt' : status === 'limited' ? 'Cần đọc thận trọng' : 'Thiếu dữ liệu';
 
   return (
-    <section className={cn('rounded-[22px] border border-slate-200/90 bg-[linear-gradient(180deg,#ffffff_0%,#fbfdff_100%)] p-3.5 shadow-[0_10px_26px_rgba(15,23,42,0.05)]', className)}>
-      <div className="flex items-start justify-between gap-2.5">
+    <section className={cn(
+      'group relative overflow-hidden rounded-xl border border-slate-200 bg-white p-4 shadow-sm',
+      className,
+    )}>
+      <div className="relative flex items-start justify-between gap-2.5">
         <div className="min-w-0">
-          <div className="text-[15px] font-semibold tracking-tight text-slate-900">{title}</div>
-          <div className="mt-1 max-w-[36rem] text-[12px] leading-5 text-slate-500">{subtitle}</div>
+          <div className="text-[15px] font-bold tracking-tight text-slate-900">{title}</div>
+          <div className="mt-1 max-w-[36rem] text-[12px] leading-5 text-slate-500 font-medium">{subtitle}</div>
         </div>
-        <span className={cn('shrink-0 rounded-full border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.12em]', tone)}>{label}</span>
+        <span className={cn(
+          'shrink-0 inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-bold uppercase tracking-[0.12em] ring-1 ring-inset shadow-sm',
+          tone.bg, tone.text, tone.ring,
+        )}>
+          <span className={cn('h-1.5 w-1.5 rounded-full ring-2 ring-white', tone.dot)} />
+          {label}
+        </span>
       </div>
-      {reason && <div className="mt-2.5 rounded-xl bg-slate-50 px-3 py-2 text-[11px] leading-5 text-slate-600">{reason}</div>}
+      {reason && (
+        <div className="mt-3 rounded-xl bg-slate-50 ring-1 ring-slate-200/60 px-3 py-2 text-[11px] leading-5 text-slate-600 font-medium">
+          {reason}
+        </div>
+      )}
       <div className="mt-3.5">{children}</div>
     </section>
   );
@@ -408,14 +490,20 @@ function WidgetCard({
 
 function CoverageBar({ label, value }: { label: string; value: number }) {
   const safe = Math.max(0, Math.min(100, value));
+  const barColor = safe >= 70 ? 'bg-emerald-500'
+    : safe >= 40 ? 'bg-sky-500'
+    : 'bg-amber-500';
   return (
-    <div className="space-y-1">
+    <div className="space-y-1.5">
       <div className="flex items-center justify-between text-[12px]">
-        <span className="font-medium text-slate-600">{label}</span>
-        <span className="font-semibold text-slate-900">{safe.toFixed(1)}%</span>
+        <span className="font-semibold text-slate-700">{label}</span>
+        <span className="font-bold tabular-nums text-slate-900">{safe.toFixed(1)}%</span>
       </div>
-      <div className="h-1.5 rounded-full bg-slate-100">
-        <div className="h-1.5 rounded-full bg-sky-700 transition-all" style={{ width: `${safe}%` }} />
+      <div className="h-2 rounded-full bg-slate-100 ring-1 ring-slate-200/50 overflow-hidden">
+        <div
+          className={cn('h-full rounded-full transition-all', barColor)}
+          style={{ width: `${safe}%` }}
+        />
       </div>
     </div>
   );
@@ -433,7 +521,7 @@ function SearchResultsTable({
   return (
     <div className="overflow-x-auto">
       <table className="min-w-[2600px] text-[11px] leading-4">
-        <thead className="bg-slate-50 text-[10px] uppercase tracking-[0.14em] text-slate-500">
+        <thead className="bg-slate-50 text-[11px] uppercase tracking-[0.14em] text-slate-500">
           <tr>
             <th className="px-2 py-2 text-left font-medium">Dòng</th>
             <th className="px-2 py-2 text-left font-medium">Ngày tháng</th>
@@ -456,11 +544,11 @@ function SearchResultsTable({
         </thead>
         <tbody className="divide-y divide-slate-100">
           {rows.map((row) => (
-            <tr key={row.id} onClick={() => onSelect(row)} className={cn('cursor-pointer transition hover:bg-slate-50', selectedId === row.id && 'bg-sky-50/70')}>
+            <tr key={row.id} onClick={() => onSelect(row)} className={cn('cursor-pointer transition hover:bg-slate-50', selectedId === row.id && 'bg-brand-50/70')}>
               <td className="px-2 py-2 font-mono text-slate-500">{formatCellValue(getRawValue(row, '_excel_row_number'), '_excel_row_number')}</td>
               <td className="px-2 py-2 text-slate-600">{formatDate(row.rfq_date ?? String(getRawValue(row, 'Ngày Tháng') ?? ''))}</td>
               <td className="px-2 py-2 font-mono text-slate-600">{formatCellValue(getRawValue(row, 'Đơn hàng'), 'Đơn hàng')}</td>
-              <td className="px-2 py-2 font-mono font-semibold text-sky-700">{formatCellValue(getRawValue(row, 'BMSQ'), 'BMSQ')}</td>
+              <td className="px-2 py-2 font-mono font-semibold text-brand-700">{formatCellValue(getRawValue(row, 'BMSQ'), 'BMSQ')}</td>
               <td className="px-2 py-2"><div className="max-w-[200px] truncate font-medium text-slate-800">{formatCellValue(getRawValue(row, 'Tên hàng hóa'), 'Tên hàng hóa')}</div></td>
               <td className="px-2 py-2"><div className="max-w-[220px] truncate text-slate-500">{formatCellValue(getRawValue(row, 'Explain for detail? (Có thể viết tiếng việt)'), 'Explain for detail? (Có thể viết tiếng việt)')}</div></td>
               <td className="px-2 py-2 text-slate-600">{formatCellValue(getRawValue(row, 'Loại hàng'), 'Loại hàng')}</td>
@@ -501,13 +589,133 @@ function SearchResultsSection({
     <section className="rounded-[20px] border border-slate-200 bg-white/90">
       <div className="flex flex-col gap-3 border-b border-slate-200 px-4 py-3 lg:flex-row lg:items-center lg:justify-between">
         <div className="flex items-center gap-3">
-          <div className="rounded-full bg-slate-900 px-3 py-1 text-[11px] font-semibold text-white">{year}</div>
+          <div className="rounded-full bg-brand-600 px-3 py-1 text-[11px] font-semibold text-white">{year}</div>
           <div className="text-xs text-slate-500">{summary}</div>
         </div>
         {action}
       </div>
       <SearchResultsTable rows={rows} selectedId={selectedId} onSelect={onSelect} />
     </section>
+  );
+}
+
+// Order sources so the buyer reads market → our quote → cost → sourcing → imv.
+const MULTI_SOURCE_ORDER = ['market_xnk', 'quote_v1', 'cost_ncc', 'sale_sourcing', 'imv_buy'];
+
+function MultiSourcePanel({ bqmsCode }: { bqmsCode: string }) {
+  const { data, isLoading, isError } = useQuery({
+    queryKey: ['xnk-multi-source', bqmsCode],
+    queryFn: () => api.get<{ data: MultiSourceData }>(`/api/v1/market-prices/multi-source/${encodeURIComponent(bqmsCode)}`),
+    enabled: Boolean(bqmsCode),
+    retry: false,
+  });
+
+  const payload = data?.data;
+  const entries = Object.values(payload?.sources ?? {}).filter(
+    (entry): entry is MultiSourceEntry => Boolean(entry),
+  );
+  entries.sort((a, b) => {
+    const ia = MULTI_SOURCE_ORDER.indexOf(a.price_role);
+    const ib = MULTI_SOURCE_ORDER.indexOf(b.price_role);
+    return (ia === -1 ? 99 : ia) - (ib === -1 ? 99 : ib);
+  });
+  const observations = (payload?.observations ?? []).slice(0, 8);
+
+  return (
+    <div className="rounded-2xl border border-slate-200 p-4">
+      <div className="mb-3 flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <Layers className="h-4 w-4 text-brand-600" />
+          <div>
+            <div className="text-sm font-semibold text-slate-900">Giá đa nguồn (VND)</div>
+            <div className="text-xs text-slate-500">Gộp giá cùng mã từ nhiều nguồn, quy về VND.</div>
+          </div>
+        </div>
+        {isLoading && <span className="text-xs text-slate-400">Đang tải...</span>}
+      </div>
+
+      {isLoading ? (
+        <div className="grid gap-2">
+          {Array.from({ length: 3 }).map((_, index) => (
+            <div key={index} className="h-16 animate-pulse rounded-2xl bg-slate-100" />
+          ))}
+        </div>
+      ) : isError ? (
+        <div className="rounded-2xl bg-rose-50 px-3 py-4 text-sm text-rose-600 ring-1 ring-rose-100">
+          Không tải được giá đa nguồn cho mã này. Thử lại sau.
+        </div>
+      ) : entries.length === 0 ? (
+        <div className="rounded-2xl bg-slate-50 px-3 py-4 text-sm text-slate-400">
+          Chưa có dữ liệu giá đa nguồn cho mã này.
+        </div>
+      ) : (
+        <>
+          <div className="grid gap-2">
+            {entries.map((entry) => {
+              const tone = roleTone(entry.price_role);
+              return (
+                <div
+                  key={`${entry.src}-${entry.price_role}`}
+                  className="rounded-2xl border border-slate-200 bg-white px-3 py-2.5"
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <span className={cn(
+                      'inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-[11px] font-semibold',
+                      tone.chip,
+                    )}>
+                      <span className={cn('h-1.5 w-1.5 rounded-full', tone.dot)} />
+                      {roleLabel(entry.price_role)}
+                    </span>
+                    <span className={cn('text-base font-bold tabular-nums', tone.value)}>
+                      {fmtVnd(entry.median_vnd)}
+                    </span>
+                  </div>
+                  <div className="mt-1.5 flex items-center justify-between text-[11px] text-slate-500">
+                    <span>Dải: {fmtVnd(entry.min_vnd)} – {fmtVnd(entry.max_vnd)}</span>
+                    <span className="tabular-nums">
+                      n={fmtNum(entry.n ?? 0, 0)} · {entry.last_date ? formatDate(entry.last_date) : '—'}
+                    </span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          {observations.length > 0 && (
+            <div className="mt-4">
+              <div className="mb-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500">
+                Quan sát gần đây
+              </div>
+              <div className="space-y-1.5">
+                {observations.map((obs, index) => {
+                  const tone = roleTone(obs.price_role);
+                  return (
+                    <div
+                      key={`${obs.src}-${obs.price_role}-${obs.obs_date ?? ''}-${index}`}
+                      className="flex items-center justify-between gap-2 rounded-xl bg-slate-50 px-3 py-2 text-[12px]"
+                    >
+                      <div className="flex min-w-0 items-center gap-2">
+                        <span className={cn('h-1.5 w-1.5 shrink-0 rounded-full', tone.dot)} />
+                        <div className="min-w-0">
+                          <div className="truncate font-medium text-slate-700">{roleLabel(obs.price_role)}</div>
+                          {obs.party_name && (
+                            <div className="truncate text-[11px] text-slate-400">{obs.party_name}</div>
+                          )}
+                        </div>
+                      </div>
+                      <div className="shrink-0 text-right">
+                        <div className="font-semibold tabular-nums text-slate-900">{fmtVnd(obs.price_vnd)}</div>
+                        <div className="text-[11px] text-slate-400">{obs.obs_date ? formatDate(obs.obs_date) : '—'}</div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+        </>
+      )}
+    </div>
   );
 }
 
@@ -528,15 +736,19 @@ export default function MarketPricesPage() {
   return (
     <PageTransition>
       <div className="space-y-5">
-        <section className="rounded-[28px] border border-slate-200 bg-[linear-gradient(135deg,#f8fbff_0%,#eef4fb_58%,#e8eef8_100%)] p-5 shadow-sm">
-          <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+        {/* Thang 2026-05-24: redesigned hero — richer gradient, decorative
+            shapes, refined chip with icon, hover-lift KPI cards */}
+        <section className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
+          <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
             <div className="max-w-3xl">
-              <div className="mb-2 inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white/80 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">
-                <Sparkles className="h-3.5 w-3.5 text-sky-600" />
-                Market Intelligence Console
+              <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-3.5 py-1.5 text-[11px] font-bold uppercase tracking-[0.18em] text-slate-600">
+                <Sparkles className="h-3.5 w-3.5 text-brand-600" />
+                Tra cứu giá thị trường
               </div>
-              <h1 className="text-2xl font-semibold tracking-tight text-slate-900 lg:text-[30px]">Tra cứu giá XNK</h1>
-              <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600">
+              <h1 className="font-display text-3xl font-bold tracking-tight text-slate-900 lg:text-[34px]">
+                Tra cứu giá XNK
+              </h1>
+              <p className="mt-2.5 max-w-2xl text-sm leading-6 text-slate-600">
                 Chuyển màn hình này thành nơi tra cứu thật sự dùng được: tìm kiếm rõ, nhìn thấy dữ liệu
                 ngay, bấm vào là có lịch sử giá và đối thủ theo BQMS.
               </p>
@@ -550,14 +762,17 @@ export default function MarketPricesPage() {
           </div>
         </section>
 
-        <div className="flex border-b border-slate-200">
+        {/* Tabs — pill-style modern look */}
+        <div className="flex items-center gap-1 rounded-xl bg-slate-100/70 p-1 ring-1 ring-slate-200/60 w-fit">
           {TABS.map((tab) => (
             <button
               key={tab.key}
               onClick={() => setActiveTab(tab.key)}
               className={cn(
-                'border-b-2 px-4 py-3 text-sm font-medium transition -mb-px',
-                activeTab === tab.key ? 'border-sky-700 text-sky-800' : 'border-transparent text-slate-500 hover:text-slate-800'
+                'px-4 py-1.5 text-sm font-semibold rounded-lg transition-all',
+                activeTab === tab.key
+                  ? 'bg-white text-brand-700 shadow-sm ring-1 ring-slate-200/60'
+                  : 'text-slate-500 hover:text-slate-800 hover:bg-white/50'
               )}
             >
               {tab.label}
@@ -723,19 +938,19 @@ function SearchTab({
             {overview ? (
               <div className="grid grid-cols-2 gap-2">
                 <div className="rounded-[18px] border border-slate-100 bg-slate-50/80 px-3 py-2.5">
-                  <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">Tổng bản ghi</div>
+                  <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Tổng bản ghi</div>
                   <div className="mt-1 text-[32px] font-semibold leading-none text-slate-900">{fmtNum(overview.total_records, 0)}</div>
                 </div>
                 <div className="rounded-[18px] border border-slate-100 bg-slate-50/80 px-3 py-2.5">
-                  <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">Mã BQMS</div>
+                  <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Mã BQMS</div>
                   <div className="mt-1 text-[32px] font-semibold leading-none text-slate-900">{fmtNum(overview.unique_products, 0)}</div>
                 </div>
                 <div className="rounded-[18px] border border-slate-100 bg-slate-50/80 px-3 py-2.5">
-                  <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">Có giá USD</div>
+                  <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Có giá USD</div>
                   <div className="mt-1 text-[32px] font-semibold leading-none text-slate-900">{fmtNum(overview.priced_records, 0)}</div>
                 </div>
                 <div className="rounded-[18px] border border-slate-100 bg-slate-50/80 px-3 py-2.5">
-                  <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">RFQ mới nhất</div>
+                  <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">RFQ mới nhất</div>
                   <div className="mt-1 text-[26px] font-semibold leading-none text-slate-900">{overview.latest_rfq_date ? formatDate(overview.latest_rfq_date) : '—'}</div>
                 </div>
               </div>
@@ -807,7 +1022,7 @@ function SearchTab({
                     <select
                       value={trendYear}
                       onChange={(event) => setTrendYear(event.target.value)}
-                      className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-sky-200"
+                      className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 focus:outline-none focus:border-brand-400 focus:ring-2 focus:ring-brand-100"
                     >
                       {(trend?.available_years ?? []).map((availableYear) => (
                         <option key={availableYear} value={availableYear}>
@@ -820,13 +1035,13 @@ function SearchTab({
                 <div className="rounded-[18px] border border-slate-200 bg-white/80 p-3">
                   <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
                     <div className="flex items-center gap-2">
-                      <div className="rounded-full bg-sky-700 px-3 py-1 text-[11px] font-semibold text-white">{activeTrendSection.year}</div>
+                      <div className="rounded-full bg-brand-700 px-3 py-1 text-[11px] font-semibold text-white">{activeTrendSection.year}</div>
                       <div className="text-[12px] text-slate-500">
                         {fmtNum(activeTrendSection.summary.total_rows, 0)} dòng • {fmtNum(activeTrendSection.summary.months_with_data, 0)} tháng có dữ liệu
                       </div>
                     </div>
                     <div className={cn(
-                      'rounded-full border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.12em]',
+                      'rounded-full border px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.12em]',
                       activeTrendSection.status === 'ready'
                         ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
                         : activeTrendSection.status === 'limited'
@@ -889,59 +1104,74 @@ function SearchTab({
             {topSellers ? (
               <div className="space-y-2">
                 {topSellers.rows.length === 0 ? (
-                  <div className="rounded-2xl bg-slate-50 px-3 py-4 text-sm text-slate-500">Không có đối thủ hợp lệ theo bộ lọc hiện tại.</div>
+                  <div className="rounded-xl bg-slate-50 px-4 py-6 text-center text-sm text-slate-500 ring-1 ring-slate-200/60">
+                    Không có đối thủ hợp lệ theo bộ lọc hiện tại.
+                  </div>
                 ) : (
-                  topSellers.rows.slice(0, 5).map((row, index) => (
-                    <button
-                      key={row.seller_name}
-                      onClick={() => applySellerFilter(row.seller_name)}
-                      className="block w-full rounded-[18px] border border-slate-200 px-3 py-2.5 text-left transition hover:border-sky-200 hover:bg-sky-50"
-                    >
-                      <div className="flex items-start justify-between gap-3">
-                        <div className="flex min-w-0 items-start gap-2.5">
-                          <div className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-slate-100 text-[11px] font-semibold text-slate-600">
-                            {index + 1}
-                          </div>
-                          <div className="min-w-0">
-                            <div className="truncate text-sm font-semibold text-slate-900">{row.seller_name}</div>
-                            <div className="mt-0.5 text-[11px] text-slate-500">
-                              {fmtNum(row.deal_count, 0)} giao dịch • {compactUsd(row.total_usd)}
+                  topSellers.rows.slice(0, 5).map((row, index) => {
+                    // Rank badge: top seller = brand accent, others = neutral slate.
+                    const rankStyle =
+                      index === 0 ? 'bg-brand-600 text-white ring-1 ring-brand-200'
+                      : 'bg-slate-100 text-slate-600 ring-1 ring-slate-200';
+                    const barWidth = Math.max(10, (row.deal_count / topSellerMaxDealCount) * 100);
+                    return (
+                      <button
+                        key={row.seller_name}
+                        onClick={() => applySellerFilter(row.seller_name)}
+                        className="group/seller block w-full rounded-xl border border-slate-200 bg-white px-3.5 py-3 text-left shadow-sm transition-colors hover:border-brand-300 hover:bg-slate-50"
+                      >
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="flex min-w-0 items-start gap-2.5">
+                            <div className={cn(
+                              'mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-[11px] font-bold transition-transform group-hover/seller:scale-110',
+                              rankStyle,
+                            )}>
+                              {index + 1}
+                            </div>
+                            <div className="min-w-0">
+                              <div className="truncate text-sm font-bold text-slate-900 group-hover/seller:text-brand-700">{row.seller_name}</div>
+                              <div className="mt-0.5 text-[11px] text-slate-500 font-medium">
+                                <span className="tabular-nums">{fmtNum(row.deal_count, 0)}</span> giao dịch · <span className="font-semibold text-slate-700">{compactUsd(row.total_usd)}</span>
+                              </div>
                             </div>
                           </div>
+                          <div className="text-right shrink-0">
+                            <div className="text-[11px] font-bold uppercase tracking-[0.12em] text-slate-400">Phủ mã</div>
+                            <div className="mt-0.5 text-sm font-bold tabular-nums text-slate-900">{fmtNum(row.product_count, 0)}</div>
+                            <div className="mt-0.5 text-[11px] text-slate-500 font-medium">Gần nhất {formatDate(row.latest_deal)}</div>
+                          </div>
                         </div>
-                        <div className="text-right">
-                          <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-400">Phủ mã</div>
-                          <div className="mt-0.5 text-sm font-semibold text-slate-900">{fmtNum(row.product_count, 0)}</div>
-                          <div className="mt-0.5 text-[11px] text-slate-500">Gần nhất {formatDate(row.latest_deal)}</div>
+                        <div className="mt-3 h-2 rounded-full bg-slate-100 ring-1 ring-slate-200/40 overflow-hidden">
+                          <div
+                            className="h-full rounded-full bg-brand-500 transition-all"
+                            style={{ width: `${barWidth}%` }}
+                          />
                         </div>
-                      </div>
-                      <div className="mt-2.5 h-1.5 rounded-full bg-slate-100">
-                        <div className="h-1.5 rounded-full bg-sky-700" style={{ width: `${Math.max(10, (row.deal_count / topSellerMaxDealCount) * 100)}%` }} />
-                      </div>
-                    </button>
-                  ))
+                      </button>
+                    );
+                  })
                 )}
               </div>
             ) : (
-              <div className="h-52 animate-pulse rounded-2xl bg-slate-100" />
+              <div className="h-52 animate-pulse rounded-xl bg-slate-100" />
             )}
           </WidgetCard>
         </section>
 
-        <section className="rounded-[24px] border border-slate-200 bg-white p-4 shadow-sm">
-          <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_220px]">
-            <div className="space-y-4">
-              <div className="flex items-center gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
-                <Search className="h-5 w-5 text-slate-400" />
+        <section className="relative overflow-hidden rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+          <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_240px]">
+            <div className="space-y-3.5">
+              <div className="group/sb flex items-center gap-3 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 transition-colors focus-within:border-brand-400 focus-within:ring-2 focus-within:ring-brand-100">
+                <Search className="h-5 w-5 text-slate-400 transition-colors group-focus-within/sb:text-brand-600" />
                 <input
                   value={draft.q}
                   onChange={(event) => setDraft((current) => ({ ...current, q: event.target.value }))}
                   onKeyDown={(event) => event.key === 'Enter' && (setApplied(draft), setPage(1))}
                   placeholder="Tìm theo BQMS code, tên hàng, HS code, đối thủ..."
-                  className="w-full bg-transparent text-sm text-slate-800 placeholder:text-slate-400 focus:outline-none"
+                  className="w-full bg-transparent text-sm text-slate-800 placeholder:text-slate-400 focus:outline-none font-medium"
                 />
                 {(draft.q || draft.bqms || draft.hs || draft.seller || draft.year) && (
-                  <button onClick={() => { const next = { q: '', bqms: '', hs: '', seller: '', year: '' }; setDraft(next); setApplied(next); setPage(1); }} className="rounded-full p-1 text-slate-400 hover:bg-white hover:text-slate-700">
+                  <button onClick={() => { const next = { q: '', bqms: '', hs: '', seller: '', year: '' }; setDraft(next); setApplied(next); setPage(1); }} className="rounded-full p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700 transition-colors">
                     <X className="h-4 w-4" />
                   </button>
                 )}
@@ -957,8 +1187,10 @@ function SearchTab({
                     key={year || 'all'}
                     onClick={() => setDraft((current) => ({ ...current, year }))}
                     className={cn(
-                      'rounded-full border px-3 py-1.5 text-xs font-medium transition',
-                      draft.year === year ? 'border-sky-700 bg-sky-700 text-white' : 'border-slate-200 bg-white text-slate-600 hover:text-slate-900'
+                      'rounded-full px-3.5 py-1.5 text-xs font-bold transition-colors',
+                      draft.year === year
+                        ? 'bg-brand-600 text-white'
+                        : 'border border-slate-200 bg-white text-slate-600 hover:border-brand-300 hover:bg-slate-50'
                     )}
                   >
                     {year || 'Tất cả năm'}
@@ -966,25 +1198,33 @@ function SearchTab({
                 ))}
               </div>
             </div>
-            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3">
-              <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Tóm tắt tra cứu</div>
-              <div className="mt-3 grid gap-3">
+            <div className="rounded-xl border border-slate-200 bg-slate-50 p-3.5">
+              <div className="text-[11px] font-bold uppercase tracking-[0.16em] text-slate-500 flex items-center gap-1.5">
+                <Sparkles className="h-3 w-3 text-brand-500" />
+                Tóm tắt tra cứu
+              </div>
+              <div className="mt-3 grid gap-2">
                 <SummaryLine label="Kết quả phù hợp" value={fmtNum(total, 0)} />
                 <SummaryLine label="Median USD trang này" value={fmtUsd(medianUsd)} />
                 <SummaryLine label="Tổng USD trang này" value={compactUsd(totalUsd)} />
                 <SummaryLine label="Cập nhật gần nhất" value={stats.latest_record ? formatDate(stats.latest_record) : '—'} />
               </div>
               <div className="mt-4 flex gap-2">
-                <button onClick={() => { setApplied(draft); setPage(1); }} className="flex-1 rounded-xl bg-sky-800 px-3 py-2 text-sm font-medium text-white hover:bg-sky-900">Tra cứu</button>
-                <button onClick={() => { const next = { q: '', bqms: '', hs: '', seller: '', year: '' }; setDraft(next); setApplied(next); setPage(1); }} className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-600 hover:text-slate-900"><RefreshCw className="h-4 w-4" /></button>
+                <button onClick={() => { setApplied(draft); setPage(1); }} className="flex-1 inline-flex items-center justify-center gap-1.5 rounded-xl bg-brand-600 px-3 py-2 text-sm font-bold text-white hover:bg-brand-700 transition-colors">
+                  <Search className="h-3.5 w-3.5" />
+                  Tra cứu
+                </button>
+                <button onClick={() => { const next = { q: '', bqms: '', hs: '', seller: '', year: '' }; setDraft(next); setApplied(next); setPage(1); }} className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-600 hover:text-slate-900 hover:bg-slate-50 transition-colors shadow-sm">
+                  <RefreshCw className="h-4 w-4" />
+                </button>
               </div>
             </div>
           </div>
           {activePills.length > 0 && (
             <div className="mt-4 flex flex-wrap gap-2">
               {activePills.map((pill) => (
-                <span key={pill} className="inline-flex items-center gap-2 rounded-full border border-sky-100 bg-sky-50 px-3 py-1 text-xs font-medium text-sky-700">
-                  <Filter className="h-3.5 w-3.5" />
+                <span key={pill} className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-bold text-slate-600">
+                  <Filter className="h-3 w-3" />
                   {pill}
                 </span>
               ))}
@@ -1096,7 +1336,7 @@ function SearchTab({
           ) : (
             <div className="space-y-4 p-4">
               <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                <div className="font-mono text-xs text-sky-700">{selected.bqms_code ?? '—'}</div>
+                <div className="font-mono text-xs text-brand-700">{selected.bqms_code ?? '—'}</div>
                 <div className="mt-1 text-base font-semibold leading-6 text-slate-900">{selected.item_name ?? 'Không có tên hàng'}</div>
                 <div className="mt-2 text-sm leading-6 text-slate-600">{selected.item_explain ?? 'Không có ghi chú mô tả bổ sung cho bản ghi này.'}</div>
               </div>
@@ -1125,6 +1365,7 @@ function SearchTab({
                   )}
                 </div>
               </div>
+              {selected.bqms_code && <MultiSourcePanel bqmsCode={selected.bqms_code} />}
               <div className="rounded-2xl border border-slate-200 p-4">
                 <div className="mb-3 flex items-center justify-between"><div className="text-sm font-semibold text-slate-900">Lịch sử giá</div><div className="text-xs text-slate-500">{fmtNum(historyRows.length, 0)} dòng</div></div>
                 <div className="h-40">
@@ -1217,7 +1458,7 @@ function SellersTab({ onUseSeller }: { onUseSeller: (sellerName: string) => void
             </div>
             <button
               onClick={() => onUseSeller(row.seller_name)}
-              className="mt-4 w-full rounded-xl border border-sky-200 bg-sky-50 px-3 py-2 text-sm font-medium text-sky-800 transition hover:bg-sky-100"
+              className="mt-4 w-full rounded-xl border border-brand-200 bg-brand-50 px-3 py-2 text-sm font-medium text-brand-800 transition hover:bg-brand-100"
             >
               Tra cứu theo đối thủ này
             </button>
@@ -1260,7 +1501,7 @@ function SellersTab({ onUseSeller }: { onUseSeller: (sellerName: string) => void
                     <td className="px-4 py-3">
                       <button
                         onClick={() => onUseSeller(row.seller_name)}
-                        className="rounded-xl border border-slate-200 px-3 py-2 text-sm font-medium text-slate-700 transition hover:border-sky-200 hover:bg-sky-50 hover:text-sky-800"
+                        className="rounded-xl border border-slate-200 px-3 py-2 text-sm font-medium text-slate-700 transition hover:border-brand-200 hover:bg-brand-50 hover:text-brand-800"
                       >
                         Mở tra cứu
                       </button>

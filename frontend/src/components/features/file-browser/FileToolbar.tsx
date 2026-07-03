@@ -58,7 +58,7 @@ export default function FileToolbar({
           onChange={(e) => setLocalQuery(e.target.value)}
           placeholder="Tìm kiếm file..."
           className="w-full pl-9 pr-3 py-2 text-sm border border-slate-200 rounded-lg
-                     focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500
+                     focus:outline-none focus:ring-2 focus:ring-brand-100 focus:border-brand-400
                      bg-white placeholder:text-slate-400"
         />
         {isSearching && (
@@ -74,7 +74,7 @@ export default function FileToolbar({
           value={sort}
           onChange={(e) => onSortChange(e.target.value, order)}
           className="text-sm border border-slate-200 rounded-lg px-2 py-2 bg-white
-                     focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                     focus:outline-none focus:ring-2 focus:ring-brand-100"
         >
           {sortOptions.map((opt) => (
             <option key={opt.value} value={opt.value}>
@@ -97,7 +97,7 @@ export default function FileToolbar({
           onClick={() => onViewModeChange('grid')}
           className={`p-2 transition-colors ${
             viewMode === 'grid'
-              ? 'bg-blue-50 text-blue-600'
+              ? 'bg-brand-50 text-brand-600'
               : 'text-slate-400 hover:text-slate-600 hover:bg-slate-50'
           }`}
           title="Dạng lưới"
@@ -108,7 +108,7 @@ export default function FileToolbar({
           onClick={() => onViewModeChange('list')}
           className={`p-2 transition-colors ${
             viewMode === 'list'
-              ? 'bg-blue-50 text-blue-600'
+              ? 'bg-brand-50 text-brand-600'
               : 'text-slate-400 hover:text-slate-600 hover:bg-slate-50'
           }`}
           title="Dạng danh sách"

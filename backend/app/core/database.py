@@ -21,9 +21,6 @@ class DatabasePool:
         if self._pool:
             await self._pool.close()
 
-    async def get_connection(self) -> asyncpg.Connection:
-        return await self._pool.acquire()
-
     def pool(self) -> asyncpg.Pool:
         return self._pool
 

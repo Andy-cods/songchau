@@ -1,9 +1,19 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { api } from '@/lib/api';
 import { Search, History, TrendingUp, Users as UsersIcon } from 'lucide-react';
+import { PageHeader } from '@/components/shared/page-header';
+import { Skeleton } from '@/components/ui/skeleton';
+import {
+  Table,
+  TableHeader,
+  TableBody,
+  TableRow,
+  TableHead,
+  TableCell,
+} from '@/components/shared/table';
 
 type Suggestion = {
   bqms_code: string;
@@ -26,14 +36,26 @@ export default function TraCuuGiaPage() {
   const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
   const [data, setData] = useState<LookupResult | null>(null);
   const [loading, setLoading] = useState(false);
+  // Tracks which code has already been loaded (both the requested code and the
+  // resolved res.bqms_code) so the router.replace-induced initCode change is
+  // recognized as already-loaded and short-circuits — preventing the loop.
+  const loadedRef = useRef<string | null>(null);
+  // Set right after a load so the autocomplete effect skips exactly one cycle
+  // (the one fired by setQuery(code) inside loadCode), avoiding a re-arm loop.
+  const justLoadedRef = useRef(false);
 
   useEffect(() => {
-    if (!initCode) return;
+    if (!initCode || loadedRef.current === initCode) return;
     loadCode(initCode);
   }, [initCode]);
 
   useEffect(() => {
-    if (!query || query.length < 2 || query === data?.bqms_code) {
+    if (justLoadedRef.current) {
+      justLoadedRef.current = false;
+      setSuggestions([]);
+      return;
+    }
+    if (!query || query.length < 2) {
       setSuggestions([]);
       return;
     }
@@ -46,18 +68,26 @@ export default function TraCuuGiaPage() {
       } catch {}
     }, 200);
     return () => clearTimeout(t);
-  }, [query, data]);
+  }, [query]);
 
   const loadCode = async (code: string) => {
     setLoading(true);
     setSuggestions([]);
+    justLoadedRef.current = true;
+    loadedRef.current = code;
     try {
       const res = await api.get<LookupResult>(`/api/v1/price-lookup/${encodeURIComponent(code)}`);
       setData(res);
+      if (res?.bqms_code) loadedRef.current = res.bqms_code;
       setQuery(code);
-      router.replace(`/tra-cuu-gia?code=${encodeURIComponent(code)}`);
+      router.replace(`/tra-cuu-gia?code=${encodeURIComponent(res?.bqms_code || code)}`);
     } catch (err) {
       console.error(err);
+      // A failed load never fires the setQuery(code) autocomplete cycle that
+      // would consume justLoadedRef, so reset both flags — otherwise the next
+      // keystroke is silently swallowed and the same bad ?code= can't retry.
+      justLoadedRef.current = false;
+      loadedRef.current = null;
     } finally {
       setLoading(false);
     }
@@ -65,9 +95,9 @@ export default function TraCuuGiaPage() {
 
   return (
     <div className="p-6 space-y-6 max-w-[1400px] mx-auto">
-      <div>
-        <h1 className="text-2xl font-bold text-slate-900">Tra cứu giá</h1>
-        <p className="text-sm text-slate-500 mt-1">
+      <div className="space-y-2">
+        <PageHeader icon={Search} title="Tra cứu giá" />
+        <p className="text-sm text-slate-500">
           Gõ mã BQMS để xem báo giá nội bộ, giá thị trường XNK, đối thủ và PO trúng gần nhất. Mẹo: nhấn <kbd className="font-mono bg-slate-100 px-1 py-0.5 rounded text-xs">Ctrl+K</kbd> ở bất kỳ page nào để mở nhanh.
         </p>
       </div>
@@ -82,8 +112,7 @@ export default function TraCuuGiaPage() {
             if (e.key === 'Enter' && suggestions[0]) loadCode(suggestions[0].bqms_code);
           }}
           placeholder="Nhập mã BQMS..."
-          className="w-full rounded-xl border border-slate-200 bg-white pl-10 pr-4 py-3 text-base outline-none focus:ring-2 focus:ring-sky-200"
-          autoFocus
+          className="w-full rounded-xl border border-slate-200 bg-white pl-10 pr-4 py-3 text-base outline-none focus:border-brand-400 focus:ring-2 focus:ring-brand-100"
         />
         {suggestions.length > 0 && (
           <div className="absolute top-full left-0 right-0 mt-1 bg-white rounded-xl shadow-lg border border-slate-200 z-10 overflow-hidden max-h-80 overflow-y-auto">
@@ -105,9 +134,9 @@ export default function TraCuuGiaPage() {
       </div>
 
       {loading && (
-        <div className="space-y-4">
+        <div className="space-y-4" aria-busy="true">
           {[...Array(3)].map((_, i) => (
-            <div key={i} className="h-40 bg-white rounded-2xl border border-slate-200 animate-pulse" />
+            <Skeleton key={i} className="h-40 w-full rounded-2xl" />
           ))}
         </div>
       )}
@@ -121,7 +150,7 @@ export default function TraCuuGiaPage() {
               {data.internal_quotes[0]?.specification || '—'}
               {data.internal_quotes[0]?.maker && ` · ${data.internal_quotes[0].maker}`}
               {data.internal_quotes[0]?.item_type && (
-                <span className="ml-2 inline-flex items-center rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium">
+                <span className="ml-2 inline-flex items-center rounded bg-slate-100 px-1.5 py-0.5 text-[11px] font-medium">
                   {data.internal_quotes[0].item_type}
                 </span>
               )}
@@ -181,73 +210,69 @@ export default function TraCuuGiaPage() {
               <h2 className="font-semibold text-slate-900">Lịch sử báo giá nội bộ</h2>
               <span className="text-xs text-slate-500 ml-auto">{data.internal_quotes.length}</span>
             </div>
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead className="text-xs uppercase text-slate-500 border-b border-slate-200">
-                  <tr>
-                    <th className="text-left py-2">Ngày</th>
-                    <th className="text-left py-2">RFQ #</th>
-                    <th className="text-right py-2">Qty</th>
-                    <th className="text-right py-2">V1</th>
-                    <th className="text-right py-2">V2</th>
-                    <th className="text-right py-2">V3</th>
-                    <th className="text-right py-2">V4</th>
-                    <th className="text-left py-2 pl-3">Kết quả</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {data.internal_quotes.map((q: any) => (
-                    <tr key={q.id} className="border-b border-slate-100 last:border-0 hover:bg-slate-50">
-                      <td className="py-2 font-mono text-xs">{q.inquiry_date || '—'}</td>
-                      <td className="py-2">{q.rfq_number || '—'}</td>
-                      <td className="py-2 text-right tabular-nums">{q.qty ? Math.round(q.qty) : '—'}</td>
-                      <td className="py-2 text-right tabular-nums">{fmtUSD(q.v1)}</td>
-                      <td className="py-2 text-right tabular-nums">{fmtUSD(q.v2)}</td>
-                      <td className="py-2 text-right tabular-nums">{fmtUSD(q.v3)}</td>
-                      <td className="py-2 text-right tabular-nums">{fmtUSD(q.v4)}</td>
-                      <td className="py-2 pl-3">
-                        <span className={
-                          q.result === 'won' ? 'text-emerald-700 font-medium' :
-                          q.result === 'lost' ? 'text-rose-700' : 'text-slate-400'
-                        }>{q.result || '—'}</span>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Ngày</TableHead>
+                  <TableHead>RFQ #</TableHead>
+                  <TableHead className="text-right">Qty</TableHead>
+                  <TableHead className="text-right">V1</TableHead>
+                  <TableHead className="text-right">V2</TableHead>
+                  <TableHead className="text-right">V3</TableHead>
+                  <TableHead className="text-right">V4</TableHead>
+                  <TableHead>Kết quả</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {data.internal_quotes.map((q: any) => (
+                  <TableRow key={q.id}>
+                    <TableCell className="font-mono text-xs">{q.inquiry_date || '—'}</TableCell>
+                    <TableCell>{q.rfq_number || '—'}</TableCell>
+                    <TableCell className="text-right tabular-nums">{q.qty ? Math.round(q.qty) : '—'}</TableCell>
+                    <TableCell className="text-right tabular-nums">{fmtUSD(q.v1)}</TableCell>
+                    <TableCell className="text-right tabular-nums">{fmtUSD(q.v2)}</TableCell>
+                    <TableCell className="text-right tabular-nums">{fmtUSD(q.v3)}</TableCell>
+                    <TableCell className="text-right tabular-nums">{fmtUSD(q.v4)}</TableCell>
+                    <TableCell>
+                      <span className={
+                        q.result === 'won' ? 'text-emerald-700 font-medium' :
+                        q.result === 'lost' ? 'text-rose-700' : 'text-slate-400'
+                      }>{q.result || '—'}</span>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
           </div>
 
           {/* Recent wins */}
           {data.recent_wins.length > 0 && (
             <div className="bg-white rounded-2xl border border-slate-200 p-5">
               <h2 className="font-semibold text-slate-900 mb-4">PO trúng gần nhất</h2>
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead className="text-xs uppercase text-slate-500 border-b border-slate-200">
-                    <tr>
-                      <th className="text-left py-2">Ngày</th>
-                      <th className="text-left py-2">PO #</th>
-                      <th className="text-right py-2">Qty</th>
-                      <th className="text-right py-2">Đơn giá</th>
-                      <th className="text-right py-2">Tổng</th>
-                      <th className="text-left py-2 pl-3">Status</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {data.recent_wins.map((w: any, i: number) => (
-                      <tr key={i} className="border-b border-slate-100 last:border-0 hover:bg-slate-50">
-                        <td className="py-2 font-mono text-xs">{w.po_date || '—'}</td>
-                        <td className="py-2">{w.po_number}</td>
-                        <td className="py-2 text-right tabular-nums">{w.qty ? Math.round(w.qty) : '—'}</td>
-                        <td className="py-2 text-right tabular-nums">{fmtUSD(w.unit_price)}</td>
-                        <td className="py-2 text-right tabular-nums">{fmtUSD(w.amount)}</td>
-                        <td className="py-2 pl-3 text-slate-500">{w.status || '—'}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Ngày</TableHead>
+                    <TableHead>PO #</TableHead>
+                    <TableHead className="text-right">Qty</TableHead>
+                    <TableHead className="text-right">Đơn giá</TableHead>
+                    <TableHead className="text-right">Tổng</TableHead>
+                    <TableHead>Status</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {data.recent_wins.map((w: any, i: number) => (
+                    <TableRow key={i}>
+                      <TableCell className="font-mono text-xs">{w.po_date || '—'}</TableCell>
+                      <TableCell>{w.po_number}</TableCell>
+                      <TableCell className="text-right tabular-nums">{w.qty ? Math.round(w.qty) : '—'}</TableCell>
+                      <TableCell className="text-right tabular-nums">{fmtUSD(w.unit_price)}</TableCell>
+                      <TableCell className="text-right tabular-nums">{fmtUSD(w.amount)}</TableCell>
+                      <TableCell className="text-slate-500">{w.status || '—'}</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
             </div>
           )}
         </div>

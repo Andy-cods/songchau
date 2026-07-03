@@ -1,6 +1,9 @@
 """Samsung BQMS API — KPI, records, RFQ parsing, quotation generation, sync, deliveries."""
 
-from __future__ import annotations
+# NOTE: `from __future__ import annotations` removed (Thang 2026-06-14) —
+# breaks @limiter.limit (slowapi 0.1.9) Pydantic forward-ref resolution for
+# QuoteBatchRequest + PushToSecRequest bodies. Python 3.12 has native PEP 604
+# union syntax so the future-annotations import was only cosmetic.
 
 import io
 import json as _json
@@ -8,12 +11,12 @@ import logging
 import math
 import time
 
-from pydantic import BaseModel
-from datetime import date, datetime
+from pydantic import BaseModel, ConfigDict
+from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, Query, UploadFile
+from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, Query, Request, Response, UploadFile
 from fastapi.exceptions import HTTPException
 from fastapi.responses import StreamingResponse
 import asyncpg
@@ -21,6 +24,7 @@ import asyncpg
 from app.core.database import get_db
 from app.core.rbac import require_role
 from app.core.security import TokenData
+from app.core.slowapi_limiter import limiter
 from app.services.bqms_service import BQMSService
 
 logger = logging.getLogger(__name__)
@@ -638,8 +642,19 @@ async def rfq_table(
     result_filter: str | None = Query(None, description="pending | won | lost | all"),
     source_filter: str | None = Query(None, description="excel_import | etl | onedrive_sync | manual | all"),
     loai_hang: str | None = Query(None, description="TM | GC | all (Drawing detection)"),
+    round_filter: str | None = Query(
+        None,
+        description=(
+            "v1_has | v2_has | v3_has | v4_has | v1_missing | all — "
+            "lọc theo trạng thái cột quoted_price_bqms_v1..v4. "
+            "v{N}_has = đã có giá V{N}; v1_missing = CHƯA có V1 (mới scrape, "
+            "chưa báo giá lần nào)."
+        ),
+    ),
     page: int = Query(1, ge=1),
-    page_size: int = Query(100, ge=10, le=500),
+    # Thang 2026-06-15 (Batch 2b): default 100→12 — khớp page-size mặc định FE,
+    # first paint nhẹ hơn. FE gửi page_size rõ ràng nên default chỉ là fallback.
+    page_size: int = Query(12, ge=10, le=500),
     token_data: TokenData = Depends(require_role("admin", "manager", "staff", "sales", "procurement", "warehouse", "accountant")),
     conn: asyncpg.Connection = Depends(get_db),
 ):
@@ -648,46 +663,98 @@ async def rfq_table(
     Queries bqms_rfq (6,473 rows). Returns paginated, filterable, sortable data
     with KPI summary and month-group metadata.
     """
-    conditions: list[str] = ["1=1"]
-    params: list[Any] = []
-    idx = 1
+    # ─── Param validation (Thang 2026-06-13: polish 2) ─────────────
+    # Reject unknown round_filter values với 400 thay vì silent fall-through.
+    # Tránh case typo "v1_have" → trả về data không filter mà user không biết.
+    _ROUND_FILTER_ALLOWED = {"all", "v1_has", "v2_has", "v3_has", "v4_has", "v1_missing"}
+    if round_filter and round_filter.lower() not in _ROUND_FILTER_ALLOWED:
+        raise HTTPException(400, "round_filter không hợp lệ")
+
+    # Batch 2C: V-round / D-N tracking columns are added by a later migration
+    # (bqms_vround_tracking.sql). Probe once so the SELECT degrades gracefully
+    # (NULL literals) when the migration hasn't been applied yet — never 500.
+    _has_vround = bool(await conn.fetchval(
+        "SELECT EXISTS (SELECT 1 FROM information_schema.columns "
+        "WHERE table_name='bqms_rfq' AND column_name='qt_state')"
+    ))
+    if _has_vround:
+        _vround_select = (
+            "            r.deadline_dt,\n"
+            "            r.qt_state::text AS qt_state,\n"
+            "            r.current_round,"
+        )
+    else:
+        _vround_select = (
+            "            NULL::timestamptz AS deadline_dt,\n"
+            "            NULL::text AS qt_state,\n"
+            "            NULL::smallint AS current_round,"
+        )
+
+    # ─── Scope conditions (year + month + search) ──────────────────
+    # Thang 2026-05-29: tách scope (year/month/search) khỏi secondary filters
+    # (result_filter/source_filter/loai_hang) để KPI Trúng/Trượt/Pending hiển
+    # đúng TỔNG tháng kể cả khi user đang lọc theo "Chưa báo giá" etc.
+    scope_conditions: list[str] = ["1=1"]
+    scope_params: list[Any] = []
+    sidx = 1
 
     if year is not None:
-        conditions.append(
-            f"EXTRACT(YEAR FROM COALESCE(inquiry_date, created_at::date)) = ${idx}"
+        scope_conditions.append(
+            f"EXTRACT(YEAR FROM COALESCE(r.inquiry_date, r.created_at::date)) = ${sidx}"
         )
-        params.append(year)
-        idx += 1
+        scope_params.append(year)
+        sidx += 1
 
     if month is not None:
-        conditions.append(
-            f"EXTRACT(MONTH FROM COALESCE(inquiry_date, created_at::date)) = ${idx}"
+        scope_conditions.append(
+            f"EXTRACT(MONTH FROM COALESCE(r.inquiry_date, r.created_at::date)) = ${sidx}"
         )
-        params.append(month)
-        idx += 1
+        scope_params.append(month)
+        sidx += 1
 
     if search:
         like = f"%{search}%"
         # Search bao gồm description từ staging.raw_json._detail.items
         # (e.g. "CNC BRUSH", "BLADE") — bqms_rfq không có cột description
         # nên cần subquery. Per Thang 2026-05-15.
-        conditions.append(
-            f"(rfq_number ILIKE ${idx} OR bqms_code ILIKE ${idx} "
-            f"OR specification ILIKE ${idx} OR maker ILIKE ${idx} "
+        # CRITICAL FIX (Thang 2026-05-22): prefix all columns with `r.` —
+        # this query JOINs with round2_audit CTE which ALSO has `rfq_number`,
+        # making bare `rfq_number` ambiguous → AmbiguousColumnError → 500.
+        scope_conditions.append(
+            f"(r.rfq_number ILIKE ${sidx} OR r.bqms_code ILIKE ${sidx} "
+            f"OR r.specification ILIKE ${sidx} OR r.maker ILIKE ${sidx} "
             f"OR EXISTS (SELECT 1 FROM bqms_vendor_portal_staging s "
-            f"  WHERE s.module='bidding' AND s.rfq_number = bqms_rfq.rfq_number "
-            f"  AND s.raw_json::text ILIKE ${idx}))"
+            f"  WHERE s.module='bidding' AND s.rfq_number = r.rfq_number "
+            f"  AND s.raw_json::text ILIKE ${sidx}))"
         )
-        params.append(like)
-        idx += 1
+        scope_params.append(like)
+        sidx += 1
 
+    where_kpi = " AND ".join(scope_conditions)
+
+    # ─── Full conditions (scope + secondary filters) ───────────────
+    # Inherit scope, then append result_filter / source_filter / loai_hang.
+    conditions: list[str] = list(scope_conditions)
+    params: list[Any] = list(scope_params)
+    idx = sidx
+
+    # Thang 2026-05-16: tách "pending" thành 2 filter:
+    #   - tracking (Đang theo dõi): result=pending AND quote_unlocked=true (đã báo giá)
+    #   - unquoted (Chưa báo giá): result=pending AND quote_unlocked=false (chưa quyết định)
+    # Backward compat: 'pending' vẫn match cả 2 (= union).
     if result_filter and result_filter.lower() != "all":
-        conditions.append(f"result::text = ${idx}")
-        params.append(result_filter.lower())
-        idx += 1
+        rf = result_filter.lower()
+        if rf == "tracking":
+            conditions.append("r.result::text = 'pending' AND COALESCE(r.quote_unlocked, false) = true")
+        elif rf == "unquoted":
+            conditions.append("r.result::text = 'pending' AND COALESCE(r.quote_unlocked, false) = false")
+        else:
+            conditions.append(f"r.result::text = ${idx}")
+            params.append(rf)
+            idx += 1
 
     if source_filter and source_filter.lower() != "all":
-        conditions.append(f"data_source = ${idx}")
+        conditions.append(f"r.data_source = ${idx}")
         params.append(source_filter.lower())
         idx += 1
 
@@ -696,35 +763,109 @@ async def rfq_table(
         # for etl rows. For excel rows, fall back to spec keyword heuristic.
         if loai_hang.upper() == "GC":
             conditions.append(
-                f"(notes ILIKE '%classification=GC%' OR specification ILIKE '%gia c_ng%')"
+                f"(r.notes ILIKE '%classification=GC%' OR r.specification ILIKE '%gia c_ng%')"
             )
         elif loai_hang.upper() == "TM":
             conditions.append(
-                f"(notes ILIKE '%classification=TM%' OR "
-                f"(notes NOT ILIKE '%classification=GC%' "
-                f"AND specification NOT ILIKE '%gia c_ng%'))"
+                f"(r.notes ILIKE '%classification=TM%' OR "
+                f"(r.notes NOT ILIKE '%classification=GC%' "
+                f"AND r.specification NOT ILIKE '%gia c_ng%'))"
             )
+
+    # Thang 2026-06-13: round_filter — lọc theo trạng thái cột quoted_price_bqms_v1..v4.
+    # Mục đích: user muốn xem riêng "đã có V1", "đã có V2", ..., hoặc "chưa có V1"
+    # (mã mới scrape, chưa báo giá lần nào). Filter ADDITIVE, không phá KPI tổng tháng
+    # (KPI vẫn dùng `where_kpi` = scope_conditions, không bị round_filter chi phối).
+    if round_filter and round_filter.lower() != "all":
+        rfv = round_filter.lower().strip()
+        _round_col_map = {
+            "v1_has": "r.quoted_price_bqms_v1 IS NOT NULL",
+            "v2_has": "r.quoted_price_bqms_v2 IS NOT NULL",
+            "v3_has": "r.quoted_price_bqms_v3 IS NOT NULL",
+            "v4_has": "r.quoted_price_bqms_v4 IS NOT NULL",
+            "v1_missing": "r.quoted_price_bqms_v1 IS NULL",
+        }
+        if rfv in _round_col_map:
+            conditions.append(_round_col_map[rfv])
+        # Unknown round_filter values → silently ignored (treated as "all") để
+        # không break clients đang gửi value lạ trong cache.
 
     where = " AND ".join(conditions)
 
-    # Total count
+    # Thang 2026-05-22: all queries use `bqms_rfq r` alias since the WHERE
+    # clause (built above) qualifies columns with `r.` to avoid ambiguity
+    # with the round2_audit JOIN in the paginated SELECT.
+
+    # Thang 2026-06-04 (BUG B fix — push button missing on duplicate twins):
+    # `bqms_rfq` has 116 (rfq_number, bqms_code) pairs that are duplicated
+    # across data_source='etl' and data_source='onedrive_sync'. The dedup
+    # unique index `uq_bqms_rfq_dedup` keys on (rfq_number, bqms_code,
+    # source_hash); different source_hash → INSERT-new instead of UPSERT.
+    # The etl twin carries user actions (quote_unlocked=true, V1 price,
+    # bqms_push_status='saved_temp'), but the onedrive_sync twin has a
+    # newer inquiry_date and wins ORDER BY inquiry_date DESC — hiding the
+    # push button (`item.quote_unlocked === true` returns false on the
+    # shadowing twin).
+    #
+    # Option A fix: dedupe at query time via `bqms_dedup` CTE. DISTINCT ON
+    # (rfq_number, bqms_code) ordered by (quote_unlocked DESC, has-push-state
+    # DESC, updated_at DESC) → the row carrying user actions always wins,
+    # regardless of which sync ran last. Single-file edit, low risk.
+    # Permanent root-cause fix (collapse dedup key) tracked for next sprint.
+    # Thang 2026-06-13 (FIX V1-hidden + V2-push-fail):
+    # Reorder ORDER BY so V-presence beats push-state. Previous ordering
+    # `(bqms_push_status IS NOT NULL)::int DESC` came BEFORE V-presence —
+    # if the duplicate twin carried `bqms_push_status='queued'` but NULL
+    # for `quoted_price_bqms_v1`, push-state-twin won → frontend rendered
+    # the row with V1=NULL (looked "ẩn"). Now any twin holding a real V1
+    # price wins regardless of push state.
+    #
+    # Tiebreaker hierarchy (top wins):
+    #   1. quote_unlocked=true  (user actioned)
+    #   2. V4 price set         (rounds collapse newest→oldest)
+    #   3. V3 price set
+    #   4. V2 price set
+    #   5. V1 price set
+    #   6. bqms_push_status NOT NULL  (push attempted at all)
+    #   7. updated_at DESC
+    #   8. id DESC
+    dedup_cte = """
+        bqms_dedup AS (
+            SELECT DISTINCT ON (rfq_number, bqms_code) *
+              FROM bqms_rfq
+             ORDER BY rfq_number, bqms_code,
+                      (COALESCE(quote_unlocked, false))::int DESC,
+                      (quoted_price_bqms_v4 IS NOT NULL)::int DESC,
+                      (quoted_price_bqms_v3 IS NOT NULL)::int DESC,
+                      (quoted_price_bqms_v2 IS NOT NULL)::int DESC,
+                      (quoted_price_bqms_v1 IS NOT NULL)::int DESC,
+                      (bqms_push_status IS NOT NULL)::int DESC,
+                      updated_at DESC NULLS LAST,
+                      id DESC
+        )
+    """
+
+    # Total count — respects ALL filters (table is paginated by `where`)
     total: int = await conn.fetchval(
-        f"SELECT COUNT(*) FROM bqms_rfq WHERE {where}", *params
+        f"WITH {dedup_cte} SELECT COUNT(*) FROM bqms_dedup r WHERE {where}",
+        *params,
     )
 
-    # KPI for the current filter scope
+    # KPI — chỉ scope (year/month/search), KHÔNG bị result_filter / source / loai_hang
+    # chi phối. Đảm bảo "Trúng thầu" / "Trượt thầu" luôn hiển tổng tháng đúng.
     kpi_rows = await conn.fetchrow(
         f"""
+        WITH {dedup_cte}
         SELECT
-            COUNT(*) FILTER (WHERE result::text = 'won')  AS won,
-            COUNT(*) FILTER (WHERE result::text = 'lost') AS lost,
+            COUNT(*) FILTER (WHERE r.result::text = 'won')  AS won,
+            COUNT(*) FILTER (WHERE r.result::text = 'lost') AS lost,
             COUNT(*) FILTER (
-                WHERE result::text = 'pending' OR result IS NULL
+                WHERE r.result::text = 'pending' OR r.result IS NULL
             ) AS pending
-        FROM bqms_rfq
-        WHERE {where}
+        FROM bqms_dedup r
+        WHERE {where_kpi}
         """,
-        *params,
+        *scope_params,
     )
     won_count  = int(kpi_rows["won"]  or 0)
     lost_count = int(kpi_rows["lost"] or 0)
@@ -735,13 +876,14 @@ async def rfq_table(
     # Month summary (group headers for the UI)
     month_rows = await conn.fetch(
         f"""
+        WITH {dedup_cte}
         SELECT
-            EXTRACT(YEAR  FROM COALESCE(inquiry_date, created_at::date))::int AS yr,
-            EXTRACT(MONTH FROM COALESCE(inquiry_date, created_at::date))::int AS mo,
-            COUNT(*)                                                           AS cnt,
-            COUNT(*) FILTER (WHERE result::text = 'won')                      AS won,
-            COUNT(*) FILTER (WHERE result::text = 'lost')                     AS lost
-        FROM bqms_rfq
+            EXTRACT(YEAR  FROM COALESCE(r.inquiry_date, r.created_at::date))::int AS yr,
+            EXTRACT(MONTH FROM COALESCE(r.inquiry_date, r.created_at::date))::int AS mo,
+            COUNT(*)                                                              AS cnt,
+            COUNT(*) FILTER (WHERE r.result::text = 'won')                       AS won,
+            COUNT(*) FILTER (WHERE r.result::text = 'lost')                      AS lost
+        FROM bqms_dedup r
         WHERE {where}
         GROUP BY yr, mo
         ORDER BY yr DESC, mo DESC
@@ -765,26 +907,68 @@ async def rfq_table(
     params_paged = params + [page_size, offset]
     # Phase 2 per Thang 2026-05-12: include requester/department/assigned_to.
     # Phase E (Thang 2026-05-13): include classification_override for user-edit support.
+    # Round-2 priority sort (Thang 2026-05-18):
+    # RFQ với version >= 2 + audit_log round-2 trong 7 ngày → đẩy lên đầu
+    # Thêm 2 fields:
+    #   round2_recent_at: timestamp audit log gần nhất (NULL nếu không có)
+    #   is_round2_24h:    true nếu round-2 trong 24h gần nhất (UI highlight cam)
     rows = await conn.fetch(
         f"""
+        WITH {dedup_cte},
+        round2_audit AS (
+            SELECT record_id AS rfq_number,
+                   MAX(created_at) AS round2_at
+              FROM audit_log
+             WHERE action IN ('bqms_periodic.round2_invitation',
+                              'bqms_periodic.round2_v1_missing_warning')
+               AND created_at > NOW() - INTERVAL '7 days'
+             GROUP BY record_id
+        )
         SELECT
-            id, rfq_number, bqms_code, specification, maker,
-            expected_qty, unit,
-            purchase_price_rmb, purchase_price_vnd,
-            quoted_price_ama,
-            quoted_price_bqms_v1, quoted_price_bqms_v2,
-            quoted_price_bqms_v3, quoted_price_bqms_v4,
-            supplier_name, result::text AS result, notes, report,
-            person_in_charge_name, inquiry_date,
-            COALESCE(inquiry_date, created_at::date) AS effective_date,
-            created_at, version, data_source,
-            requester, department,
-            assigned_to::text AS assigned_to,
-            classification_override,
-            quote_unlocked
-        FROM bqms_rfq
+            r.id, r.rfq_number, r.bqms_code, r.specification, r.maker,
+            r.expected_qty, r.unit,
+            r.purchase_price_rmb, r.purchase_price_vnd,
+            r.quoted_price_ama,
+            r.quoted_price_bqms_v1, r.quoted_price_bqms_v2,
+            r.quoted_price_bqms_v3, r.quoted_price_bqms_v4,
+            -- Thang 2026-06-13: per-round quote dates for UI chips + audit.
+            r.quoted_dt_v1, r.quoted_dt_v2, r.quoted_dt_v3, r.quoted_dt_v4,
+            r.supplier_name, r.result::text AS result, r.notes, r.report,
+            r.person_in_charge_name, r.inquiry_date,
+            COALESCE(r.inquiry_date, r.created_at::date) AS effective_date,
+            r.created_at, r.version, r.data_source,
+            r.requester, r.department,
+            r.assigned_to::text AS assigned_to,
+            r.classification_override,
+            -- Thang 2026-06-04: explicit boolean cast so frontend gate
+            -- `item.quote_unlocked === true` evaluates correctly. Also
+            -- surface push state so UI can render re-push button on
+            -- saved_temp rows (round 2-4) even when quote_unlocked got
+            -- relocked by a later round.
+            COALESCE(r.quote_unlocked, false)::boolean AS quote_unlocked,
+            r.bqms_push_status,
+            r.bqms_pushed_round,
+            -- Thang 2026-06-15 (Batch 2f): ngày đẩy báo giá lên SEC — thay cột STT "#".
+            r.bqms_pushed_at,
+            -- Batch 2C: V-round / D-N tracking columns (NULL literals when the
+            -- bqms_vround_tracking.sql migration is not yet applied).
+{_vround_select}
+            -- Round-2 priority flags
+            a.round2_at AS round2_recent_at,
+            (a.round2_at IS NOT NULL
+             AND a.round2_at > NOW() - INTERVAL '24 hours') AS is_round2_24h,
+            (a.round2_at IS NOT NULL AND r.version >= 2) AS is_round2_priority
+        FROM bqms_dedup r
+        LEFT JOIN round2_audit a ON a.rfq_number = r.rfq_number
         WHERE {where}
-        ORDER BY COALESCE(inquiry_date, created_at::date) DESC NULLS LAST, id DESC
+        ORDER BY
+            -- Priority 1: Round-2 RFQ trong 7 ngày + version>=2 lên đầu, mới nhất trước
+            CASE WHEN a.round2_at IS NOT NULL AND r.version >= 2 THEN 0 ELSE 1 END,
+            a.round2_at DESC NULLS LAST,
+            -- Priority 2: Fallback theo inquiry_date như cũ
+            r.inquiry_date DESC NULLS LAST,
+            r.updated_at DESC NULLS LAST,
+            r.id DESC
         LIMIT ${idx} OFFSET ${idx + 1}
         """,
         *params_paged,
@@ -842,16 +1026,22 @@ async def rfq_table(
     # Pending bidding rows live in bqms_vendor_portal_staging (status=pending_review)
     # and aren't yet in bqms_rfq. We surface them here with `is_pending=true`
     # so the user can see + Báo giá from a single unified table.
-    # Only include on first page + when no result_filter (or filter='pending').
+    # Only include on first page + when filter shows un-quoted rows.
+    # Thang 2026-05-16: pending_bidding staging = mã mới chưa báo giá → thuộc
+    # nhóm "Chưa báo giá" (unquoted) hoặc "Tất cả" (all). Filter 'tracking'
+    # KHÔNG stitch vì đã báo giá = đã có trong bqms_rfq, không còn staging.
     pending_bidding: list[dict] = []
-    if page == 1 and (not result_filter or result_filter.lower() in ("all", "pending")):
+    if page == 1 and (not result_filter or result_filter.lower() in ("all", "pending", "unquoted")):
         # FIX duplicate (Thang 2026-05-14): Sau Phase H, auto-drill UPSERT vào
         # bqms_rfq nhưng staging vẫn status='pending_review' → rfq-table merge
         # cả 2 source → 1 RFQ hiện 2 dòng (staging với nút "Báo giá" + bqms_rfq
         # với VP badge). Filter: chỉ surface staging nếu rfq_number chưa có
         # trong bqms_rfq. bqms_rfq row sẽ tự cõng nút "Báo giá" qua staging_id_map.
-        pending_rows = await conn.fetch(
-            """
+        # Thang 2026-06-04: Scope theo `search` để tránh staging stub leak khi
+        # user tìm 1 RFQ cụ thể. Trước đây query trả về 200 pending mới nhất
+        # → nếu RFQ search bị bqms_rfq filter (year/month) loại bỏ, staging stub
+        # vẫn xuất hiện với is_pending=true → drawer ẩn nút "Đẩy lên SEC".
+        pending_sql = """
             SELECT
                 s.id AS staging_id,
                 s.rfq_number,
@@ -862,10 +1052,16 @@ async def rfq_table(
               AND NOT EXISTS (
                   SELECT 1 FROM bqms_rfq r WHERE r.rfq_number = s.rfq_number
               )
-            ORDER BY s.id DESC
-            LIMIT 200
-            """,
-        )
+        """
+        pending_args: list[Any] = []
+        if search:
+            pending_sql += (
+                " AND (s.rfq_number ILIKE $1"
+                "      OR s.raw_json::text ILIKE $1)"
+            )
+            pending_args.append(f"%{search}%")
+        pending_sql += " ORDER BY s.id DESC LIMIT 200"
+        pending_rows = await conn.fetch(pending_sql, *pending_args)
         for r in pending_rows:
             raw = r["raw_json"] or {}
             if isinstance(raw, str):
@@ -1033,6 +1229,82 @@ async def rfq_table(
         [_serialize(p) for p in pending_bidding]
         + [_add_assigned_name(_enrich_with_staging(_serialize(r))) for r in rows]
     )
+
+    # Smart quote scenario classification (Thang 2026-05-18 — TH1/TH2/TH3)
+    # Annotate every row with scenario + UI metadata. Used by frontend for
+    # badges + wizard default round.
+    from app.services.bqms_quote_scenario import (
+        classify as _classify_scenario,
+        scenario_default_round as _scenario_round,
+        scenario_meta as _scenario_meta,
+        pushable_round as _pushable_round,
+    )
+
+    # Batch 2C: D-N countdown helper. Returns integer days until the submission
+    # deadline (ceil), negative when overdue, or None when no parseable deadline.
+    def _days_to_deadline(it: dict) -> int | None:
+        from app.services.bqms_auto_skip_expired import parse_deadline as _pd
+        dl = None
+        iso = it.get("deadline_dt")
+        if isinstance(iso, str) and iso.strip():
+            try:
+                dl = datetime.fromisoformat(iso.replace("Z", "+00:00"))
+            except ValueError:
+                dl = _pd(iso)
+        if dl is None:
+            # Fall back to the raw Samsung deadline string carried on the row.
+            for fld in ("deadline_raw", "deadline_dt"):
+                raw = it.get(fld)
+                if isinstance(raw, str) and raw.strip():
+                    dl = _pd(raw)
+                    if dl is not None:
+                        break
+        if dl is None:
+            return None
+        from datetime import timezone as _tz
+        if dl.tzinfo is None:
+            dl = dl.replace(tzinfo=_tz.utc)
+        delta = dl - datetime.now(_tz.utc)
+        # Ceil so "12 hours left" reads as 1 day, "1h overdue" reads as 0.
+        return math.ceil(delta.total_seconds() / 86400.0)
+
+    for _it in items_serialized:
+        # Samsung-side round: detail_version (from staging _detail.version)
+        # falls back to bqms_rfq.version.
+        _samsung_round = None
+        for _k in ("detail_version", "version"):
+            _v = _it.get(_k)
+            try:
+                if _v is not None and str(_v).strip() != "":
+                    _samsung_round = int(_v)
+                    break
+            except (ValueError, TypeError):
+                pass
+        _scenario = _classify_scenario(
+            quoted_price_bqms_v1=_it.get("quoted_price_bqms_v1"),
+            quoted_price_bqms_v2=_it.get("quoted_price_bqms_v2"),
+            version=_it.get("version"),
+            data_source=_it.get("data_source"),
+            samsung_round=_samsung_round,
+        )
+        _it["scenario"] = _scenario
+        _it["scenario_default_round"] = _scenario_round(_scenario, _samsung_round or 1)
+        _it["scenario_meta"] = _scenario_meta(_scenario)
+        # pushable_round = round to PUSH (highest filled V). Different from
+        # scenario_default_round (which is for NEW quote form). Bug 2026-05-20:
+        # using scenario_default_round for the push button jumped V1→V2 right
+        # after user generated V1, because TH3.scenario_default_round = max(2, ...).
+        _it["pushable_round"] = _pushable_round(
+            _it.get("quoted_price_bqms_v1"),
+            _it.get("quoted_price_bqms_v2"),
+            _it.get("quoted_price_bqms_v3"),
+            _it.get("quoted_price_bqms_v4"),
+        )
+        # Batch 2C: D-N countdown — days from now until deadline_dt. Prefer the
+        # persisted bqms_rfq.deadline_dt (ISO string post-_serialize); fall back
+        # to parsing the raw Samsung deadline string carried on the row. Negative
+        # = overdue. None when no parseable deadline.
+        _it["days_to_deadline"] = _days_to_deadline(_it)
 
     def _parse_reg_dt(s: str | None) -> datetime | None:
         """Parse sec-bqms regDt strings like '(GMT+07:00) 5/15/2026 17:00' or
@@ -1204,11 +1476,25 @@ async def update_rfq_price(
                 detail="Giá trị phải là số",
             )
 
-    result = await conn.execute(
-        f"UPDATE bqms_rfq SET {field} = $1, updated_at = NOW() WHERE id = $2",
-        value,
-        rfq_id,
-    )
+    # Thang 2026-05-15: khi user inline-edit V1-V4 → set Người PT = user đó.
+    # Áp dụng cho các field giá báo (quoted_price_bqms_v*) và notes nếu nó là
+    # hành động báo giá thực sự.
+    _PRICE_ROUND_FIELDS = {
+        "quoted_price_bqms_v1", "quoted_price_bqms_v2",
+        "quoted_price_bqms_v3", "quoted_price_bqms_v4",
+    }
+    update_assignee = field in _PRICE_ROUND_FIELDS and value is not None
+    if update_assignee:
+        result = await conn.execute(
+            f"UPDATE bqms_rfq SET {field} = $1, assigned_to = $3::uuid, "
+            f"updated_at = NOW() WHERE id = $2",
+            value, rfq_id, token_data.user_id,
+        )
+    else:
+        result = await conn.execute(
+            f"UPDATE bqms_rfq SET {field} = $1, updated_at = NOW() WHERE id = $2",
+            value, rfq_id,
+        )
 
     if result == "UPDATE 0":
         raise HTTPException(status_code=404, detail=f"Không tìm thấy RFQ #{rfq_id}")
@@ -1310,8 +1596,73 @@ async def skip_rfq(
 
 
 # ---------------------------------------------------------------------------
+# RFQ — Đánh dấu kết quả Thắng/Thua/Đang chờ (Tính năng A)
+# ---------------------------------------------------------------------------
+
+@router.patch("/rfq/{rfq_id}/result")
+async def update_rfq_result(
+    rfq_id: int,
+    body: dict,
+    token_data: TokenData = Depends(require_role(
+        "admin", "manager", "staff", "sales",
+        "procurement", "warehouse", "accountant",
+    )),
+    conn: asyncpg.Connection = Depends(get_db),
+):
+    """Đánh dấu kết quả RFQ nội bộ. body = {result: 'won'|'lost'|'pending'}."""
+    val = body.get("result")
+    if not isinstance(val, str):
+        raise HTTPException(400, "result phải là string")
+    val = val.strip().lower()
+    if val not in ("won", "lost", "pending"):
+        raise HTTPException(400, "result phải là 'won', 'lost', hoặc 'pending'")
+
+    row = await conn.fetchrow(
+        "UPDATE bqms_rfq SET result = $1::rfq_result, "
+        "result_updated_by = $2::uuid, result_date = CURRENT_DATE, "
+        "updated_at = NOW() WHERE id = $3 "
+        "RETURNING id, rfq_number, result::text AS result",
+        val, token_data.user_id, rfq_id,
+    )
+    if not row:
+        raise HTTPException(404, f"RFQ #{rfq_id} không tồn tại")
+
+    # Audit (best-effort, mirror /classification)
+    try:
+        await conn.execute(
+            "INSERT INTO audit_log (user_id, action, table_name, record_id, new_data, created_at) "
+            "VALUES ($1::uuid, 'bqms.result_mark', 'bqms_rfq', $2, $3::jsonb, NOW())",
+            token_data.user_id, str(rfq_id), _json.dumps({"result": val}),
+        )
+    except Exception as _exc:
+        logger.warning("audit_log result failed: %s", _exc)
+
+    return {
+        "message": "Đã cập nhật kết quả",
+        "ok": True,
+        "result": row["result"],
+        "data": {
+            "rfq_id": row["id"],
+            "rfq_number": row["rfq_number"],
+            "result": row["result"],
+        },
+    }
+
+
+# ---------------------------------------------------------------------------
 # RFQ — Generate Báo giá round 2/3/4 files (per Thang 2026-05-11)
 # ---------------------------------------------------------------------------
+
+class _GenerateRoundBody(BaseModel):
+    """Optional body for /generate-round. When provided, items override the
+    DB-derived items (per-bqms spec/maker/qty/price edits from TM wizard).
+    Image overrides are handled separately via /quote-image-override (file
+    upload), so we don't need image bytes here — autofill_service reads
+    /data/quote-overrides/{rfq}/{code}__product_photo.{ext} automatically.
+    """
+    model_config = ConfigDict(extra="ignore")
+    items: list[dict] | None = None
+
 
 @router.post("/rfq/{rfq_id}/generate-round")
 async def generate_quote_round(
@@ -1319,6 +1670,7 @@ async def generate_quote_round(
     round_n: int = Query(..., ge=1, le=4, description="Round number 1-4"),
     flow_type: str = Query("tm", description="tm | gc"),
     new_price: float | None = Query(None, description="Optional: V_n price to set"),
+    body: _GenerateRoundBody | None = None,
     token_data: TokenData = Depends(require_role("admin", "manager", "staff", "sales", "procurement", "warehouse", "accountant")),
     conn: asyncpg.Connection = Depends(get_db),
 ):
@@ -1332,22 +1684,95 @@ async def generate_quote_round(
     if round_n not in (1, 2, 3, 4):
         raise HTTPException(400, "round must be 1-4")
 
-    # 1. Optionally update the V_n price
+    # Bug #1 fix (Thang 2026-05-19): quote_unlocked guard.
+    # Pre-check the RFQ is in a quotable state. Prevents concurrent writes
+    # khi 2 user click "Báo giá" cùng lúc.
+    pre_row = await conn.fetchrow(
+        """
+        SELECT quote_unlocked, result::text AS result,
+               deadline_dt, result_updated_by,
+               quoted_price_bqms_v1, quoted_price_bqms_v2,
+               quoted_price_bqms_v3, quoted_price_bqms_v4
+          FROM bqms_rfq WHERE id = $1
+        """,
+        rfq_id,
+    )
+    if not pre_row:
+        raise HTTPException(404, f"RFQ #{rfq_id} không tồn tại")
+    # Deadline-aware close guard (Thang 2026-06-24): a machine-set result='closed'
+    # (result_updated_by IS NULL) must NOT block an RFQ whose deadline is still
+    # live — re-opened round-2 RFQs kept a stale 'closed' from round 1. Treat as
+    # blocked only for won/lost, a human-finalized close, or a passed deadline.
+    _now = datetime.now(timezone.utc)
+    _dl = pre_row.get("deadline_dt")
+    if _dl is not None and _dl.tzinfo is not None:
+        _deadline_open = _dl >= _now
+    elif _dl is not None:
+        # asyncpg returned a naive datetime — compare on calendar date instead.
+        _deadline_open = _dl.date() >= _now.date()
+    else:
+        _deadline_open = False
+    _human_closed = pre_row.get("result_updated_by") is not None
+    if pre_row["result"] in ("won", "lost") or (
+        pre_row["result"] == "closed" and (_human_closed or not _deadline_open)
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail=f"RFQ đã ở trạng thái '{pre_row['result']}' (deadline đã qua hoặc đã chốt) — không thể báo giá thêm",
+        )
+    if not pre_row["quote_unlocked"]:
+        raise HTTPException(
+            409,
+            "RFQ chưa được unlock báo giá. Click 'Báo giá' trên staging row trước "
+            "(POST /vendor-staging/{id}/quote sẽ set quote_unlocked=true).",
+        )
+
+    # 1. Optionally update the V_n price — Bug #2 fix: warn nếu overwrite
     if new_price is not None:
+        existing_v = pre_row[f"quoted_price_bqms_v{round_n}"]
+        if existing_v is not None and abs(float(existing_v) - float(new_price)) > 0.01:
+            logger.warning(
+                "Overwriting V%d for rfq=%s: %s → %s (user=%s)",
+                round_n, rfq_id, existing_v, new_price, token_data.user_id,
+            )
+            # Audit log overwrite — leave trail for forensics
+            try:
+                await conn.execute(
+                    """
+                    INSERT INTO audit_log
+                        (action, table_name, record_id, new_data, created_at)
+                    VALUES ('bqms.rfq.price_overwrite', 'bqms_rfq', $1, $2::jsonb, NOW())
+                    """,
+                    str(rfq_id),
+                    _json.dumps({
+                        "round_n": round_n,
+                        "old_price": float(existing_v),
+                        "new_price": float(new_price),
+                        "user_id": str(token_data.user_id),
+                    }),
+                )
+            except Exception as exc:
+                logger.warning("overwrite audit failed: %s", exc)
+
+        # Thang 2026-05-15: cũng set assigned_to để Người PT = user vừa báo giá
+        # Thang 2026-06-13: pin quoted_dt_v{n} = CURRENT_DATE so XLSX cell C4 + UI
+        # chip "V{n}: dd/mm" match exactly the submission date.
         await conn.execute(
-            f"UPDATE bqms_rfq SET quoted_price_bqms_v{round_n} = $1, updated_at = NOW() "
-            "WHERE id = $2",
-            float(new_price), rfq_id,
+            f"UPDATE bqms_rfq SET quoted_price_bqms_v{round_n} = $1, "
+            f"quoted_dt_v{round_n} = CURRENT_DATE, "
+            f"assigned_to = $3::uuid, updated_at = NOW() WHERE id = $2",
+            float(new_price), rfq_id, token_data.user_id,
         )
         # Phase G (Thang 2026-05-13): log lịch sử báo giá để Detail page hiện
-        # đầy đủ V1→V4 timeline. Trước đây thiếu INSERT này → bqms_quote_log
-        # rỗng cho mọi báo giá từ generate-round → user không có history.
+        # đầy đủ V1→V4 timeline. Bug #5 fix: dùng currency thống nhất 'USD'
+        # (xnk_price_lookup + samsung_po unit_price đều USD; VND chỉ dùng
+        # cho purchase_price_vnd).
         try:
             await conn.execute(
                 """
                 INSERT INTO bqms_quote_log
                     (rfq_id, round, quoted_price, quoted_currency, item_type, quoted_by, notes)
-                VALUES ($1, $2, $3, 'VND', $4, $5, $6)
+                VALUES ($1, $2, $3, 'USD', $4, $5, $6)
                 """,
                 rfq_id, round_n, float(new_price),
                 'GC' if (flow_type or 'tm').lower() == 'gc' else 'TM',
@@ -1402,6 +1827,81 @@ async def generate_quote_round(
             "suggested_price": v_n,
         })
 
+    # Thang 2026-05-15: TM wizard preview allows per-item override of
+    # spec/maker/qty/price before file generation. When body.items is
+    # provided, overlay overrides onto DB-derived items keyed by bqms code.
+    # Image overrides are handled via /quote-image-override (separate
+    # endpoint) — autofill_service reads /data/quote-overrides automatically.
+    if body and body.items:
+        override_map: dict[str, dict] = {}
+        for it in body.items:
+            code = (it.get("bqms") or it.get("bqms_code") or "").strip()
+            if code:
+                override_map[code] = it
+        for it in items:
+            ov = override_map.get((it["bqms"] or "").strip())
+            if not ov:
+                continue
+            if "spec" in ov and ov["spec"] is not None:
+                it["spec"] = str(ov["spec"])
+                it["short_name"] = it["spec"][:40]
+            if "maker" in ov and ov["maker"] is not None:
+                it["maker"] = str(ov["maker"])
+            if "so_luong" in ov and ov["so_luong"] not in (None, ""):
+                try:
+                    it["so_luong"] = int(float(ov["so_luong"]))
+                except (TypeError, ValueError):
+                    pass
+            if "unit_price" in ov and ov["unit_price"] not in (None, ""):
+                try:
+                    p = float(ov["unit_price"])
+                    it["unit_price"] = p
+                    it["suggested_price"] = p
+                except (TypeError, ValueError):
+                    pass
+
+        # Thang 2026-05-15 (Issue 10 + 12): persist toàn bộ chỉnh sửa từ TM
+        # wizard vào bqms_rfq — giá V_n + Người PT + spec/maker/qty. Lần sau
+        # user mở lại wizard, /quotations/lookup sẽ trả về dữ liệu đã sửa.
+        price_col = f"quoted_price_bqms_v{round_n}"
+        for it in items:
+            code = (it.get("bqms") or "").strip()
+            ov = override_map.get(code)
+            if not code or not ov:
+                continue
+            sets: list[str] = []
+            args: list[Any] = []
+            try:
+                p = float(ov.get("unit_price") or 0)
+            except (TypeError, ValueError):
+                p = 0.0
+            if p > 0:
+                args.append(p)
+                sets.append(f"{price_col} = ${len(args)}")
+                args.append(token_data.user_id)
+                sets.append(f"assigned_to = ${len(args)}::uuid")
+            if "spec" in ov and ov["spec"] is not None:
+                args.append(str(ov["spec"]))
+                sets.append(f"specification = ${len(args)}")
+            if "maker" in ov and ov["maker"] is not None:
+                args.append(str(ov["maker"]))
+                sets.append(f"maker = ${len(args)}")
+            if "so_luong" in ov and ov["so_luong"] not in (None, ""):
+                try:
+                    args.append(int(float(ov["so_luong"])))
+                    sets.append(f"expected_qty = ${len(args)}")
+                except (TypeError, ValueError):
+                    pass
+            if not sets:
+                continue
+            args.append(rfq_number)
+            args.append(code)
+            sql = (
+                f"UPDATE bqms_rfq SET {', '.join(sets)}, updated_at = NOW() "
+                f"WHERE rfq_number = ${len(args)-1} AND bqms_code = ${len(args)}"
+            )
+            await conn.execute(sql, *args)
+
     # 3. Run autofill_job with round_n in output_dir name
     from app.services.tools.autofill_service import run_autofill_job
 
@@ -1431,10 +1931,12 @@ async def generate_quote_round(
     )
 
     # Patch the autofill_service to write into L{round_n} subfolder.
-    # We do this by passing a custom round_n via items metadata that
-    # quote_round_subfolder picks up. Simpler: override after generation
-    # by moving files to L{round_n} (autofill_service hardcodes round_n=1).
-    # Cleanest: patch run_autofill_job to accept round_n. For now, do post-move.
+    # Thang 2026-05-21: passes round_n directly to autofill (replaces the
+    # old "always write L1, then shutil.move to L{round_n}" hack which was
+    # destroying previously-generated V{round_n} files on each regenerate).
+    # Inside autofill, quote_round_subfolder() now archives any pre-existing
+    # L{round_n} folder to `.archived_<ts>/` so V1 history is preserved when
+    # user re-generates V1 (and so on).
 
     result = await run_autofill_job(
         conn=conn,
@@ -1443,33 +1945,8 @@ async def generate_quote_round(
         cam_ket_template=cam_ket_tpl,
         commercial_template=commercial_tpl,
         flow_type=flow_type,
+        round_n=round_n,
     )
-
-    # Post-process: rename L1 → L{round_n} folder if round != 1
-    if round_n != 1 and result.get("success"):
-        from pathlib import Path
-        import shutil
-        for f in result.get("files", []):
-            old_path = f.get("path")
-            if not old_path or "_AMA BAC NINH_L1/" not in old_path:
-                continue
-            new_path = old_path.replace(
-                "_AMA BAC NINH_L1/", f"_AMA BAC NINH_L{round_n}/",
-            )
-            new_dir = Path(new_path).parent
-            new_dir.mkdir(parents=True, exist_ok=True)
-            try:
-                shutil.move(old_path, new_path)
-                f["path"] = new_path
-            except Exception as exc:
-                logger.warning("L%d move failed: %s", round_n, exc)
-        # Clean up empty L1 dir
-        try:
-            l1_dir = Path(result["files"][0]["path"]).parent.parent / f"{rfq_number}_AMA BAC NINH_L1"
-            if l1_dir.exists() and not any(l1_dir.iterdir()):
-                l1_dir.rmdir()
-        except Exception:
-            pass
 
     return {
         "data": {
@@ -1487,6 +1964,229 @@ async def generate_quote_round(
 
 
 # ---------------------------------------------------------------------------
+# Rename file / folder inside RFQ folder — Thang 2026-05-15
+# ---------------------------------------------------------------------------
+
+
+@router.get("/rfq/{rfq_id}/subfolders")
+async def list_rfq_subfolders(
+    rfq_id: int,
+    token_data: TokenData = Depends(require_role(
+        "admin", "manager", "staff", "sales", "procurement", "warehouse", "accountant",
+    )),
+    conn: asyncpg.Connection = Depends(get_db),
+):
+    """List subfolders inside RFQ root (excluding raw/ and images/).
+
+    Used by the rename-folder UI to pick which L{n} folder to rename.
+    """
+    from app.etl.bqms_bidding_scraper import find_existing_rfq_folder
+
+    rfq = await conn.fetchrow("SELECT rfq_number FROM bqms_rfq WHERE id = $1", rfq_id)
+    if not rfq:
+        raise HTTPException(404, f"RFQ #{rfq_id} not found")
+    root = find_existing_rfq_folder(rfq["rfq_number"])
+    if root is None or not root.exists():
+        return {"data": {"root": None, "subfolders": []}}
+    EXCLUDE = {"raw", "images"}
+    subs = []
+    try:
+        for child in sorted(root.iterdir(), key=lambda p: p.name.lower()):
+            if child.is_dir() and child.name not in EXCLUDE:
+                subs.append({
+                    "name": child.name,
+                    "path": str(child),
+                })
+    except OSError as exc:
+        logger.warning("list_rfq_subfolders: %s", exc)
+    return {"data": {"root": str(root), "subfolders": subs}}
+
+
+class _RenameBody(BaseModel):
+    """Body for rename-file / rename-folder endpoints.
+
+    old_path: absolute path on disk (returned by /bidding/folder or
+              quotation history). MUST resolve inside the RFQ folder root
+              (no path traversal).
+    new_name: just the basename (no slashes). Extension is preserved
+              automatically if user omits it. For folders, no extension
+              expected.
+    """
+    model_config = ConfigDict(extra="ignore")
+    old_path: str
+    new_name: str
+
+
+def _safe_resolve_in_root(target: Path, root: Path) -> Path:
+    """Resolve target under root, refusing path-traversal."""
+    try:
+        resolved = target.resolve()
+        resolved.relative_to(root.resolve())
+        return resolved
+    except (ValueError, OSError) as exc:
+        raise HTTPException(400, f"Path outside RFQ folder: {target} (root={root})") from exc
+
+
+@router.post("/rfq/{rfq_id}/rename-file")
+async def rename_rfq_file(
+    rfq_id: int,
+    body: _RenameBody,
+    token_data: TokenData = Depends(require_role(
+        "admin", "manager", "staff", "sales", "procurement", "warehouse", "accountant",
+    )),
+    conn: asyncpg.Connection = Depends(get_db),
+):
+    """Rename a file inside the RFQ folder (Excel/PDF/attachment).
+
+    Updates `quotations.output_xlsx` / `output_pdf` rows if the renamed
+    path matches.
+    """
+    from app.etl.bqms_bidding_scraper import find_existing_rfq_folder
+
+    # Locate RFQ root folder via DB → find_existing_rfq_folder
+    rfq = await conn.fetchrow(
+        "SELECT rfq_number FROM bqms_rfq WHERE id = $1", rfq_id,
+    )
+    if not rfq:
+        raise HTTPException(404, f"RFQ #{rfq_id} not found")
+    rfq_number = rfq["rfq_number"]
+    root = find_existing_rfq_folder(rfq_number)
+    if root is None or not root.exists():
+        raise HTTPException(404, f"RFQ folder not found for {rfq_number}")
+
+    # Validate new_name: no path separators, not empty, length cap
+    new_name_raw = (body.new_name or "").strip()
+    if not new_name_raw:
+        raise HTTPException(400, "Tên mới không được rỗng")
+    if "/" in new_name_raw or "\\" in new_name_raw or new_name_raw in (".", ".."):
+        raise HTTPException(400, "Tên mới không được chứa / hoặc \\")
+    if len(new_name_raw) > 200:
+        raise HTTPException(400, "Tên mới quá dài (>200 ký tự)")
+
+    old_p = Path(body.old_path)
+    old_resolved = _safe_resolve_in_root(old_p, root)
+    if not old_resolved.exists():
+        raise HTTPException(404, f"File không tồn tại: {old_p.name}")
+    if not old_resolved.is_file():
+        raise HTTPException(400, "Đường dẫn này không phải file (có thể là folder — dùng /rename-folder)")
+
+    # Preserve original extension if user omitted it
+    new_name = new_name_raw
+    old_suffix = old_resolved.suffix.lower()
+    if old_suffix and Path(new_name).suffix.lower() != old_suffix:
+        new_name = new_name + old_suffix
+
+    new_path = old_resolved.parent / new_name
+    if new_path == old_resolved:
+        return {"data": {"old": str(old_resolved), "new": str(new_path)}, "message": "Tên không đổi"}
+    if new_path.exists():
+        raise HTTPException(409, f"File đã tồn tại: {new_name}")
+
+    old_resolved.rename(new_path)
+    logger.info("rename-file: %s → %s (user=%s)", old_resolved, new_path, token_data.email)
+
+    # Update DB references in quotations table
+    try:
+        n1 = await conn.execute(
+            "UPDATE quotations SET output_xlsx = $1 WHERE output_xlsx = $2",
+            str(new_path), str(old_resolved),
+        )
+        n2 = await conn.execute(
+            "UPDATE quotations SET output_pdf = $1 WHERE output_pdf = $2",
+            str(new_path), str(old_resolved),
+        )
+        logger.info("rename-file: DB updates xlsx=%s pdf=%s", n1, n2)
+    except Exception as exc:
+        logger.warning("rename-file: DB update failed (rename still applied on disk): %s", exc)
+
+    return {
+        "data": {"old_path": str(old_resolved), "new_path": str(new_path), "new_name": new_name},
+        "message": f"Đã đổi tên: {old_resolved.name} → {new_name}",
+    }
+
+
+@router.post("/rfq/{rfq_id}/rename-folder")
+async def rename_rfq_folder(
+    rfq_id: int,
+    body: _RenameBody,
+    token_data: TokenData = Depends(require_role(
+        "admin", "manager", "staff", "sales", "procurement", "warehouse", "accountant",
+    )),
+    conn: asyncpg.Connection = Depends(get_db),
+):
+    """Rename a subfolder INSIDE the RFQ folder root (e.g. _AMA BAC NINH_L1).
+
+    Renaming the RFQ root itself is NOT allowed — that breaks
+    find_existing_rfq_folder + scraper which match by RFQ number prefix.
+    Updates `quotations.output_xlsx` / `output_pdf` rows whose paths start
+    with the renamed folder prefix.
+    """
+    from app.etl.bqms_bidding_scraper import find_existing_rfq_folder
+
+    rfq = await conn.fetchrow("SELECT rfq_number FROM bqms_rfq WHERE id = $1", rfq_id)
+    if not rfq:
+        raise HTTPException(404, f"RFQ #{rfq_id} not found")
+    rfq_number = rfq["rfq_number"]
+    root = find_existing_rfq_folder(rfq_number)
+    if root is None or not root.exists():
+        raise HTTPException(404, f"RFQ folder not found for {rfq_number}")
+
+    new_name = (body.new_name or "").strip()
+    if not new_name:
+        raise HTTPException(400, "Tên mới không được rỗng")
+    if "/" in new_name or "\\" in new_name or new_name in (".", ".."):
+        raise HTTPException(400, "Tên mới không được chứa / hoặc \\")
+    if len(new_name) > 200:
+        raise HTTPException(400, "Tên mới quá dài (>200 ký tự)")
+
+    old_p = Path(body.old_path)
+    old_resolved = _safe_resolve_in_root(old_p, root)
+    if not old_resolved.exists():
+        raise HTTPException(404, f"Folder không tồn tại: {old_p.name}")
+    if not old_resolved.is_dir():
+        raise HTTPException(400, "Đường dẫn này không phải folder (có thể là file — dùng /rename-file)")
+    # Forbid renaming the RFQ root itself (scraper / image lookup relies on prefix match)
+    if old_resolved.resolve() == root.resolve():
+        raise HTTPException(
+            400,
+            "Không thể đổi tên folder gốc RFQ (sẽ làm hỏng scrape / image lookup). "
+            "Chỉ đổi tên các subfolder bên trong.",
+        )
+
+    new_path = old_resolved.parent / new_name
+    if new_path == old_resolved:
+        return {"data": {"old": str(old_resolved), "new": str(new_path)}, "message": "Tên không đổi"}
+    if new_path.exists():
+        raise HTTPException(409, f"Folder đã tồn tại: {new_name}")
+
+    old_resolved.rename(new_path)
+    logger.info("rename-folder: %s → %s (user=%s)", old_resolved, new_path, token_data.email)
+
+    # Update DB references: any output_xlsx / output_pdf path that lived
+    # under the renamed folder must be rewritten to the new prefix.
+    old_prefix = str(old_resolved) + "/"
+    new_prefix = str(new_path) + "/"
+    try:
+        await conn.execute(
+            "UPDATE quotations SET output_xlsx = $2 || substr(output_xlsx, length($1) + 1) "
+            "WHERE output_xlsx LIKE $1 || '%'",
+            old_prefix, new_prefix,
+        )
+        await conn.execute(
+            "UPDATE quotations SET output_pdf = $2 || substr(output_pdf, length($1) + 1) "
+            "WHERE output_pdf LIKE $1 || '%'",
+            old_prefix, new_prefix,
+        )
+    except Exception as exc:
+        logger.warning("rename-folder: DB update failed: %s", exc)
+
+    return {
+        "data": {"old_path": str(old_resolved), "new_path": str(new_path), "new_name": new_name},
+        "message": f"Đã đổi tên folder: {old_resolved.name} → {new_name}",
+    }
+
+
+# ---------------------------------------------------------------------------
 # GC Quote Wizard — per Thang 2026-05-11
 # ---------------------------------------------------------------------------
 
@@ -1499,8 +2199,13 @@ async def rfq_wizard_items(
     token_data: TokenData = Depends(require_role("admin", "manager", "staff", "sales", "procurement", "warehouse", "accountant")),
     conn: asyncpg.Connection = Depends(get_db),
 ):
-    """List the items belonging to the same rfq_number as `rfq_id`.
-    Used by the GC wizard step 1 to show all mã hàng of the RFQ."""
+    """List items + pre-fill saved wizard state (materials/parts/processes).
+
+    Thang 2026-05-15 (Issue 12): khi user mở lại GC wizard cho 1 RFQ đã báo
+    giá trước đó, các trường materials/parts/others/processes/nego/jig_name
+    được load từ `quotations.items` (lần báo giá GC gần nhất) để user không
+    phải gõ lại từ đầu.
+    """
     rfq = await conn.fetchrow(
         "SELECT rfq_number FROM bqms_rfq WHERE id = $1", rfq_id,
     )
@@ -1511,15 +2216,150 @@ async def rfq_wizard_items(
         "FROM bqms_rfq WHERE rfq_number = $1 ORDER BY id",
         rfq["rfq_number"],
     )
+
+    # Load latest GC quotation items (if any) — pre-fill wizard
+    prior_items: dict[str, dict] = {}
+    try:
+        prior_row = await conn.fetchrow(
+            """
+            SELECT items FROM quotations
+            WHERE rfq_no = $1 AND flow_type = 'gc' AND deleted_at IS NULL
+            ORDER BY created_at DESC LIMIT 1
+            """,
+            rfq["rfq_number"],
+        )
+        if prior_row and prior_row["items"]:
+            raw = prior_row["items"]
+            if isinstance(raw, str):
+                raw = _json.loads(raw)
+            if isinstance(raw, list):
+                for it in raw:
+                    if isinstance(it, dict):
+                        code = (it.get("bqms_code") or it.get("bqms") or "").strip()
+                        if code:
+                            prior_items[code] = it
+    except Exception as exc:
+        logger.warning("wizard-items: load prior GC quote failed: %s", exc)
+
+    def _enrich(r) -> dict:
+        code = r["bqms_code"] or ""
+        out = {
+            "bqms_code": code,
+            "spec": r["specification"] or "",
+            "qty": int(r["expected_qty"] or 1),
+        }
+        prior = prior_items.get(code)
+        if prior:
+            # carry over wizard-specific structured fields
+            for key in ("jig_name", "materials", "parts", "others", "processes", "nego"):
+                if key in prior:
+                    out[key] = prior[key]
+        return out
+
+    return {"data": [_enrich(r) for r in rows]}
+
+
+@router.post("/rfq/{rfq_id}/force-rescan")
+async def force_rescan_rfq(
+    rfq_id: int,
+    token_data: TokenData = Depends(require_role(
+        "admin", "manager", "staff", "sales", "procurement", "warehouse", "accountant",
+    )),
+    conn: asyncpg.Connection = Depends(get_db),
+):
+    """Force drill detail + download attachments + extract images cho 1 RFQ.
+
+    Thang 2026-05-15 (Issue 14): user bấm "Quét ngay" trên image section khi
+    folder chưa có. Chạy sync (~30-60s) qua samsung_session_lock để không
+    đụng cron scrape đang chạy.
+
+    Idempotent: nếu folder/files đã có rồi → return ngay không drill lại.
+    """
+    rfq = await conn.fetchrow(
+        "SELECT rfq_number FROM bqms_rfq WHERE id = $1", rfq_id,
+    )
+    if not rfq:
+        raise HTTPException(404, f"RFQ #{rfq_id} not found")
+    rfq_number = rfq["rfq_number"]
+
+    # Find staging row (need raw_json for download_files_for_rfq)
+    staging = await conn.fetchrow(
+        """
+        SELECT id, raw_json FROM bqms_vendor_portal_staging
+        WHERE module='bidding' AND rfq_number = $1
+        ORDER BY id DESC LIMIT 1
+        """,
+        rfq_number,
+    )
+    if not staging:
+        raise HTTPException(404, f"No staging row for {rfq_number} — chờ cron list-scrape")
+
+    raw_row = staging["raw_json"]
+    if isinstance(raw_row, str):
+        raw_row = _json.loads(raw_row or "{}")
+    if not isinstance(raw_row, dict):
+        raw_row = {}
+
+    # Skip if already drilled
+    from app.etl.bqms_bidding_scraper import find_existing_rfq_folder, download_files_for_rfq
+    folder = find_existing_rfq_folder(rfq_number)
+    has_images = bool(folder and (folder / "images").exists() and any(
+        (folder / "images").glob("*.png")
+    ))
+    has_detail = bool((raw_row.get("_detail") or {}).get("items"))
+    if folder and has_images and has_detail:
+        return {
+            "data": {"rfq_number": rfq_number, "folder": str(folder), "already_drilled": True},
+            "message": "Folder + ảnh + detail đã có sẵn",
+        }
+
+    # Acquire Samsung session lock then drill
+    from app.services.samsung_session_lock import samsung_session_lock
+    from app.core.config import settings as cfg
+    import asyncpg as apg
+    db_url = (
+        str(cfg.DATABASE_URL)
+        .replace("+asyncpg", "")
+        .replace("postgresql+asyncpg", "postgresql")
+    )
+    pool = await apg.create_pool(db_url, min_size=1, max_size=2)
+    try:
+        async with samsung_session_lock(pool, who=f"force-rescan-{rfq_number}",
+                                        timeout_seconds=180):
+            result = await download_files_for_rfq(rfq_number, raw_row, db_pool=pool)
+
+        # Merge fresh_detail into staging.raw_json + upsert bqms_rfq
+        if result.get("fresh_detail"):
+            new_raw = {**raw_row, "_detail": result["fresh_detail"]}
+            async with pool.acquire() as c:
+                await c.execute(
+                    "UPDATE bqms_vendor_portal_staging SET raw_json = $1::jsonb "
+                    "WHERE id = $2",
+                    _json.dumps(new_raw, default=str, ensure_ascii=False),
+                    staging["id"],
+                )
+            from app.etl.bqms_bidding_scraper import upsert_bqms_rfq_for_one_staging_row
+            n = await upsert_bqms_rfq_for_one_staging_row(pool, new_raw)
+            result["bqms_rfq_upserts"] = n
+    finally:
+        await pool.close()
+
+    logger.info(
+        "force-rescan RFQ %s by user=%s: files=%d images=%d upserts=%s",
+        rfq_number, token_data.email,
+        len(result.get("attachments") or []),
+        len(result.get("images") or []),
+        result.get("bqms_rfq_upserts", "?"),
+    )
     return {
-        "data": [
-            {
-                "bqms_code": r["bqms_code"] or "",
-                "spec": r["specification"] or "",
-                "qty": int(r["expected_qty"] or 1),
-            }
-            for r in rows
-        ],
+        "data": {
+            "rfq_number": rfq_number,
+            "folder": str(folder) if folder else None,
+            "files_downloaded": len(result.get("attachments") or []),
+            "images_extracted": len(result.get("images") or []),
+            "items_drilled": len((result.get("fresh_detail") or {}).get("items") or []),
+        },
+        "message": f"Quét xong RFQ {rfq_number}",
     }
 
 
@@ -1566,6 +2406,9 @@ class WizardFinalizeIn(_WizardBase):
     rfq_id: int
     round_n: int = _WizardField(..., ge=1, le=4)
     items: list[WizardItemIn] = _WizardField(..., min_length=1)
+    # Thang 2026-06-13 (Bug fix T3): yyyy-mm-dd from frontend; None → server
+    # falls back to today in VN tz (Asia/Ho_Chi_Minh) inside the GC builder.
+    current_date: str | None = None
 
 
 @router.post("/quote-wizard/finalize-gc")
@@ -1678,16 +2521,21 @@ async def quote_wizard_finalize_gc(
         len(images_map), len(payload.items),
     )
 
+    # Thang 2026-06-13 (Bug fix T3): pass current_date from frontend so the
+    # date stamped on each GC sheet matches what the user sees in the UI.
+    # `None` → builder defaults to today in VN tz inside _coerce_quote_date.
     result = fill_gc_quotation_from_wizard(
         template_path=gc_template,
         wizard_items=[it.model_dump() for it in payload.items],
         images_map=images_map,
         rfq_no=rfq_number,
         output_path=out_xlsx,
+        quote_date=payload.current_date,
     )
 
-    # Per Thang 2026-05-11: each item → its own PDF (not 1 combined PDF).
-    # The result has `per_item_files = [{bqms_code, xlsx}]` — render PDF per item.
+    # Thang 2026-05-15 (Issue 11): chỉ giữ 1 file Excel COMBINED + nhiều
+    # PDF tách per-item. Per-item xlsx chỉ dùng làm input cho Gotenberg
+    # conversion → xoá sau khi render PDF xong.
     from app.services.gotenberg_service import convert_xlsx_to_pdf
     per_item_outputs: list[dict[str, str]] = []
     for entry in (result.get("per_item_files") or []):
@@ -1699,15 +2547,16 @@ async def quote_wizard_finalize_gc(
         except Exception as exc:
             logger.warning("Gotenberg per-item conversion failed for %s: %s", per_xlsx, exc)
             entry["pdf"] = None
+        # Cleanup: xoá per-item xlsx (user không cần — chỉ giữ combined)
+        try:
+            Path(per_xlsx).unlink(missing_ok=True)
+        except OSError as exc:
+            logger.warning("cleanup per-item xlsx %s failed: %s", per_xlsx, exc)
+        entry["xlsx"] = None
         per_item_outputs.append(entry)
 
-    # Also render the combined xlsx as a single PDF (optional, for review).
-    out_pdf = out_xlsx.replace(".xlsx", ".pdf")
-    try:
-        await convert_xlsx_to_pdf(out_xlsx, out_pdf)
-    except Exception as exc:
-        logger.warning("Gotenberg combined PDF conversion failed: %s", exc)
-        out_pdf = None
+    # Combined PDF (review): bỏ — user chỉ muốn 1 xlsx combined + PDF tách.
+    out_pdf = None
 
     # INSERT quotation row
     import json as _j
@@ -1732,25 +2581,23 @@ async def quote_wizard_finalize_gc(
     # current user as the assignee (Phase 2 per Thang 2026-05-12). The "Người PT"
     # column on the BQMS table reads users.full_name via assigned_to.
     for bqms_code, total in item_totals.items():
+        # Thang 2026-05-15: assigned_to GHI ĐÈ (không COALESCE) — user nào
+        # nhấn báo giá thì cột Người PT cập nhật về user đó.
+        # Thang 2026-06-13: also pin quoted_dt_v{n} = CURRENT_DATE for GC flow.
         await conn.execute(
             f"UPDATE bqms_rfq "
             f"SET quoted_price_bqms_v{payload.round_n} = $1, "
-            f"    assigned_to = COALESCE(assigned_to, $4::uuid), "
+            f"    quoted_dt_v{payload.round_n} = CURRENT_DATE, "
+            f"    assigned_to = $4::uuid, "
             f"    updated_at = NOW() "
             f"WHERE rfq_number = $2 AND bqms_code = $3",
             float(total), rfq_number, bqms_code, token_data.user_id,
         )
 
+    # Thang 2026-05-15 (Issue 11): 1 file Excel combined + N file PDF per-item.
+    # Bỏ gc_quotation_pdf (combined) + gc_quotation_xlsx_item (tách) khỏi list.
     files = [{"type": "gc_quotation_xlsx", "path": out_xlsx}]
-    if out_pdf:
-        files.append({"type": "gc_quotation_pdf", "path": out_pdf})
-    # Add per-item files so frontend can list them too
     for e in per_item_outputs:
-        files.append({
-            "type": "gc_quotation_xlsx_item",
-            "path": e["xlsx"],
-            "bqms_code": e["bqms_code"],
-        })
         if e.get("pdf"):
             files.append({
                 "type": "gc_quotation_pdf_item",
@@ -1949,6 +2796,327 @@ async def scrape_control_toggle(
     except Exception as exc:
         logger.warning("audit log toggle failed: %s", exc)
     return {"data": {"enabled": enabled}, "message": f"Cron scrape đã {'BẬT' if enabled else 'TẮT'}"}
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# BQMS Scraper Settings (Thang 2026-06-22)
+# ─────────────────────────────────────────────────────────────────────────────
+# Admin-only console: toggle the 6 Samsung-scraper cron flags + manage the
+# Samsung login credentials at RUNTIME (cross-process: sc-api writes app_config,
+# sc-worker/sc-scheduler read it via the credential resolver) WITHOUT a restart.
+#
+# Flag keys live in app_config as bqms_<key>_enabled. Excel auto-import is a
+# LOCAL file importer (not a Samsung scraper) so it is intentionally excluded
+# from this toggle set.
+# ─────────────────────────────────────────────────────────────────────────────
+
+# (ui_key → app_config key). These are the 6 Samsung scrapers, all paused.
+_SCRAPER_FLAG_KEYS: dict[str, str] = {
+    "periodic_scrape": "bqms_periodic_scrape_enabled",
+    "smart_sync":      "bqms_smart_sync_enabled",
+    "smart_rescan":    "bqms_smart_rescan_enabled",
+    "code_track":      "bqms_code_track_enabled",
+    "state_tick":      "bqms_state_tick_enabled",
+    "won_sync":        "bqms_won_sync_periodic_enabled",
+}
+
+
+def _coerce_flag(val: Any) -> bool:
+    """Normalize a JSONB app_config value (bool / 'true' / 1) to a Python bool."""
+    if isinstance(val, bool):
+        return val
+    if isinstance(val, (int, float)):
+        return bool(val)
+    if isinstance(val, str):
+        return val.strip().strip('"').lower() in ("true", "1", "yes")
+    return False
+
+
+async def _read_scraper_flags(conn: asyncpg.Connection) -> dict[str, bool]:
+    """Read the 6 scraper flags from app_config. Missing row → False (paused)."""
+    rows = await conn.fetch(
+        "SELECT key, value #>> '{}' AS v FROM app_config WHERE key = ANY($1::text[])",
+        list(_SCRAPER_FLAG_KEYS.values()),
+    )
+    by_key = {r["key"]: r["v"] for r in rows}
+    return {
+        ui_key: _coerce_flag(by_key.get(cfg_key))
+        for ui_key, cfg_key in _SCRAPER_FLAG_KEYS.items()
+    }
+
+
+@router.get("/scraper-settings")
+async def get_scraper_settings(
+    token_data: TokenData = Depends(require_role("admin")),
+    conn: asyncpg.Connection = Depends(get_db),
+):
+    """Admin console snapshot: the 6 scraper flags + credential metadata.
+
+    NEVER returns the Samsung password value — only `password_set` + `source`.
+    """
+    from app.services.bqms_credentials import get_bqms_credentials_meta
+
+    flags = await _read_scraper_flags(conn)
+
+    meta = get_bqms_credentials_meta()  # {username, password_set, source}
+
+    # When the password override lives in the DB, surface its updated_at.
+    cred_updated_at = None
+    if meta["source"] == "db":
+        row = await conn.fetchrow(
+            "SELECT updated_at FROM app_config WHERE key = 'bqms_password'"
+        )
+        if row and row["updated_at"]:
+            cred_updated_at = row["updated_at"].isoformat()
+
+    return {
+        "flags": flags,
+        "credentials": {
+            "username": meta["username"],
+            "password_set": meta["password_set"],
+            "source": meta["source"],          # 'db' (override) | 'env' (fallback)
+            "updated_at": cred_updated_at,
+        },
+    }
+
+
+class ScraperFlagUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    key: str | None = None
+    value: bool | None = None
+    flags: dict[str, bool] | None = None  # bulk form
+
+
+@router.put("/scraper-settings/flags")
+async def update_scraper_flags(
+    body: ScraperFlagUpdate,
+    token_data: TokenData = Depends(require_role("admin")),
+    conn: asyncpg.Connection = Depends(get_db),
+):
+    """Upsert one or many scraper flags. Returns the full new flag set.
+
+    Single:  { "key": "won_sync", "value": true }
+    Bulk:    { "flags": { "won_sync": true, "state_tick": false } }
+    """
+    # Build the set of (ui_key → bool) to apply.
+    updates: dict[str, bool] = {}
+    if body.flags is not None:
+        updates.update(body.flags)
+    if body.key is not None:
+        if body.value is None:
+            raise HTTPException(status_code=400, detail="`value` is required when `key` is given")
+        updates[body.key] = body.value
+
+    if not updates:
+        raise HTTPException(status_code=400, detail="Provide `key`+`value` or `flags`")
+
+    invalid = [k for k in updates if k not in _SCRAPER_FLAG_KEYS]
+    if invalid:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unknown flag(s): {', '.join(invalid)}. "
+                   f"Valid: {', '.join(_SCRAPER_FLAG_KEYS)}",
+        )
+
+    # Safety interlock: ENABLING any scraper requires a successful Samsung test-login
+    # within the last 24h. This stops re-enabling a scraper with an outdated password
+    # (repeated bad logins lock the Samsung account). Disabling is ALWAYS allowed so
+    # the kill-switch works even when credentials are wrong.
+    if any(bool(v) for v in updates.values()):
+        ok_recent = await conn.fetchval(
+            """
+            SELECT (value #>> '{}')::timestamptz > NOW() - INTERVAL '24 hours'
+            FROM app_config WHERE key = 'bqms_last_login_ok_at'
+            """
+        )
+        if not ok_recent:
+            raise HTTPException(
+                status_code=409,
+                detail="Cần Test đăng nhập Samsung thành công (trong 24 giờ) trước khi "
+                       "bật scrape — tránh spam mật khẩu cũ làm khoá tài khoản.",
+            )
+
+    for ui_key, enabled in updates.items():
+        cfg_key = _SCRAPER_FLAG_KEYS[ui_key]
+        await conn.execute(
+            """
+            INSERT INTO app_config (key, value, updated_at, updated_by)
+            VALUES ($1, $2::jsonb, NOW(), $3::uuid)
+            ON CONFLICT (key) DO UPDATE SET
+                value      = EXCLUDED.value,
+                updated_at = EXCLUDED.updated_at,
+                updated_by = EXCLUDED.updated_by
+            """,
+            cfg_key, "true" if enabled else "false", token_data.user_id,
+        )
+        try:
+            await conn.execute(
+                """
+                INSERT INTO audit_log
+                    (user_id, action, table_name, record_id, new_data, created_at)
+                VALUES ($1::uuid, 'bqms.scraper_flag', 'app_config', $2, $3::jsonb, NOW())
+                """,
+                token_data.user_id, cfg_key, _json.dumps({"enabled": enabled}),
+            )
+        except Exception as exc:
+            logger.warning("audit log scraper_flag failed: %s", exc)
+
+    flags = await _read_scraper_flags(conn)
+    logger.info("bqms scraper flags updated by %s: %s", token_data.email, updates)
+    return {"flags": flags}
+
+
+class ScraperCredsUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    username: str | None = None
+    password: str | None = None
+
+
+@router.put("/scraper-settings/credentials")
+async def update_scraper_credentials(
+    body: ScraperCredsUpdate,
+    token_data: TokenData = Depends(require_role("admin")),
+    conn: asyncpg.Connection = Depends(get_db),
+):
+    """Upsert the Samsung credential override into app_config (runtime change).
+
+    `username` and `password` are independent — send either or both. The
+    password is stored to app_config 'bqms_password' but is NEVER returned and
+    NEVER logged. Busts the in-process credential cache so this API process
+    sees the change immediately; other processes pick it up on cache expiry.
+    """
+    from app.services.bqms_credentials import (
+        bust_bqms_credentials_cache,
+        get_bqms_credentials_meta,
+    )
+
+    if body.username is None and body.password is None:
+        raise HTTPException(status_code=400, detail="Provide `username` and/or `password`")
+
+    async def _upsert(key: str, value: str) -> None:
+        await conn.execute(
+            """
+            INSERT INTO app_config (key, value, updated_at, updated_by)
+            VALUES ($1, to_jsonb($2::text), NOW(), $3::uuid)
+            ON CONFLICT (key) DO UPDATE SET
+                value      = EXCLUDED.value,
+                updated_at = EXCLUDED.updated_at,
+                updated_by = EXCLUDED.updated_by
+            """,
+            key, value, token_data.user_id,
+        )
+
+    if body.username is not None:
+        await _upsert("bqms_username", body.username.strip())
+    if body.password is not None:
+        await _upsert("bqms_password", body.password)
+
+    # Audit — record WHAT changed, never the secret value.
+    try:
+        await conn.execute(
+            """
+            INSERT INTO audit_log
+                (user_id, action, table_name, record_id, new_data, created_at)
+            VALUES ($1::uuid, 'bqms.scraper_credentials', 'app_config', 'bqms_credentials', $2::jsonb, NOW())
+            """,
+            token_data.user_id,
+            _json.dumps({
+                "username_changed": body.username is not None,
+                "password_changed": body.password is not None,
+            }),
+        )
+    except Exception as exc:
+        logger.warning("audit log scraper_credentials failed: %s", exc)
+
+    bust_bqms_credentials_cache()
+    meta = get_bqms_credentials_meta()
+
+    row = await conn.fetchrow(
+        "SELECT MAX(updated_at) AS ts FROM app_config WHERE key IN ('bqms_username','bqms_password')"
+    )
+    updated_at = row["ts"].isoformat() if row and row["ts"] else None
+
+    logger.info(
+        "bqms credentials updated by %s (username_changed=%s password_changed=%s)",
+        token_data.email, body.username is not None, body.password is not None,
+    )
+    return {
+        "username": meta["username"],
+        "password_set": meta["password_set"],
+        "updated_at": updated_at,
+    }
+
+
+@router.post("/scraper-settings/test-login")
+async def test_scraper_login(
+    token_data: TokenData = Depends(require_role("admin")),
+    conn: asyncpg.Connection = Depends(get_db),
+):
+    """Run ONE Samsung login with the CURRENT resolved credentials.
+
+    Wrapped in samsung_session_lock (short timeout) so it can't collide with a
+    running scraper/push. Busts the credential cache first so a just-saved
+    password is used. Does NOT enable any flag. Returns { ok, message }.
+    """
+    from app.services.bqms_credentials import bust_bqms_credentials_cache
+    from app.services.samsung_session_lock import samsung_session_lock
+    from app.etl.bqms_playwright import playwright_bqms_login
+    from app.core.config import settings as cfg
+    import asyncpg as apg
+    import asyncio
+
+    # Use the freshly-saved override, not a stale cached value.
+    bust_bqms_credentials_cache()
+
+    db_url = (
+        str(cfg.DATABASE_URL)
+        .replace("+asyncpg", "")
+        .replace("postgresql+asyncpg", "postgresql")
+    )
+    pool = await apg.create_pool(db_url, min_size=1, max_size=2)
+    try:
+        async with samsung_session_lock(
+            pool, who=f"test-login-{token_data.email}", timeout_seconds=45,
+        ):
+            # Hard outer bound so a hung Samsung/Playwright login can't hang the
+            # request indefinitely (the 45s above only bounds lock ACQUISITION).
+            cookies = await asyncio.wait_for(playwright_bqms_login(), timeout=90)
+        ok = bool(cookies and cookies.get("JSESSIONID"))
+        message = (
+            "Đăng nhập Samsung BQMS thành công."
+            if ok else
+            "Đăng nhập trả về nhưng không có session cookie — kiểm tra lại tài khoản."
+        )
+    except Exception as exc:  # noqa: BLE001
+        # Surface the failure reason (Samsung error text) but never the password.
+        ok = False
+        message = f"Đăng nhập thất bại: {exc}"
+        logger.warning("bqms test-login failed for %s: %s", token_data.email, exc)
+    finally:
+        await pool.close()
+
+    # On success, stamp the time so the flag-enable gate (update_scraper_flags) knows
+    # a recent login PASSED — this is the safety interlock that stops anyone from
+    # re-enabling a scraper while an outdated Samsung password would get spammed and
+    # lock the account.
+    if ok:
+        try:
+            await conn.execute(
+                """
+                INSERT INTO app_config (key, value, updated_at, updated_by)
+                VALUES ('bqms_last_login_ok_at', to_jsonb(NOW()::text), NOW(), $1::uuid)
+                ON CONFLICT (key) DO UPDATE SET
+                    value      = EXCLUDED.value,
+                    updated_at = EXCLUDED.updated_at,
+                    updated_by = EXCLUDED.updated_by
+                """,
+                token_data.user_id,
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("failed to stamp bqms_last_login_ok_at: %s", exc)
+
+    logger.info("bqms test-login by %s → ok=%s", token_data.email, ok)
+    return {"ok": ok, "message": message}
 
 
 # Phase F (Thang 2026-05-13): Data-gap tracking — thống kê RFQ còn thiếu detail
@@ -2692,19 +3860,29 @@ def _build_delivery_filters(
             params.append(status)
             idx += 1
     if date_from:
-        conditions.append(f"COALESCE(d.po_date, d.delivery_date) >= ${idx}")
+        # Thang 2026-06-01: dùng OR — show rows nếu po_date HOẶC delivery_date
+        # nằm trong khoảng. Trước đây COALESCE(po_date, delivery_date) sẽ ẩn
+        # các đơn po_date cũ (vd Feb) nhưng lịch giao tháng 6.
+        conditions.append(f"(d.po_date >= ${idx} OR d.delivery_date >= ${idx})")
         params.append(date_from)
         idx += 1
     if date_to:
-        conditions.append(f"COALESCE(d.po_date, d.delivery_date) <= ${idx}")
+        conditions.append(f"(d.po_date <= ${idx} OR d.delivery_date <= ${idx})")
         params.append(date_to)
         idx += 1
     if month:
-        conditions.append(f"EXTRACT(MONTH FROM COALESCE(d.po_date, d.delivery_date)) = ${idx}")
+        # Match nếu MONTH(po_date) = M HOẶC MONTH(delivery_date) = M.
+        conditions.append(
+            f"(EXTRACT(MONTH FROM d.po_date) = ${idx} "
+            f"OR EXTRACT(MONTH FROM d.delivery_date) = ${idx})"
+        )
         params.append(month)
         idx += 1
     if year:
-        conditions.append(f"EXTRACT(YEAR FROM COALESCE(d.po_date, d.delivery_date)) = ${idx}")
+        conditions.append(
+            f"(EXTRACT(YEAR FROM d.po_date) = ${idx} "
+            f"OR EXTRACT(YEAR FROM d.delivery_date) = ${idx})"
+        )
         params.append(year)
         idx += 1
 
@@ -2719,32 +3897,72 @@ async def delivery_kpi(
     token_data: TokenData = Depends(require_role("staff", "manager", "admin")),
     conn: asyncpg.Connection = Depends(get_db),
 ):
-    """KPI thống kê giao hàng — tính trên toàn bộ dữ liệu đã lọc (không phân trang)."""
+    """KPI thống kê giao hàng — tính trên toàn bộ dữ liệu đã lọc (không phân trang).
+
+    Thang 2026-06-02: dedup theo (po_number, bqms_code) cho các field "per-PO-line"
+    (total_order_value, total_orders, delivered/in_transit/pending count).
+    Lý do: 1 PO line có thể được giao thành nhiều partial → tạo nhiều row trong
+    bqms_deliveries với CÙNG `amount`. SUM(amount) naive bị nhân 2-3 lần.
+    Trạng thái của 1 line = trạng thái của row partial MỚI NHẤT (theo delivery_date).
+
+    Per-shipment fields (total_delivered_vnd) vẫn SUM trên row vì mỗi partial có
+    value khác nhau (đại diện cho giá trị shipment đó).
+    """
     where, params = _build_delivery_filters(status, month, year)
 
-    row = await conn.fetchrow(
+    # Query 1: per-pair stats (dedup by line)
+    pair_row = await conn.fetchrow(
         f"""
+        WITH ranked AS (
+            SELECT
+                d.po_number, d.bqms_code,
+                d.delivery_status::text AS status,
+                d.amount,
+                ROW_NUMBER() OVER (
+                    PARTITION BY d.po_number, d.bqms_code
+                    ORDER BY d.delivery_date DESC NULLS LAST, d.id DESC
+                ) AS rn
+              FROM bqms_deliveries d
+             WHERE {where}
+        ),
+        pair_state AS (
+            SELECT
+                po_number, bqms_code,
+                MAX(status) FILTER (WHERE rn = 1) AS latest_status,
+                MAX(amount) AS amount
+              FROM ranked
+             GROUP BY po_number, bqms_code
+        )
         SELECT
             COUNT(*)::int AS total_orders,
             COUNT(*) FILTER (
-                WHERE d.delivery_status::text IN ('da_giao','delivered','completed','hoan_tat')
+                WHERE latest_status IN ('da_giao','delivered','completed','hoan_tat')
             )::int AS delivered_count,
             COUNT(*) FILTER (
-                WHERE d.delivery_status::text IN ('dang_giao','in_transit','picked_up','customs_clearance')
+                WHERE latest_status IN ('dang_giao','in_transit','picked_up','customs_clearance')
             )::int AS in_transit_count,
             COUNT(*) FILTER (
-                WHERE d.delivery_status::text IN ('chua_giao','pending')
+                WHERE latest_status IN ('chua_giao','pending')
             )::int AS pending_count,
-            COALESCE(SUM(d.total_delivered_value_vnd) FILTER (
-                WHERE d.delivery_status::text IN ('da_giao','delivered','completed','hoan_tat')
-            ), 0)::bigint AS total_delivered_vnd,
-            COALESCE(SUM(d.amount), 0)::bigint AS total_order_value
+            COALESCE(SUM(amount), 0)::bigint AS total_order_value
+        FROM pair_state
+        """,
+        *params,
+    )
+
+    # Query 2: per-row (partial shipment) sum — naive SUM since values differ per partial
+    delivered_vnd = await conn.fetchval(
+        f"""
+        SELECT COALESCE(SUM(d.total_delivered_value_vnd) FILTER (
+            WHERE d.delivery_status::text IN ('da_giao','delivered','completed','hoan_tat')
+        ), 0)::bigint
         FROM bqms_deliveries d
         WHERE {where}
         """,
         *params,
     )
-    return dict(row)
+
+    return {**dict(pair_row), "total_delivered_vnd": int(delivered_vnd or 0)}
 
 
 @router.get("/deliveries/revenue-stats")
@@ -2816,37 +4034,69 @@ async def delivery_revenue_stats(
         params.append(f"%{q}%"); idx += 1
     where_sql = " AND ".join(conds)
 
-    summary_row = await conn.fetchrow(
+    # Thang 2026-06-02: dedup theo (po, bqms_code) cho các field per-PO-line.
+    # Xem note trong /deliveries/kpi để biết lý do.
+    pair_summary = await conn.fetchrow(
         f"""
+        WITH ranked AS (
+            SELECT
+                d.po_number, d.bqms_code,
+                d.delivery_status::text AS status,
+                d.amount, d.quantity,
+                ROW_NUMBER() OVER (
+                    PARTITION BY d.po_number, d.bqms_code
+                    ORDER BY d.delivery_date DESC NULLS LAST, d.id DESC
+                ) AS rn
+              FROM bqms_deliveries d
+             WHERE {where_sql}
+        ),
+        pair_state AS (
+            SELECT
+                po_number, bqms_code,
+                MAX(status) FILTER (WHERE rn = 1) AS latest_status,
+                MAX(amount) AS amount,
+                MAX(quantity) AS quantity
+              FROM ranked
+             GROUP BY po_number, bqms_code
+        )
         SELECT
             COUNT(*)::int AS total_orders,
-            COALESCE(SUM(d.amount), 0)::bigint AS total_amount_vnd,
+            COALESCE(SUM(amount), 0)::bigint AS total_amount_vnd,
+            COUNT(*) FILTER (
+                WHERE latest_status IN ('da_giao','delivered','completed','hoan_tat')
+            )::int AS delivered_count,
+            COUNT(*) FILTER (
+                WHERE latest_status IN ('dang_giao','in_transit','picked_up','customs_clearance')
+            )::int AS in_transit_count,
+            COUNT(*) FILTER (
+                WHERE latest_status IN ('chua_giao','pending')
+            )::int AS pending_count,
+            COALESCE(SUM(amount) FILTER (
+                WHERE latest_status IN ('chua_giao','pending')
+            ), 0)::bigint AS pending_amount_vnd,
+            COALESCE(SUM(amount) FILTER (
+                WHERE latest_status IN ('dang_giao','in_transit','picked_up','customs_clearance')
+            ), 0)::bigint AS in_transit_amount_vnd,
+            COALESCE(SUM(quantity), 0)::bigint AS total_qty
+        FROM pair_state
+        """,
+        *params,
+    )
+
+    # Per-row (partial shipment) sums — values differ per partial nên SUM naive OK
+    row_summary = await conn.fetchrow(
+        f"""
+        SELECT
             COALESCE(SUM(d.total_delivered_value_vnd) FILTER (
                 WHERE d.delivery_status::text IN ('da_giao','delivered','completed','hoan_tat')
             ), 0)::bigint AS delivered_amount_vnd,
-            COUNT(*) FILTER (
-                WHERE d.delivery_status::text IN ('da_giao','delivered','completed','hoan_tat')
-            )::int AS delivered_count,
-            COUNT(*) FILTER (
-                WHERE d.delivery_status::text IN ('dang_giao','in_transit','picked_up','customs_clearance')
-            )::int AS in_transit_count,
-            COUNT(*) FILTER (
-                WHERE d.delivery_status::text IN ('chua_giao','pending')
-            )::int AS pending_count,
-            COALESCE(SUM(d.amount) FILTER (
-                WHERE d.delivery_status::text IN ('chua_giao','pending')
-            ), 0)::bigint AS pending_amount_vnd,
-            COALESCE(SUM(d.amount) FILTER (
-                WHERE d.delivery_status::text IN ('dang_giao','in_transit','picked_up','customs_clearance')
-            ), 0)::bigint AS in_transit_amount_vnd,
-            COALESCE(SUM(d.quantity), 0)::bigint AS total_qty,
             COALESCE(SUM(d.actual_delivered_qty), 0)::bigint AS delivered_qty
         FROM bqms_deliveries d
         WHERE {where_sql}
         """,
         *params,
     )
-    summary = dict(summary_row)
+    summary = {**dict(pair_summary), **dict(row_summary)}
     summary["delivery_rate"] = (
         round(summary["delivered_count"] / summary["total_orders"] * 100, 2)
         if summary["total_orders"] > 0 else 0.0
@@ -2986,6 +4236,7 @@ async def export_deliveries_excel(
         ("shipping_no", "Shipping No"),
         ("quotation_no", "Số QT"),
         ("bqms_code", "BQMS code"),
+        ("item_name", "Item Name"),
         ("specification", "Spec"),
         ("quantity", "SL"),
         ("unit", "Đơn vị"),
@@ -3048,7 +4299,7 @@ async def export_deliveries_excel(
                 cell.alignment = Alignment(horizontal="right")
 
     # Auto-fit column widths
-    COL_WIDTHS = [12, 14, 14, 14, 18, 30, 8, 8, 12, 14, 8, 14, 18, 25, 14, 12, 14, 10, 25, 16, 10, 18]
+    COL_WIDTHS = [12, 14, 14, 14, 18, 22, 30, 8, 8, 12, 14, 8, 14, 18, 25, 14, 12, 14, 10, 25, 16, 10, 18]
     for col_idx, width in enumerate(COL_WIDTHS, 1):
         ws.column_dimensions[openpyxl.utils.get_column_letter(col_idx)].width = width
 
@@ -3075,6 +4326,7 @@ async def delivery_tracking(
     date_to: date | None = Query(None),
     month: int | None = Query(None, ge=1, le=12),
     year: int | None = Query(None, ge=2020, le=2099),
+    search: str | None = Query(None, description="Tìm theo PO, BQMS code, shipping no, specification"),
     page: int = Query(1, ge=1),
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
@@ -3084,8 +4336,33 @@ async def delivery_tracking(
     where, params = _build_delivery_filters(status, month, year, date_from, date_to)
     idx = len(params) + 1
 
+    # Thang 2026-06-01: thêm search param để click PO từ global search bar
+    # navigate trực tiếp tới row PO đó (kết hợp ?po=...&year=all).
+    if search:
+        s = search.strip()
+        if s:
+            like = f"%{s}%"
+            where = (
+                f"({where}) AND ("
+                f"d.po_number ILIKE ${idx} OR d.bqms_code ILIKE ${idx} "
+                f"OR d.shipping_no ILIKE ${idx} OR d.specification ILIKE ${idx} "
+                f"OR d.item_name ILIKE ${idx} OR d.quotation_no ILIKE ${idx})"
+            )
+            params.append(like)
+            idx += 1
+
+    # Issue 3 (Thang 2026-06-25): dedup at query level — show ONE row per
+    # (po_number, bqms_code) = LATEST shipment, while ALL shipment rows stay in
+    # the DB (history preserved). COUNT must reflect deduped groups for paging.
     total = await conn.fetchval(
-        f"SELECT COUNT(*) FROM bqms_deliveries d WHERE {where}", *params
+        f"""
+        SELECT COUNT(*) FROM (
+            SELECT 1 FROM bqms_deliveries d
+            WHERE {where}
+            GROUP BY d.po_number, d.bqms_code
+        ) x
+        """,
+        *params,
     )
 
     actual_offset = (page - 1) * limit if page > 1 else offset
@@ -3093,16 +4370,31 @@ async def delivery_tracking(
     params.extend([limit, actual_offset])
     rows = await conn.fetch(
         f"""
-        SELECT d.*,
-               drv.full_name AS driver_name,
-               drv.phone AS driver_phone,
-               drv.license_plate AS driver_license_plate,
-               drv.vehicle_type AS driver_vehicle_type
-        FROM bqms_deliveries d
-        LEFT JOIN bqms_contacts drv
-            ON drv.id = d.driver_id AND drv.is_driver = true
-        WHERE {where}
-        ORDER BY d.po_date DESC NULLS LAST, d.id DESC
+        WITH base AS (
+            SELECT d.*,
+                   drv.full_name AS driver_name,
+                   drv.phone AS driver_phone,
+                   drv.license_plate AS driver_license_plate,
+                   drv.vehicle_type AS driver_vehicle_type
+            FROM bqms_deliveries d
+            LEFT JOIN bqms_contacts drv
+                ON drv.id = d.driver_id AND drv.is_driver = true
+            WHERE {where}
+        ),
+        ranked AS (
+            SELECT *,
+                   ROW_NUMBER() OVER (
+                       PARTITION BY po_number, bqms_code
+                       ORDER BY COALESCE(actual_delivered_at, delivery_date::timestamptz) DESC NULLS LAST,
+                                updated_at DESC NULLS LAST,
+                                id DESC
+                   ) AS rn,
+                   COUNT(*) OVER (PARTITION BY po_number, bqms_code) AS shipment_count
+            FROM base
+        )
+        SELECT * FROM ranked
+        WHERE rn = 1
+        ORDER BY po_date DESC NULLS LAST, id DESC
         LIMIT ${idx} OFFSET ${idx + 1}
         """,
         *params,
@@ -3117,6 +4409,42 @@ async def delivery_tracking(
         data.append(d)
 
     return {"data": data, "total": total}
+
+
+@router.get("/deliveries/shipments")
+async def delivery_shipments(
+    po_number: str = Query(..., description="PO number (exact)"),
+    bqms_code: str = Query(..., description="BQMS code (exact)"),
+    token_data: TokenData = Depends(require_role("staff", "manager", "admin")),
+    conn: asyncpg.Connection = Depends(get_db),
+):
+    """ENHANCEMENT P4 (Thang LOCKED 2026-06-25): full shipment history for one
+    (po_number, bqms_code) pair. The /deliveries list dedups to the LATEST
+    shipment per pair; this returns ALL shipment rows for the detail slide-over,
+    ordered latest-first (same ordering as the dedup ROW_NUMBER)."""
+    rows = await conn.fetch(
+        """
+        SELECT id, shipping_no, delivery_date, actual_delivered_at,
+               actual_delivered_qty, quantity, delivery_status,
+               total_delivered_value_vnd, data_source
+        FROM bqms_deliveries
+        WHERE po_number = $1 AND bqms_code = $2
+        ORDER BY COALESCE(actual_delivered_at, delivery_date::timestamptz) DESC NULLS LAST,
+                 updated_at DESC NULLS LAST,
+                 id DESC
+        """,
+        po_number,
+        bqms_code,
+    )
+
+    data = []
+    for r in rows:
+        d = dict(r)
+        raw_status = str(d.get("delivery_status", ""))
+        d["delivery_status_normalized"] = _STATUS_NORM.get(raw_status, raw_status)
+        data.append(d)
+
+    return {"data": data}
 
 
 @router.post("/deliveries")
@@ -3134,20 +4462,21 @@ async def create_delivery(
     row = await conn.fetchrow(
         """
         INSERT INTO bqms_deliveries (
-            po_number, bqms_code, specification, quantity, unit,
+            po_number, bqms_code, item_name, specification, quantity, unit,
             unit_price, delivery_status, delivery_date,
             shipping_no, sev_type, buyer_email, recipient_name,
             delivery_method, notes, data_source
         ) VALUES (
-            $1, $2, $3, $4, $5,
-            $6, $7::delivery_status, $8,
-            $9, $10, $11, $12,
-            $13, $14, 'manual'
+            $1, $2, $3, $4, $5, $6,
+            $7, $8::delivery_status, $9,
+            $10, $11, $12, $13,
+            $14, $15, 'manual'
         )
         RETURNING *
         """,
         body.get("po_number"),
         body.get("bqms_code"),
+        body.get("item_name"),
         body.get("specification"),
         body.get("quantity"),
         body.get("unit", "EA"),
@@ -3190,7 +4519,7 @@ async def update_delivery(
         )
 
     ALLOWED_FIELDS = {
-        "po_number", "bqms_code", "specification", "quantity", "unit",
+        "po_number", "bqms_code", "item_name", "specification", "quantity", "unit",
         "unit_price", "delivery_status", "delivery_date", "shipping_no",
         "sev_type", "buyer_email", "buyer_phone", "recipient_name",
         "receiving_warehouse", "delivery_method",
@@ -3280,6 +4609,1006 @@ async def update_delivery_status(
         logger.warning("delivery-status notification failed: %s", exc)
 
     return {"data": dict(row), "message": f"Đã cập nhật trạng thái: {new_status}"}
+
+
+# ---------------------------------------------------------------------------
+# Tạo hồ sơ giao hàng (Create Delivery Dossier) — Thang 2026-05-16
+# ---------------------------------------------------------------------------
+
+
+class _DossierItem(BaseModel):
+    """Per-item payload for dossier creation."""
+    model_config = ConfigDict(extra="ignore")
+    po_number: str
+    po_seq: str = ""
+    bqms_code: str
+    item_name: str = ""
+    specification: str = ""
+    shipping_qty: float
+    dept: str = "MAIN"
+    pr_person: str = ""
+    receiver: str = ""           # Người nhận hàng (Cam kết hình ảnh sheet)
+    unit: str = "PC"
+    dim_l: str = ""
+    dim_w: str = ""
+    dim_h: str = ""
+    box_weight: float | None = None  # Box Weight per item (blank stays blank, no auto-sync)
+    packing_size: str = ""       # Packing Size MM (col N) — MANUAL per-item input
+    box_qty: float | None = None     # Box Qty (col O) — MANUAL per-item input, blank allowed
+
+
+class _DossierLabel(BaseModel):
+    """One editable Label "tem" block (FE Label tab). qty is the EDITED value."""
+    model_config = ConfigDict(extra="ignore")
+    po_number: str = ""
+    pr_person: str = ""
+    bqms_code: str = ""
+    qty: float | None = None
+
+
+class _CreateDossierBody(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    sev_type: str  # 'SEV' or 'SEVT'
+    items: list[_DossierItem]
+    vendor_invoice_no: str
+    invoice_date: str       # YYYY-MM-DD
+    etd: str                # YYYY-MM-DD
+    packing_qty: float = 1
+    packing_unit: str = "Box"
+    volume: float = 0
+    volume_unit: str = "M3"
+    gross_weight: float = 0
+    weight_unit: str = "KG"
+    remark: str = ""
+    shipping_manager: str = "AMA Bac Ninh JSC"
+    # PRINT-ONLY Box-Qty TOTAL override for Packing List (null = computed sum).
+    box_qty_total_override: float | None = None
+    # Editable Label tab payload. None/absent → builder uses legacy per-PO path.
+    labels: list[_DossierLabel] | None = None
+
+
+@router.post("/deliveries/create-dossier")
+async def create_delivery_dossier(
+    body: _CreateDossierBody,
+    token_data: TokenData = Depends(require_role(
+        "admin", "manager", "staff", "warehouse", "sales", "procurement", "accountant",
+    )),
+    conn: asyncpg.Connection = Depends(get_db),
+):
+    """Enqueue a delivery dossier job. Returns job_id for poll.
+
+    Validates:
+      - sev_type ∈ {SEV, SEVT}
+      - items not empty + all share company (rejected if mixed)
+      - all (po_number, bqms_code) tuples exist in bqms_deliveries
+    """
+    if body.sev_type not in ("SEV", "SEVT"):
+        raise HTTPException(400, "sev_type must be SEV or SEVT")
+    if not body.items:
+        raise HTTPException(400, "items không được rỗng")
+
+    # Concurrency guards (B3 — Thang 2026-05-18):
+    # 1. Per-user cap: max 3 active (queued|running) jobs at a time
+    active_count = await conn.fetchval(
+        "SELECT COUNT(*) FROM bqms_dossier_jobs "
+        "WHERE user_id = $1::uuid AND status IN ('queued','running')",
+        token_data.user_id,
+    )
+    if active_count and int(active_count) >= 3:
+        raise HTTPException(
+            429,
+            "Bạn đang có 3 hồ sơ đang xử lý — chờ xong rồi tạo tiếp",
+        )
+    # 2. Global queue cap: max 10 jobs in queue → tránh overload
+    queued_total = await conn.fetchval(
+        "SELECT COUNT(*) FROM bqms_dossier_jobs WHERE status IN ('queued','running')"
+    )
+    if queued_total and int(queued_total) >= 10:
+        raise HTTPException(
+            503,
+            "Hàng đợi đầy — vui lòng thử lại sau vài phút",
+        )
+
+    # Verify items + collect delivery row IDs
+    distinct_pos: list[str] = []
+    delivery_ids: list[int] = []
+    found_company_set: set[str] = set()
+    for it in body.items:
+        if it.po_number not in distinct_pos:
+            distinct_pos.append(it.po_number)
+        row = await conn.fetchrow(
+            "SELECT id, sev_type FROM bqms_deliveries WHERE po_number = $1 AND bqms_code = $2 "
+            "ORDER BY id DESC LIMIT 1",
+            it.po_number, it.bqms_code,
+        )
+        if not row:
+            raise HTTPException(400, f"Không tìm thấy delivery row cho PO {it.po_number} / BQMS {it.bqms_code}")
+        delivery_ids.append(int(row["id"]))
+        if row["sev_type"]:
+            found_company_set.add(row["sev_type"])
+    if found_company_set and len(found_company_set) > 1:
+        raise HTTPException(400,
+            f"Mix SEV/SEVT không cho phép — items có {sorted(found_company_set)}. Tạo riêng từng hồ sơ.")
+
+    # Insert job row
+    job_row = await conn.fetchrow(
+        """
+        INSERT INTO bqms_dossier_jobs
+            (user_id, sev_type, po_numbers, delivery_row_ids, form_data, status, progress_step)
+        VALUES ($1::uuid, $2, $3, $4, $5::jsonb, 'queued', 'Đang chờ Samsung session')
+        RETURNING id
+        """,
+        token_data.user_id, body.sev_type, distinct_pos, delivery_ids,
+        _json.dumps(body.model_dump(), default=str, ensure_ascii=False),
+    )
+    job_id = int(job_row["id"])
+
+    # Enqueue Procrastinate task — App not auto-opened in FastAPI context.
+    try:
+        from app.tasks.bqms_dossier import bqms_create_delivery_dossier as task_fn
+        from app.core.procrastinate_app import app as proc_app
+        async with proc_app.open_async():
+            prc_job_id = await task_fn.defer_async(job_id=job_id)
+        await conn.execute(
+            "UPDATE bqms_dossier_jobs SET procrastinate_job_id = $1 WHERE id = $2",
+            prc_job_id, job_id,
+        )
+    except Exception as exc:
+        logger.exception("defer task failed for dossier job=%d: %s", job_id, exc)
+        await conn.execute(
+            "UPDATE bqms_dossier_jobs SET status='failed', error=$1 WHERE id=$2",
+            f"defer failed: {exc}", job_id,
+        )
+        raise HTTPException(500, f"Không enqueue được task: {exc}")
+
+    return {
+        "data": {
+            "job_id": job_id,
+            "sev_type": body.sev_type,
+            "po_numbers": distinct_pos,
+            "items_count": len(body.items),
+        },
+        "message": f"Đã tạo job #{job_id}. Theo dõi qua GET /deliveries/dossier-job/{job_id}",
+    }
+
+
+@router.get("/deliveries/dossier-job/{job_id}")
+async def get_dossier_job(
+    job_id: int,
+    token_data: TokenData = Depends(require_role(
+        "admin", "manager", "staff", "warehouse", "sales", "procurement", "accountant",
+    )),
+    conn: asyncpg.Connection = Depends(get_db),
+):
+    """Poll job status. Frontend gọi mỗi 4s khi modal mở.
+
+    Phản hồi extra fields cho concurrency UX:
+      - queue_position: số job 'queued' xếp trước nếu chưa chạy (0 = đang chạy / đã xong)
+      - eta_seconds: estimate dựa trên queue_position × 600s (cap 1h)
+    """
+    row = await conn.fetchrow(
+        "SELECT * FROM bqms_dossier_jobs WHERE id = $1", job_id,
+    )
+    if not row:
+        raise HTTPException(404, f"Job #{job_id} không tồn tại")
+    out = dict(row)
+    # Parse JSON fields for frontend
+    for k in ("form_data", "files", "confirm_preview"):
+        v = out.get(k)
+        if isinstance(v, str):
+            try:
+                out[k] = _json.loads(v)
+            except Exception:
+                pass
+
+    # Confirm checkpoint UX: image URL + countdown remaining (5-min auto-cancel)
+    if out.get("status") == "awaiting_confirm":
+        out["confirm_image_url"] = (
+            f"/api/v1/bqms/deliveries/dossier-job/{job_id}/confirm-image"
+        )
+        from datetime import datetime, timezone
+        ac = out.get("awaiting_confirm_at")
+        if isinstance(ac, datetime):
+            elapsed = (datetime.now(timezone.utc) - ac).total_seconds()
+            out["confirm_remaining_seconds"] = max(0, int(300 - elapsed))
+
+    # Queue position (only when status='queued')
+    queue_position = 0
+    eta_seconds = 0
+    if out.get("status") == "queued":
+        q_row = await conn.fetchrow(
+            """
+            SELECT
+                (SELECT COUNT(*) FROM bqms_dossier_jobs
+                  WHERE status = 'queued' AND id < $1) AS ahead,
+                (SELECT COUNT(*) FROM bqms_dossier_jobs
+                  WHERE status = 'running') AS running
+            """,
+            job_id,
+        )
+        if q_row:
+            queue_position = int(q_row["ahead"]) + int(q_row["running"])
+            # Rough ETA: each job ~10 min (600s). Cap at 1 hour.
+            eta_seconds = min(3600, queue_position * 600)
+    out["queue_position"] = queue_position
+    out["eta_seconds"] = eta_seconds
+
+    # Detect stuck jobs (status=running but last_heartbeat_at > 5 min ago)
+    if out.get("status") == "running" and out.get("last_heartbeat_at"):
+        from datetime import datetime, timezone, timedelta
+        hb = out["last_heartbeat_at"]
+        if isinstance(hb, datetime):
+            age = (datetime.now(timezone.utc) - hb).total_seconds()
+            out["heartbeat_age_seconds"] = int(age)
+            if age > 300:
+                out["stuck_warning"] = (
+                    f"Job có thể bị treo — không có heartbeat trong {int(age // 60)} phút"
+                )
+    return {"data": out}
+
+
+@router.post("/deliveries/dossier-job/{job_id}/upload-image")
+async def upload_dossier_image(
+    job_id: int,
+    bqms_code: str | None = Form(None),  # optional — derived from item_key if absent
+    slot: str = Form("actual"),  # 'actual' | 'system' (user replaces system image)
+    item_key: str = Form(None),  # composite `${po_number}|${po_seq}|${bqms_code}`
+    file: UploadFile = File(...),
+    token_data: TokenData = Depends(require_role(
+        "admin", "manager", "staff", "warehouse", "sales", "procurement", "accountant",
+    )),
+    conn: asyncpg.Connection = Depends(get_db),
+):
+    """Upload "Hệ thống" hoặc "Thực tế" image cho 1 item trong job.
+
+    Cam kết sheets are PER ITEM (po_number, po_seq, bqms_code), so the filename
+    is keyed by the sanitized composite `item_key`. The same bqms_code can
+    appear on >1 sheet (different PO/seq) without colliding.
+
+    Saved at `/data/bqms-push-evidence/dossier/{job_id}/{sanitized_key}_{slot}.png`
+    where sanitized_key = re.sub(r"[^A-Za-z0-9_-]", "_", item_key). If item_key
+    is absent (older client) it falls back to bqms_code (backward compatible).
+    Task sẽ pick up khi build Excel.
+    """
+    import re as _re
+    # Thang 2026-06-26 FIX: item_key (po|seq|code) is the source of truth. The FE
+    # sends item_key but historically forgot bqms_code → this endpoint 422'd and
+    # silently dropped EVERY pasted "Thực tế" image. Derive bqms_code from item_key
+    # when absent so the upload (and the embedded Excel image) succeed.
+    if not bqms_code and item_key:
+        bqms_code = (item_key.rsplit("|", 1)[-1] or "").strip()
+    if not bqms_code:
+        raise HTTPException(400, "Thiếu bqms_code (hoặc item_key) để định danh ảnh")
+    if not _re.match(r"^[A-Z0-9\-_]+$", bqms_code):
+        raise HTTPException(400, "bqms_code chỉ chấp nhận [A-Z0-9-_]")
+    if slot not in ("actual", "system"):
+        raise HTTPException(400, "slot phải là 'actual' hoặc 'system'")
+    # Sanitize the composite item_key with the SAME rule the build task uses in
+    # _evidence_key(), so the saved filename matches the task's reconstructed
+    # filename byte-for-byte. Fall back to bqms_code when item_key is omitted.
+    file_key = _re.sub(r"[^A-Za-z0-9_\-]", "_", item_key) if item_key else bqms_code
+    ext = Path(file.filename or "").suffix.lower()
+    if ext not in (".png", ".jpg", ".jpeg"):
+        raise HTTPException(400, "Chỉ chấp nhận .png/.jpg/.jpeg")
+
+    job = await conn.fetchrow(
+        "SELECT id, status FROM bqms_dossier_jobs WHERE id = $1", job_id,
+    )
+    if not job:
+        raise HTTPException(404, f"Job #{job_id} không tồn tại")
+    if job["status"] in ("done", "failed"):
+        raise HTTPException(409, f"Job đã ở status={job['status']}, không upload thêm được")
+
+    target_dir = Path(f"/data/bqms-push-evidence/dossier/{job_id}")
+    target_dir.mkdir(parents=True, exist_ok=True)
+    target = target_dir / f"{file_key}_{slot}.png"
+    MAX = 5 * 1024 * 1024
+    total = 0
+    with open(target, "wb") as f:
+        while True:
+            chunk = await file.read(64 * 1024)
+            if not chunk:
+                break
+            total += len(chunk)
+            if total > MAX:
+                f.close()
+                target.unlink(missing_ok=True)
+                raise HTTPException(413, "Ảnh quá lớn (>5MB)")
+            f.write(chunk)
+
+    return {
+        "data": {"job_id": job_id, "bqms_code": bqms_code, "slot": slot,
+                 "item_key": item_key, "file_key": file_key,
+                 "path": str(target), "size_bytes": total},
+        "message": f"Đã upload ảnh {slot} cho {bqms_code}",
+    }
+
+
+# ---------------------------------------------------------------------------
+# Confirm checkpoint — user kiểm tra 100% trước khi scraper bấm Create Delivery
+# (KHÔNG HOÀN TÁC). Job ở status 'awaiting_confirm' chờ tín hiệu confirm/cancel.
+# ---------------------------------------------------------------------------
+
+
+async def _set_confirm_signal(conn, job_id: int, signal: str) -> dict:
+    """Set confirm_signal nếu job đang ở awaiting_confirm. Task poll sẽ nhặt."""
+    row = await conn.fetchrow(
+        "SELECT id, status FROM bqms_dossier_jobs WHERE id = $1", job_id,
+    )
+    if not row:
+        raise HTTPException(404, f"Job #{job_id} không tồn tại")
+    if row["status"] != "awaiting_confirm":
+        raise HTTPException(
+            409,
+            f"Job đang ở status={row['status']}, không phải đang chờ xác nhận",
+        )
+    await conn.execute(
+        "UPDATE bqms_dossier_jobs SET confirm_signal = $1 WHERE id = $2",
+        signal, job_id,
+    )
+    return {"job_id": job_id, "signal": signal}
+
+
+@router.post("/deliveries/dossier-job/{job_id}/confirm")
+async def confirm_dossier_job(
+    job_id: int,
+    token_data: TokenData = Depends(require_role(
+        "admin", "manager", "staff", "warehouse", "sales", "procurement", "accountant",
+    )),
+    conn: asyncpg.Connection = Depends(get_db),
+):
+    """User xác nhận → scraper sẽ bấm Create Delivery (tạo Delivery thật)."""
+    data = await _set_confirm_signal(conn, job_id, "confirm")
+    return {"data": data, "message": "Đã xác nhận — đang tạo Delivery trên Samsung"}
+
+
+@router.post("/deliveries/dossier-job/{job_id}/cancel")
+async def cancel_dossier_job(
+    job_id: int,
+    token_data: TokenData = Depends(require_role(
+        "admin", "manager", "staff", "warehouse", "sales", "procurement", "accountant",
+    )),
+    conn: asyncpg.Connection = Depends(get_db),
+):
+    """User huỷ tại checkpoint → đóng popup, KHÔNG tạo Delivery."""
+    data = await _set_confirm_signal(conn, job_id, "cancel")
+    return {"data": data, "message": "Đã huỷ — không tạo Delivery"}
+
+
+@router.get("/deliveries/dossier-job/{job_id}/confirm-image")
+async def get_dossier_confirm_image(
+    job_id: int,
+    token_data: TokenData = Depends(require_role(
+        "admin", "manager", "staff", "warehouse", "sales", "procurement", "accountant",
+    )),
+):
+    """Stream screenshot popup Create Delivery đã điền (cho bước kiểm tra)."""
+    from fastapi.responses import FileResponse
+    shot = Path(f"/data/bqms-push-evidence/dossier/{job_id}/confirm_preview.png")
+    if not shot.exists():
+        raise HTTPException(404, "Chưa có screenshot kiểm tra")
+    return FileResponse(str(shot), media_type="image/png")
+
+
+# ---------------------------------------------------------------------------
+# Re-edit / regenerate (EXCEL-ONLY) — mở lại 1 hồ sơ ĐÃ HOÀN TẤT, sửa form +
+# ảnh, dựng lại file Excel ghi đè trong output_folder đã lưu.
+#
+# SAFETY (lý do tồn tại của feature): regenerate KHÔNG chạy scraper Samsung,
+# KHÔNG acquire samsung_session_lock, KHÔNG mở popup Create Delivery (không hoàn
+# tác — đã làm rồi), KHÔNG re-parse Shipping No, KHÔNG chạy UPDATE cộng dồn
+# actual_delivered_qty trên bqms_deliveries (sẽ double-count). CHỈ Excel.
+# Reuse shipping_no/output_folder đã lưu.
+# ---------------------------------------------------------------------------
+
+
+@router.get("/deliveries/dossier-jobs")
+async def list_dossier_jobs(
+    limit: int = Query(50, ge=1, le=200),
+    token_data: TokenData = Depends(require_role(
+        "admin", "manager", "staff", "warehouse", "sales", "procurement", "accountant",
+    )),
+    conn: asyncpg.Connection = Depends(get_db),
+):
+    """Liệt kê hồ sơ gần đây cho picker "mở lại để sửa"."""
+    rows = await conn.fetch(
+        """
+        SELECT id, sev_type, po_numbers, status, output_folder,
+               created_at, updated_at,
+               (form_data->>'vendor_invoice_no') AS invoice_no
+          FROM bqms_dossier_jobs
+         ORDER BY created_at DESC
+         LIMIT $1
+        """,
+        limit,
+    )
+    return {"data": [dict(r) for r in rows]}
+
+
+@router.get("/deliveries/dossier-job/{job_id}/image")
+async def get_dossier_job_image(
+    job_id: int,
+    item_key: str = Query(...),
+    slot: str = Query("actual"),
+    token_data: TokenData = Depends(require_role(
+        "admin", "manager", "staff", "warehouse", "sales", "procurement", "accountant",
+    )),
+):
+    """Stream lại ảnh evidence ĐÃ upload để wizard hydrate khi sửa.
+
+    Đọc từ `/data/bqms-push-evidence/dossier/{job_id}/{sanitize(item_key)}_{slot}.png`
+    với sanitize IDENTICAL upload endpoint + task (_evidence_key).
+    """
+    import re as _re
+    if slot not in ("actual", "system"):
+        raise HTTPException(400, "slot phải là 'actual' hoặc 'system'")
+    file_key = _re.sub(r"[^A-Za-z0-9_\-]", "_", item_key)
+    p = Path(f"/data/bqms-push-evidence/dossier/{job_id}/{file_key}_{slot}.png")
+    if not p.exists():
+        raise HTTPException(404, "Không có ảnh đã upload cho item này")
+    from fastapi.responses import FileResponse
+    return FileResponse(
+        str(p), media_type="image/png",
+        headers={"Cache-Control": "private, max-age=60"},
+    )
+
+
+@router.get("/deliveries/dossier-job/{job_id}/file")
+async def download_dossier_job_file(
+    job_id: int,
+    kind: str = Query("excel"),       # excel | delivery_note | po
+    po: str | None = Query(None),     # bắt buộc khi kind='po'
+    token_data: TokenData = Depends(require_role(
+        "admin", "manager", "staff", "warehouse", "sales", "procurement", "accountant",
+    )),
+    conn: asyncpg.Connection = Depends(get_db),
+):
+    """Tải file đã tạo của 1 hồ sơ: Excel / Delivery Note PDF / PO PDF.
+
+    Đường dẫn lấy từ `bqms_dossier_jobs.files` (JSONB). Chống path-traversal:
+    file BẮT BUỘC nằm trong thư mục gốc BBGH (.../Giao hàng).
+    """
+    import os
+    import json as _json2
+    row = await conn.fetchrow(
+        "SELECT files FROM bqms_dossier_jobs WHERE id = $1", job_id,
+    )
+    if not row:
+        raise HTTPException(404, f"Job #{job_id} không tồn tại")
+    files = row["files"]
+    if isinstance(files, str):
+        files = _json2.loads(files) if files else {}
+    files = files or {}
+
+    if kind == "excel":
+        path = files.get("excel")
+    elif kind == "delivery_note":
+        path = files.get("delivery_note")
+    elif kind == "po":
+        if not po:
+            raise HTTPException(400, "thiếu tham số 'po'")
+        path = next(
+            (p.get("path") for p in (files.get("po_pdfs") or [])
+             if str(p.get("po")) == str(po)),
+            None,
+        )
+    else:
+        raise HTTPException(400, "kind phải là excel | delivery_note | po")
+
+    if not path:
+        raise HTTPException(404, "Hồ sơ chưa có file này")
+
+    base = os.path.realpath("/data/onedrive-staging/Puplic/BQMS/Giao hàng")
+    real = os.path.realpath(str(path))
+    if real != base and not real.startswith(base + os.sep):
+        raise HTTPException(403, "Đường dẫn không hợp lệ")
+    if not os.path.isfile(real):
+        raise HTTPException(404, "File không còn trên máy chủ")
+
+    fname = os.path.basename(real)
+    low = real.lower()
+    media = (
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        if low.endswith(".xlsx")
+        else "application/pdf" if low.endswith(".pdf")
+        else "application/octet-stream"
+    )
+    from fastapi.responses import FileResponse
+    # Starlette encodes non-ASCII filenames (RFC 6266 filename*) automatically.
+    return FileResponse(real, media_type=media, filename=fname)
+
+
+def _zip_folder_to_bytes(folder_path: str) -> bytes:
+    """Zip toàn bộ file trong folder (đệ quy) → bytes. Chạy trong threadpool."""
+    import io
+    import os
+    import zipfile
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        for rootd, _dirs, fnames in os.walk(folder_path):
+            for fn in fnames:
+                fp = os.path.join(rootd, fn)
+                zf.write(fp, os.path.relpath(fp, folder_path))
+    return buf.getvalue()
+
+
+@router.get("/deliveries/dossier-job/{job_id}/folder.zip")
+async def download_dossier_folder_zip(
+    job_id: int,
+    token_data: TokenData = Depends(require_role(
+        "admin", "manager", "staff", "warehouse", "sales", "procurement", "accountant",
+    )),
+    conn: asyncpg.Connection = Depends(get_db),
+):
+    """Tải TOÀN BỘ thư mục hồ sơ (1 đợt giao) dưới dạng .zip — Excel + PDF + ảnh."""
+    import asyncio as _asyncio
+    import os
+    from urllib.parse import quote
+    row = await conn.fetchrow(
+        "SELECT output_folder FROM bqms_dossier_jobs WHERE id = $1", job_id,
+    )
+    if not row or not row["output_folder"]:
+        raise HTTPException(404, "Hồ sơ chưa có thư mục")
+    base = os.path.realpath("/data/onedrive-staging/Puplic/BQMS/Giao hàng")
+    real = os.path.realpath(str(row["output_folder"]))
+    if real != base and not real.startswith(base + os.sep):
+        raise HTTPException(403, "Đường dẫn không hợp lệ")
+    if not os.path.isdir(real):
+        raise HTTPException(404, "Thư mục không còn trên máy chủ")
+
+    data = await _asyncio.to_thread(_zip_folder_to_bytes, real)
+    zip_name = os.path.basename(real) + ".zip"
+    from fastapi.responses import Response
+    return Response(
+        content=data,
+        media_type="application/zip",
+        headers={
+            "Content-Disposition": f"attachment; filename*=utf-8''{quote(zip_name)}",
+            "Content-Length": str(len(data)),
+        },
+    )
+
+
+@router.post("/deliveries/dossier-job/{job_id}/update-regenerate")
+async def update_regenerate_dossier_job(
+    job_id: int,
+    body: _CreateDossierBody,
+    token_data: TokenData = Depends(require_role(
+        "admin", "manager", "staff", "warehouse", "sales", "procurement", "accountant",
+    )),
+    conn: asyncpg.Connection = Depends(get_db),
+):
+    """Sửa form_data của 1 hồ sơ ĐÃ HOÀN TẤT rồi dựng lại CHỈ file Excel.
+
+    SAFETY: chỉ enqueue task Excel-only `bqms_regenerate_dossier_excel`. Task này
+    KHÔNG chạy scraper Samsung / popup Create Delivery / qty-accumulation. Reuse
+    shipping_no + output_folder đã lưu trên job row.
+    """
+    job = await conn.fetchrow(
+        "SELECT id, status FROM bqms_dossier_jobs WHERE id = $1", job_id,
+    )
+    if not job:
+        raise HTTPException(404, f"Job #{job_id} không tồn tại")
+    if job["status"] != "done":
+        raise HTTPException(409, "hồ sơ đang xử lý hoặc chưa hoàn tất")
+
+    await conn.execute(
+        """
+        UPDATE bqms_dossier_jobs
+           SET form_data    = $1::jsonb,
+               status       = 'regenerating',
+               progress_pct = 0,
+               progress_step = 'Đang cập nhật Excel',
+               updated_at   = NOW()
+         WHERE id = $2
+        """,
+        _json.dumps(body.model_dump(), default=str, ensure_ascii=False),
+        job_id,
+    )
+
+    # Enqueue Excel-only regenerate task (KHÔNG phải task scraper) — match
+    # create-dossier defer style.
+    try:
+        from app.tasks.bqms_dossier import bqms_regenerate_dossier_excel as task_fn
+        from app.core.procrastinate_app import app as proc_app
+        async with proc_app.open_async():
+            prc_job_id = await task_fn.defer_async(job_id=job_id)
+        await conn.execute(
+            "UPDATE bqms_dossier_jobs SET procrastinate_job_id = $1 WHERE id = $2",
+            prc_job_id, job_id,
+        )
+    except Exception as exc:
+        logger.exception("defer regenerate failed for dossier job=%d: %s", job_id, exc)
+        await conn.execute(
+            "UPDATE bqms_dossier_jobs SET status='failed', error=$1 WHERE id=$2",
+            f"defer regenerate failed: {exc}", job_id,
+        )
+        raise HTTPException(500, f"Không enqueue được task: {exc}")
+
+    return {"data": {"job_id": job_id}, "message": "Đang cập nhật hồ sơ"}
+
+
+# ---------------------------------------------------------------------------
+# Dossier prefill + system image streaming endpoints (M40 wizard support)
+# ---------------------------------------------------------------------------
+
+
+@router.post("/deliveries/dossier-prefill")
+async def dossier_prefill(
+    body: dict,
+    token_data: TokenData = Depends(require_role(
+        "admin", "manager", "staff", "warehouse", "sales", "procurement", "accountant",
+    )),
+    conn: asyncpg.Connection = Depends(get_db),
+):
+    """Prefill data cho dossier wizard.
+
+    Body: `{delivery_ids: [int]}` — list bqms_deliveries.id user đã chọn từ trang Giao hàng.
+
+    Trả về structured data cho wizard:
+    - sev_type detected (reject if mixed)
+    - distinct_po_numbers
+    - items (per delivery row, đã enriched từ bqms_rfq + system image URL)
+    - default form values (vendor_invoice_no theo {DDMMYYYY}-{N}, dates today)
+    """
+    delivery_ids = body.get("delivery_ids") or []
+    if not isinstance(delivery_ids, list) or not delivery_ids:
+        raise HTTPException(400, "delivery_ids không được rỗng")
+    try:
+        delivery_ids = [int(x) for x in delivery_ids]
+    except Exception:
+        raise HTTPException(400, "delivery_ids phải là list số nguyên")
+
+    # Thang 2026-06-01: dùng LATERAL pick-latest để KHÔNG nhân đôi rows.
+    # bqms_rfq có thể có nhiều entries cùng bqms_code (RFQ qua nhiều lần) →
+    # LEFT JOIN thẳng sẽ làm 1 delivery row × N RFQ rows = N items hiển sai.
+    rows = await conn.fetch(
+        """
+        SELECT d.id, d.po_number, d.bqms_code, d.sev_type,
+               d.item_name, d.specification, d.unit,
+               COALESCE(d.quantity, 0) AS quantity,
+               COALESCE(d.actual_delivered_qty, 0) AS actual_qty,
+               d.recipient_name, d.receiving_warehouse,
+               r.rfq_number, r.person_in_charge_name, r.department
+          FROM bqms_deliveries d
+          LEFT JOIN LATERAL (
+              SELECT rfq_number, person_in_charge_name, department
+                FROM bqms_rfq rr
+               WHERE rr.bqms_code = d.bqms_code
+               ORDER BY COALESCE(rr.inquiry_date, rr.created_at::date) DESC NULLS LAST,
+                        rr.id DESC
+               LIMIT 1
+          ) r ON true
+         WHERE d.id = ANY($1::bigint[])
+         ORDER BY d.po_number, d.bqms_code
+        """,
+        delivery_ids,
+    )
+    if not rows:
+        raise HTTPException(404, "Không tìm thấy delivery rows")
+
+    # History lookup: per bqms_code, find LATEST values from past successful dossier jobs.
+    # This auto-prefills fields like dim_l/w/h, box_weight, dept, pr_person, receiver
+    # so user doesn't have to re-type them for the same BQMS code.
+    bqms_codes = [r["bqms_code"] for r in rows if r["bqms_code"]]
+    history: dict[str, dict] = {}
+    if bqms_codes:
+        hist_rows = await conn.fetch(
+            """
+            WITH unfolded AS (
+              SELECT
+                item->>'bqms_code' AS bqms_code,
+                item AS data,
+                j.created_at,
+                ROW_NUMBER() OVER (
+                  PARTITION BY item->>'bqms_code'
+                  ORDER BY j.created_at DESC
+                ) AS rn
+              FROM bqms_dossier_jobs j
+              CROSS JOIN LATERAL jsonb_array_elements(j.form_data->'items') AS item
+              WHERE j.status = 'done'
+                AND item->>'bqms_code' = ANY($1::text[])
+            )
+            SELECT bqms_code, data
+              FROM unfolded
+             WHERE rn = 1
+            """,
+            bqms_codes,
+        )
+        for h in hist_rows:
+            try:
+                history[h["bqms_code"]] = _json.loads(h["data"]) if isinstance(h["data"], str) else h["data"]
+            except Exception:
+                continue
+
+    sev_types = {r["sev_type"] for r in rows if r["sev_type"]}
+    if len(sev_types) > 1:
+        raise HTTPException(
+            400,
+            f"Mix SEV/SEVT không cho phép — items có {sorted(sev_types)}. "
+            "Tạo riêng từng hồ sơ.",
+        )
+    sev_type = next(iter(sev_types)) if sev_types else "SEV"
+
+    # Build vendor_invoice_no theo pattern {DDMMYYYY}-{N} với counter từ DB
+    from datetime import datetime as _dt
+    today_prefix = _dt.now().strftime("%d%m%Y")
+    counter_row = await conn.fetchrow(
+        """
+        SELECT COUNT(*) + 1 AS next_n
+          FROM bqms_dossier_jobs
+         WHERE form_data->>'vendor_invoice_no' LIKE $1
+        """,
+        f"{today_prefix}-%",
+    )
+    next_n = int(counter_row["next_n"]) if counter_row else 1
+
+    # Build items với system image URL (relative — frontend prefix với API base)
+    from app.services.dossier_image_resolver import find_system_image
+    items_out = []
+    distinct_pos: list[str] = []
+    for r in rows:
+        if r["po_number"] not in distinct_pos:
+            distinct_pos.append(r["po_number"])
+        # Smart image lookup: tries override → exact RFQ → broad scan (last 2 years)
+        sys_img_path = find_system_image(r["bqms_code"], r["rfq_number"])
+        spec = r["specification"] or ""
+        # History lookup (if any) — auto-prefill dims/box_weight/dept/etc.
+        h = history.get(r["bqms_code"]) or {}
+
+        def hist_str(key: str, fallback: str) -> str:
+            v = h.get(key)
+            return str(v) if v not in (None, "") else fallback
+
+        # Thang 2026-06-01: trỏ system_image_url thẳng tới /rfq/image — nguồn ảnh
+        # chung với trang BQMS list (5 layer priority: P0 picker-pinned →
+        # P1 per-RFQ override → P2 code-override folder → P2.5 image index →
+        # P3 FS scan). Trước đây dùng endpoint riêng /dossier-system-image chỉ
+        # 4 layer + mất context rfq_number → user pin ảnh ở BQMS không thấy ở wizard.
+        from urllib.parse import quote as _q
+        if sys_img_path:
+            params = f"bqms_code={_q(r['bqms_code'])}"
+            if r["rfq_number"]:
+                params += f"&rfq_number={_q(r['rfq_number'])}"
+            img_url = f"/api/v1/bqms/rfq/image?{params}"
+        else:
+            img_url = None
+
+        items_out.append({
+            "delivery_id": int(r["id"]),
+            "po_number": r["po_number"],
+            "po_seq": "",  # bqms_deliveries không lưu po_seq — scraper sẽ tự match qua grid
+            "bqms_code": r["bqms_code"],
+            "rfq_number": r["rfq_number"],  # expose cho frontend dùng cho picker + image URL
+            # Item Name ← new split 'item_name' column (deployed today). Fallback
+            # to job-history, then first spec segment / bqms_code.
+            "item_name": (r["item_name"] or "").strip() or hist_str(
+                "item_name", spec.split(",")[0].strip()[:40] if spec else r["bqms_code"]),
+            "specification": hist_str("specification", spec),
+            "unit": h.get("unit") or r["unit"] or "PC",
+            "ordered_qty": float(r["quantity"] or 0),
+            "remaining_qty": max(0, float(r["quantity"] or 0) - float(r["actual_qty"] or 0)),
+            # Issue 5/6 (Thang LOCKED): per-PO Dept ← delivery 'receiving_warehouse'
+            # (Kho Nhận), fallback RFQ 'department' only when empty. NEW SOURCE WINS
+            # over legacy job-history prefill — do NOT read history for these.
+            "dept": (r["receiving_warehouse"] or r["department"] or "").strip(),
+            # PR Person ← delivery 'recipient_name' (Người nhận). New source wins.
+            "pr_person": (r["recipient_name"] or "").strip(),
+            # Receiver ← BLANK (Cam kết C10 left empty, no prefill). Thang LOCKED.
+            "receiver": "",
+            "dim_l": hist_str("dim_l", ""),
+            "dim_w": hist_str("dim_w", ""),
+            "dim_h": hist_str("dim_h", ""),
+            "box_weight": float(h.get("box_weight") or 0),
+            "has_system_image": sys_img_path is not None,
+            "system_image_url": img_url,
+            "has_history": bool(h),
+        })
+
+    # Multi-delivery history per PO (Thang 2026-05-21): query past dossiers
+    # that touched any of the selected POs so the UI can show "Đây là lần N
+    # của PO này" and the user knows about previous shipments.
+    delivery_history: list[dict] = []
+    # Parallel record carrying the FULL parsed form_data dict per attempt so we
+    # can prefill the HEADER from the last attempt without an extra DB round-trip.
+    # (delivery_history itself only keeps a trimmed `items` projection.)
+    attempts_full: list[dict] = []
+    if distinct_pos:
+        hist_rows = await conn.fetch(
+            """
+            SELECT po_number, dossier_id, attempt_no, shipping_no,
+                   invoice_no, status, is_partial, output_folder,
+                   form_data, created_at
+              FROM v_po_delivery_history
+             WHERE po_number = ANY($1::text[])
+               AND sev_type = $2
+             ORDER BY po_number, attempt_no
+            """,
+            distinct_pos, sev_type,
+        )
+        for r in hist_rows:
+            # Parse form_data once (may arrive as JSON string or dict).
+            fd = r["form_data"] or {}
+            if isinstance(fd, str):
+                try:
+                    fd = _json.loads(fd)
+                except Exception:
+                    fd = {}
+            if not isinstance(fd, dict):
+                fd = {}
+            # Extract qty shipped per item from form_data.items[]
+            items_info = []
+            try:
+                for it in (fd.get("items") or []):
+                    if it.get("po_number") == r["po_number"]:
+                        items_info.append({
+                            "bqms_code": it.get("bqms_code"),
+                            "shipping_qty": it.get("shipping_qty"),
+                        })
+            except Exception:
+                pass
+            delivery_history.append({
+                "po_number": r["po_number"],
+                "dossier_id": r["dossier_id"],
+                "attempt_no": r["attempt_no"],
+                "shipping_no": r["shipping_no"],
+                "invoice_no": r["invoice_no"],
+                "status": r["status"],
+                "is_partial": r["is_partial"],
+                "output_folder": r["output_folder"],
+                "items": items_info,
+                "created_at": r["created_at"].isoformat() if r["created_at"] else None,
+            })
+            attempts_full.append({
+                "po_number": r["po_number"],
+                "attempt_no": r["attempt_no"],
+                "status": r["status"],
+                "created_at": r["created_at"],
+                "form_data": fd,
+            })
+
+    # Compute next attempt_no per PO so UI shows "lần 2" / "lần 3" preview.
+    next_attempt_by_po: dict[str, int] = {}
+    for po in distinct_pos:
+        prev = [h for h in delivery_history if h["po_number"] == po
+                and h["status"] in ("done", "queued", "running",
+                                    "invoice_ready", "po_downloaded", "excel_built")]
+        next_attempt_by_po[po] = (
+            max((h["attempt_no"] for h in prev), default=0) + 1
+        )
+
+    # Header prefill from the LAST attempt of the dominant PO (Thang 2026-06-22).
+    # Goal: a repeat delivery of the same PO should not require re-typing the
+    # invoice/packing header — reuse the previous attempt's values.
+    #
+    # Dominant PO = the selected PO with the MOST RECENT prior attempt. We rank
+    # all candidate attempts by (created_at, attempt_no) desc and take the top
+    # one's PO; that PO's latest attempt becomes the header source. This also
+    # naturally satisfies "first selected PO that HAS history" — only POs with
+    # history produce candidates.
+    #
+    # "Completed dossier" filter: prefer status='done' (fully finished). If no
+    # 'done' attempt exists yet, fall back to the broader in-pipeline set so a
+    # quick repeat delivery (while the prior job is still running) still prefills.
+    # form_data here is already parsed to a dict (or {} on garbage) above.
+    header_from_last_attempt = None
+
+    def _pick_dominant_header(status_whitelist: tuple[str, ...]):
+        cands = [a for a in attempts_full if a["status"] in status_whitelist]
+        if not cands:
+            return None
+        # Sort newest-first; created_at may be None → push to the end.
+        from datetime import datetime as __dt, timezone as __tz
+        _min = __dt.min.replace(tzinfo=__tz.utc)
+
+        def _key(a):
+            ca = a["created_at"]
+            if ca is not None and ca.tzinfo is None:
+                ca = ca.replace(tzinfo=__tz.utc)
+            return (ca or _min, a["attempt_no"] or 0)
+
+        cands.sort(key=_key, reverse=True)
+        return cands[0]
+
+    chosen = _pick_dominant_header(("done",)) or _pick_dominant_header(
+        ("invoice_ready", "po_downloaded", "excel_built", "running", "queued")
+    )
+    if chosen:
+        fd = chosen["form_data"] if isinstance(chosen["form_data"], dict) else {}
+
+        def _h(key):
+            v = fd.get(key)
+            return v if v not in (None, "") else None
+
+        # box_l/w/h are NOT stored in the header — _DossierItem stores them
+        # per-item as dim_l/dim_w/dim_h. Derive from the first item that has a
+        # non-empty dimension; omit (null) if none. Documented choice.
+        box_l = box_w = box_h = None
+        try:
+            for it in (fd.get("items") or []):
+                if not isinstance(it, dict):
+                    continue
+                dl, dw, dh = it.get("dim_l"), it.get("dim_w"), it.get("dim_h")
+                if any(x not in (None, "") for x in (dl, dw, dh)):
+                    box_l = dl if dl not in (None, "") else None
+                    box_w = dw if dw not in (None, "") else None
+                    box_h = dh if dh not in (None, "") else None
+                    break
+        except Exception:
+            pass
+
+        ca = chosen["created_at"]
+        header_from_last_attempt = {
+            "attempt_no": chosen["attempt_no"],
+            "attempt_date": ca.isoformat() if ca else None,
+            "po_number": chosen["po_number"],
+            "vendor_invoice_no": _h("vendor_invoice_no"),
+            "invoice_date": _h("invoice_date"),
+            "etd": _h("etd"),
+            "packing_qty": _h("packing_qty"),
+            "packing_unit": _h("packing_unit"),
+            "volume": _h("volume"),
+            "volume_unit": _h("volume_unit"),
+            "gross_weight": _h("gross_weight"),
+            "weight_unit": _h("weight_unit"),
+            "box_l": box_l,
+            "box_w": box_w,
+            "box_h": box_h,
+            "shipping_manager": _h("shipping_manager"),
+            "remark": _h("remark"),
+        }
+
+    return {
+        "data": {
+            "sev_type": sev_type,
+            "distinct_po_numbers": distinct_pos,
+            "items": items_out,
+            "delivery_history": delivery_history,
+            "next_attempt_by_po": next_attempt_by_po,
+            "header_from_last_attempt": header_from_last_attempt,
+            "defaults": {
+                "vendor_invoice_no": f"{today_prefix}-{next_n:02d}",
+                "invoice_date": _dt.now().strftime("%Y-%m-%d"),
+                "etd": _dt.now().strftime("%Y-%m-%d"),
+                "packing_qty": 1,
+                "packing_unit": "Box",
+                "volume": 0.001,
+                "volume_unit": "M3",
+                "gross_weight": 1.0,
+                "weight_unit": "KG",
+                "shipping_manager": "AMA Bac Ninh JSC",
+                "remark": "",
+            },
+        },
+    }
+
+
+@router.get("/deliveries/dossier-system-image/{bqms_code}")
+async def dossier_system_image(
+    bqms_code: str,
+    token_data: TokenData = Depends(require_role(
+        "admin", "manager", "staff", "warehouse", "sales", "procurement", "accountant",
+    )),
+):
+    """Stream system image cho 1 BQMS code (từ RFQ folder).
+
+    Returns 404 nếu không tìm thấy. Cache-Control 1h.
+    """
+    import re as _re
+    if not _re.match(r"^[A-Z0-9\-_]+$", bqms_code):
+        raise HTTPException(400, "bqms_code chỉ chấp nhận [A-Z0-9-_]")
+
+    from app.services.dossier_image_resolver import find_system_image
+    img_path = find_system_image(bqms_code, None)
+    if not img_path or not img_path.exists():
+        raise HTTPException(404, f"Không tìm thấy ảnh hệ thống cho {bqms_code}")
+
+    from fastapi.responses import FileResponse
+    media_type = "image/png" if img_path.suffix.lower() == ".png" else "image/jpeg"
+    return FileResponse(
+        str(img_path), media_type=media_type,
+        headers={"Cache-Control": "private, max-age=3600"},
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -3782,6 +6111,159 @@ async def update_won_quotation(
 
 
 # ---------------------------------------------------------------------------
+# Thang 2026-06-13: Manual won-data refresh per RFQ.
+# Dispatches Procrastinate task `bqms_sync_won_for_rfq` which acquires
+# the Samsung session lock, drills contract list, and UPSERTs into
+# bqms_won_quotations. UI binds this to a "Cập nhật Trúng BG" button on
+# the WonQuotation drawer / table row.
+# ---------------------------------------------------------------------------
+
+@router.post("/won-quotations/refresh/{rfq_number}")
+async def refresh_won_quotation(
+    rfq_number: str,
+    token_data: TokenData = Depends(
+        require_role("admin", "manager", "staff", "sales", "procurement")
+    ),
+    conn: asyncpg.Connection = Depends(get_db),
+):
+    """Manually refresh won-quotation data for one RFQ.
+
+    Dispatches a background Procrastinate task that:
+      1. Acquires Samsung session lock.
+      2. Drills the Samsung Vendor Portal contract list.
+      3. Upserts rows from staging into bqms_won_quotations.
+
+    Returns the deferred job_id immediately; client polls
+    /push-queue/status or audit_log for completion.
+    """
+    rfq_number = (rfq_number or "").strip()
+    if not rfq_number:
+        raise HTTPException(400, "rfq_number is required")
+
+    # Sanity check: RFQ must exist in bqms_rfq (otherwise the refresh would
+    # never produce a matching won row).
+    exists = await conn.fetchval(
+        "SELECT 1 FROM bqms_rfq WHERE rfq_number = $1 LIMIT 1", rfq_number,
+    )
+    if not exists:
+        raise HTTPException(
+            404, f"RFQ {rfq_number} không tồn tại trong bqms_rfq",
+        )
+
+    # Defer the Procrastinate task. Import inside the handler so the FastAPI
+    # process doesn't pay the procrastinate import cost when the endpoint
+    # is never called.
+    try:
+        from app.tasks.bqms_won_sync import bqms_sync_won_for_rfq
+        job_id = await bqms_sync_won_for_rfq.defer_async(
+            rfq_number=rfq_number,
+            user_id=str(token_data.user_id),
+            timestamp=int(datetime.now().timestamp()),
+        )
+    except Exception as exc:
+        logger.exception("defer bqms_sync_won_for_rfq failed: %s", exc)
+        raise HTTPException(500, f"Không dispatch được task: {exc}")
+
+    # Audit — surface the trigger in BQMS history drawer.
+    try:
+        await conn.execute(
+            """
+            INSERT INTO audit_log
+                (user_id, action, table_name, record_id, new_data, created_at)
+            VALUES ($1::uuid, 'bqms.won_sync.dispatched', 'bqms_won_quotations',
+                    $2, $3::jsonb, NOW())
+            """,
+            token_data.user_id, rfq_number,
+            _json.dumps({"rfq_number": rfq_number, "job_id": job_id}),
+        )
+    except Exception as exc:
+        logger.warning("audit_log won_sync_dispatched failed: %s", exc)
+
+    logger.info(
+        "won_sync dispatched: rfq=%s job_id=%s by=%s",
+        rfq_number, job_id, token_data.user_id,
+    )
+    return {
+        "data": {
+            "rfq_number": rfq_number,
+            "job_id": job_id,
+            "status": "queued",
+        },
+        "message": (
+            f"Đã dispatch task cập nhật Trúng BG cho RFQ {rfq_number}. "
+            "Theo dõi tiến độ qua audit_log hoặc poll /won-quotations sau ~1 phút."
+        ),
+    }
+
+
+# ---------------------------------------------------------------------------
+# Thang 2026-06-13 (Bug fix T4): Global won-data refresh — NO rfq_number path
+# param. UI's RefreshWonButton calls POST /api/v1/bqms/won/refresh with no
+# body. Dispatches the periodic won-sync drain task (idempotent contract
+# staging -> bqms_won_quotations UPSERT, no Samsung scrape) so user gets an
+# instant "all pending picked up" sync without per-RFQ targeting.
+# Kept alongside /won-quotations/refresh/{rfq_number} (per-RFQ) so both
+# entry points work — the per-RFQ one is still used by the WonQuotation
+# drawer's single-row refresh.
+# ---------------------------------------------------------------------------
+
+@router.post("/won/refresh")
+async def refresh_won_quotations_global(
+    token_data: TokenData = Depends(
+        require_role("admin", "manager", "staff", "sales")
+    ),
+    conn: asyncpg.Connection = Depends(get_db),
+):
+    """Refresh ALL pending won/contract data in one go.
+
+    Dispatches the `bqms_sync_won_for_all_pending` task which drains all
+    pending rows from contract staging into bqms_won_quotations. No Samsung
+    scrape is triggered — this is the "pick up everything already scraped"
+    sync, idempotent and UNGATED (vs the periodic task which is OFF by
+    default behind app_config).
+
+    Returns the deferred job_id immediately; client toasts a success
+    message and invalidates the BQMS RFQ table cache.
+    """
+    try:
+        from app.tasks.bqms_won_sync import bqms_sync_won_for_all_pending
+        job_id = await bqms_sync_won_for_all_pending.defer_async(
+            user_id=str(token_data.user_id),
+            timestamp=int(datetime.now().timestamp()),
+        )
+    except Exception as exc:
+        logger.exception("defer bqms_won_sync_periodic failed: %s", exc)
+        raise HTTPException(500, f"Không dispatch được task: {exc}")
+
+    # Audit — surface the global trigger in the BQMS history drawer.
+    try:
+        await conn.execute(
+            """
+            INSERT INTO audit_log
+                (user_id, action, table_name, record_id, new_data, created_at)
+            VALUES ($1::uuid, 'bqms.won_sync.dispatched_global',
+                    'bqms_won_quotations', NULL, $2::jsonb, NOW())
+            """,
+            token_data.user_id,
+            _json.dumps({"scope": "all_pending", "job_id": job_id}),
+        )
+    except Exception as exc:
+        logger.warning("audit_log won_sync_dispatched_global failed: %s", exc)
+
+    logger.info(
+        "won_sync GLOBAL dispatched: job_id=%s by=%s",
+        job_id, token_data.user_id,
+    )
+    return {
+        "data": {
+            "task_id": job_id,
+            "message": "Đang đồng bộ dữ liệu trúng...",
+        },
+        "message": "Đang đồng bộ dữ liệu trúng...",
+    }
+
+
+# ---------------------------------------------------------------------------
 # Origin summary (multi-select rows -> 2-col table BQMS code | Xuất xứ)
 # ---------------------------------------------------------------------------
 
@@ -3822,6 +6304,139 @@ async def deliveries_origin_summary(
         for r in rows
     ]
     return {"data": {"items": items, "total": len(items)}}
+
+
+# ─── Bulk delivery lookup (paste BQMS codes) — Thang 2026-06-01 ──────
+# Tương tự /bqms/hs-code/bulk-lookup ở trang Trúng BG. User paste danh sách
+# BQMS code → trả về toàn bộ delivery rows cho các code đó (bao gồm: PO, qty,
+# shipping_no, delivery_date, status, sev_type). Mã không có delivery → vẫn
+# trả 1 placeholder để user thấy mã đó chưa giao.
+
+
+class _BulkDeliveryLookupRequest(BaseModel):
+    codes: list[str]
+
+
+@router.post("/deliveries/bulk-lookup")
+async def deliveries_bulk_lookup(
+    body: _BulkDeliveryLookupRequest,
+    token_data: TokenData = Depends(require_role(
+        "admin", "manager", "staff", "sales", "procurement", "warehouse", "accountant", "viewer"
+    )),
+    conn: asyncpg.Connection = Depends(get_db),
+):
+    """Tra cứu giao hàng hàng loạt theo danh sách BQMS code.
+
+    Body: {codes: ["Z0000002-...", "...", ...]} (tối đa 200 mã).
+
+    Trả về:
+        - items: list delivery rows (1 mã có thể có nhiều dòng = nhiều PO/lần giao).
+        - missing_codes: mã không tìm thấy delivery nào.
+        - found_codes: mã có ít nhất 1 delivery.
+    """
+    # Normalize input: trim, uppercase, dedup, drop empty
+    raw_codes = body.codes or []
+    codes = sorted({c.strip().upper() for c in raw_codes if c and c.strip()})
+    if not codes:
+        raise HTTPException(400, "Danh sách mã rỗng")
+    if len(codes) > 200:
+        raise HTTPException(400, f"Tối đa 200 mã/lần (đang có {len(codes)})")
+
+    rows = await conn.fetch(
+        """
+        SELECT
+            d.id, d.po_number, d.po_date, d.bqms_code, d.specification, d.unit,
+            d.quantity, d.unit_price, d.amount,
+            d.actual_delivered_qty, d.shipping_no, d.delivery_date,
+            d.delivery_status, d.delivery_status_normalized,
+            d.sev_type, d.country_origin, d.recipient_name,
+            d.receiving_warehouse, d.delivery_method,
+            d.quotation_no, d.total_delivered_value_vnd,
+            d.created_at, d.updated_at
+        FROM bqms_deliveries d
+        WHERE UPPER(d.bqms_code) = ANY($1::text[])
+        ORDER BY d.bqms_code, d.po_number, d.po_date DESC NULLS LAST, d.id DESC
+        """,
+        codes,
+    )
+
+    items = [dict(r) for r in rows]
+    found = {r["bqms_code"].upper() for r in rows if r["bqms_code"]}
+    missing = [c for c in codes if c not in found]
+
+    # Aggregate per code: count + sum qty + last delivery
+    summary: dict[str, dict] = {}
+    for r in rows:
+        key = (r["bqms_code"] or "").upper()
+        if key not in summary:
+            summary[key] = {
+                "bqms_code": r["bqms_code"],
+                "count": 0,
+                "total_quantity": 0,
+                "total_delivered_qty": 0,
+                "last_delivery_date": None,
+                "last_shipping_no": None,
+                "latest_status": None,
+                "po_numbers": set(),
+            }
+        s = summary[key]
+        s["count"] += 1
+        try:
+            s["total_quantity"] += float(r["quantity"] or 0)
+        except Exception:
+            pass
+        try:
+            s["total_delivered_qty"] += float(r["actual_delivered_qty"] or 0)
+        except Exception:
+            pass
+        if r["po_number"]:
+            s["po_numbers"].add(r["po_number"])
+        if r["delivery_date"] and (s["last_delivery_date"] is None or r["delivery_date"] > s["last_delivery_date"]):
+            s["last_delivery_date"] = r["delivery_date"]
+            s["last_shipping_no"] = r["shipping_no"]
+            s["latest_status"] = r["delivery_status"]
+
+    summary_list = []
+    for code in codes:
+        s = summary.get(code)
+        if s:
+            summary_list.append({
+                "bqms_code": s["bqms_code"],
+                "count": s["count"],
+                "total_quantity": s["total_quantity"],
+                "total_delivered_qty": s["total_delivered_qty"],
+                "remaining_qty": max(0, s["total_quantity"] - s["total_delivered_qty"]),
+                "last_delivery_date": s["last_delivery_date"],
+                "last_shipping_no": s["last_shipping_no"],
+                "latest_status": s["latest_status"],
+                "po_numbers": sorted(s["po_numbers"]),
+                "found": True,
+            })
+        else:
+            summary_list.append({
+                "bqms_code": code,
+                "count": 0,
+                "total_quantity": 0,
+                "total_delivered_qty": 0,
+                "remaining_qty": 0,
+                "last_delivery_date": None,
+                "last_shipping_no": None,
+                "latest_status": None,
+                "po_numbers": [],
+                "found": False,
+            })
+
+    return {
+        "data": {
+            "items": items,
+            "summary": summary_list,
+            "found_codes": sorted(found),
+            "missing_codes": missing,
+            "found_count": len(found),
+            "missing_count": len(missing),
+            "total_rows": len(items),
+        }
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -4143,6 +6758,141 @@ async def scrape_selection_trigger(
     return {"data": {k: v for k, v in p.items() if k != "items"}}
 
 
+async def _ensure_ondemand_drill(
+    conn: asyncpg.Connection,
+    staging_id: int,
+    rfq_number: str,
+    user_id,
+) -> dict[str, Any]:
+    """Trigger (or re-use) a single-RFQ on-demand drill for `staging_id`.
+
+    Thang 2026-06-23 — fix nút Báo giá "không hoạt động" khi RFQ chưa drill.
+
+    REUSES the existing quote-batch infra (bqms_quote_batches +
+    bqms_quote_batch_items + `quote_one_rfq_task`). That task already:
+      • acquires `samsung_session_lock` (serialize với push/scrape — KHÔNG mở
+        session Samsung song song)
+      • login → drill detail + download + extract ảnh
+      • merge fresh_detail vào staging.raw_json + upsert bqms_rfq
+    nên đây là con đường drill-1-RFQ AN TOÀN nhất, không phải viết scraper mới.
+
+    Dedupe: nếu đã có batch (1-RFQ) cho staging này đang pending/running thì
+    tái sử dụng, KHÔNG enqueue trùng (tránh nhiều user bấm → nhiều login).
+
+    Returns a dict for the endpoint `summary`:
+      {status:'drilling', batch_id, batch_item_id, reused:bool, message}
+    or {status:'drill_enqueue_failed', message} if enqueue raised.
+    """
+    # 1. Dedupe / poll — xem batch drill 1-RFQ gần nhất (15 phút) cho staging này.
+    #    FE poll bằng cách re-call CHÍNH endpoint /quote (mọi role gọi được),
+    #    nên ta phân loại trạng thái job ở đây để trả về cho FE.
+    existing = await conn.fetchrow(
+        """
+        SELECT bi.batch_id, bi.id AS item_id, bi.status, bi.error_message
+          FROM bqms_quote_batch_items bi
+          JOIN bqms_quote_batches b ON b.id = bi.batch_id
+         WHERE bi.staging_id = $1
+           AND b.total_count = 1
+           AND b.created_at > NOW() - INTERVAL '15 minutes'
+         ORDER BY bi.id DESC
+         LIMIT 1
+        """,
+        staging_id,
+    )
+    if existing and existing["status"] in ("pending", "running"):
+        # Job đang chạy → đừng enqueue trùng, bảo FE tiếp tục poll.
+        return {
+            "status": "drilling",
+            "batch_id": existing["batch_id"],
+            "batch_item_id": existing["item_id"],
+            "reused": True,
+            "message": (
+                f"Đang tải chi tiết RFQ {rfq_number} từ Samsung… "
+                f"nút sẽ tự mở khoá khi xong."
+            ),
+        }
+    if existing and existing["status"] == "error":
+        # Job vừa fail (login lỗi / Samsung timeout). KHÔNG enqueue lại tự động
+        # để tránh vòng lặp vô hạn — báo rõ cho user, cron vẫn sẽ tự thử ngầm.
+        return {
+            "status": "drill_failed",
+            "batch_id": existing["batch_id"],
+            "message": (
+                f"Tải chi tiết RFQ {rfq_number} thất bại: "
+                f"{(existing['error_message'] or 'lỗi không xác định')[:200]}. "
+                f"Cron sẽ tự thử lại ngầm — chờ 3-5 phút rồi bấm lại."
+            ),
+        }
+    if existing and existing["status"] == "done":
+        # Job ĐÃ drill xong nhưng _detail.items vẫn rỗng → RFQ này thực sự không
+        # có item để báo giá (đã Closed / hết hạn / Samsung trả grid rỗng).
+        # KHÔNG enqueue lại (đã thử 1 lần) — báo rõ cho user.
+        return {
+            "status": "drill_empty",
+            "batch_id": existing["batch_id"],
+            "message": (
+                f"Đã tải chi tiết RFQ {rfq_number} nhưng Samsung không trả về "
+                f"dòng linh kiện nào (có thể RFQ đã đóng/hết hạn). "
+                f"Kiểm tra lại trên cổng Samsung."
+            ),
+        }
+    # Chưa có batch nào trong 15 phút → enqueue một lượt drill mới bên dưới.
+
+    # 2. Tạo 1-RFQ batch + item (cùng schema create_quote_batch dùng).
+    batch_id = await conn.fetchval(
+        "INSERT INTO bqms_quote_batches (created_by, total_count, pending_count) "
+        "VALUES ($1, 1, 1) RETURNING id",
+        user_id,
+    )
+    item_id = await conn.fetchval(
+        "INSERT INTO bqms_quote_batch_items "
+        "(batch_id, staging_id, rfq_number, status) "
+        "VALUES ($1, $2, $3, 'pending') RETURNING id",
+        batch_id, staging_id, rfq_number,
+    )
+
+    # 3. Enqueue Procrastinate job (giống create_quote_batch).
+    try:
+        from app.tasks.bqms_quote_batch import quote_one_rfq_task
+        from app.core.procrastinate_app import app as proc_app
+        async with proc_app.open_async():
+            job_id = await quote_one_rfq_task.defer_async(
+                batch_item_id=item_id,
+                staging_id=staging_id,
+                user_id=str(user_id),
+            )
+        await conn.execute(
+            "UPDATE bqms_quote_batch_items SET procrastinate_job_id=$1 WHERE id=$2",
+            job_id, item_id,
+        )
+    except Exception as exc:
+        logger.exception(
+            "on-demand drill enqueue failed for staging #%d (RFQ %s)",
+            staging_id, rfq_number,
+        )
+        await conn.execute(
+            "UPDATE bqms_quote_batches SET status='error' WHERE id=$1", batch_id,
+        )
+        return {
+            "status": "drill_enqueue_failed",
+            "message": (
+                f"Không enqueue được job tải chi tiết RFQ {rfq_number}: {exc}. "
+                f"Hệ thống có cron tự drill ngầm — chờ 3-5 phút rồi bấm lại."
+            ),
+        }
+
+    return {
+        "status": "drilling",
+        "batch_id": batch_id,
+        "batch_item_id": item_id,
+        "reused": False,
+        "message": (
+            f"Đang tải chi tiết RFQ {rfq_number} từ Samsung… "
+            f"nút sẽ tự mở khoá khi xong (~30-90 giây)."
+        ),
+    }
+
+
 @router.post("/vendor-staging/{staging_id}/quote")
 async def quote_bidding_staging(
     staging_id: int,
@@ -4169,9 +6919,20 @@ async def quote_bidding_staging(
       - bqms_smart_rescan (5 min) — drill RFQs missing _detail.items
       - bqms_smart_code_track (3 min) — self-heal 10 kinds of gaps
 
-    Nếu raw_json._detail.items vẫn rỗng (scrape chưa kịp drill RFQ này) →
-    trả warning + giữ pending_review. User chờ 3-30 phút rồi click lại.
-    Endpoint hoàn tất trong <1 giây — không còn Playwright session here.
+    ON-DEMAND DRILL (Thang 2026-06-23 — fix nút Báo giá "không hoạt động"):
+    Nếu raw_json._detail.items vẫn RỖNG (cron chưa kịp drill RFQ này), thay vì
+    trả warning thụ động bắt user ngồi chờ + bấm lại, endpoint sẽ ENQUEUE NGAY
+    một Procrastinate job `quote_one_rfq_task` (qua hạ tầng quote-batch có sẵn:
+    1 batch / 1 RFQ) để drill riêng RFQ này. Task đó:
+      - acquire `samsung_session_lock` (serialize với push/scrape — KHÔNG mở
+        session Samsung song song, an toàn) → login → drill detail + download
+        + extract ảnh → merge fresh_detail vào staging.raw_json → upsert bqms_rfq.
+    Endpoint trả `status='drilling'` + `batch_id`. Frontend poll
+    GET /vendor-staging/quote-batch/{batch_id}; khi item 'done' thì tự gọi lại
+    POST .../quote — lúc này _detail.items đã có → đi nhánh unlock bình thường.
+    Dedupe: nếu đã có batch drill đang chạy cho staging này thì tái sử dụng,
+    không enqueue trùng. Endpoint vẫn hoàn tất <1 giây — KHÔNG có Playwright
+    session chạy trong request (job nặng nằm trên sc-worker).
     """
     row = await conn.fetchrow(
         "SELECT id, module, rfq_number, status, raw_json "
@@ -4194,66 +6955,102 @@ async def quote_bidding_staging(
         raw = _json.loads(raw or "{}")
 
     items_in_detail = (raw.get("_detail") or {}).get("items") or []
-    summary: dict[str, Any] = {"items_in_detail": len(items_in_detail)}
+    summary: dict[str, Any] = {
+        "items_in_detail": len(items_in_detail),
+        "rfq_number": rfq_number,  # Thang 2026-05-23: trả rfq_number để FE có thể filter+highlight
+    }
 
     if not items_in_detail:
-        # Scrape chưa drill xong RFQ này — không thể UPSERT. User chờ cron.
-        summary["bqms_rfq_upserts"] = 0
-        summary["quote_unlocked"] = 0
-        summary["staging_status"] = "pending_review"
-        summary["warning"] = (
-            f"RFQ {rfq_number} chưa được auto-drill bởi cron scrape. "
-            f"Hệ thống có 3 cron tự chạy ngầm (30p/5p/3p) sẽ drill + download "
-            f"+ extract ảnh + tạo dòng bqms_rfq. Chờ 3-5 phút rồi click lại."
+        # SMART UNLOCK (Thang 2026-06-23) — _detail.items rỗng KHÔNG có nghĩa là
+        # chưa drill: scrape sau (etl/onedrive_sync) thường GHI ĐÈ staging.raw_json
+        # về list-level (xoá _detail), nhưng các row bqms_rfq đã upsert trước đó
+        # (drill cũ / cron / lần Báo giá trước) VẪN CÒN. Nếu đã có row → chỉ cần
+        # UNLOCK ngay (tức thì), KHÔNG drill lại 30-90s. Đây chính là điểm làm nút
+        # Báo giá "xoay mãi": có sẵn row mà vẫn đi drill.
+        existing_rows = await conn.fetchval(
+            "SELECT COUNT(*) FROM bqms_rfq WHERE rfq_number = $1", rfq_number,
         )
-        logger.warning(
-            "quote staging #%d (RFQ %s): empty _detail.items — chờ cron drill",
-            staging_id, rfq_number,
-        )
-        return {"data": summary}
-
-    # 1. Idempotent UPSERT bqms_rfq (nếu cron đã làm thì no-op)
-    from app.etl.bqms_bidding_scraper import upsert_bqms_rfq_for_one_staging_row
-    from app.core.config import settings as cfg
-    import asyncpg as apg
-
-    db_url = (
-        str(cfg.DATABASE_URL)
-        .replace("+asyncpg", "")
-        .replace("postgresql+asyncpg", "postgresql")
-    )
-    pool = await apg.create_pool(db_url, min_size=1, max_size=2)
-    try:
-        n = await upsert_bqms_rfq_for_one_staging_row(pool, raw)
-        summary["bqms_rfq_upserts"] = n
-
-        # 2 + 3. UNLOCK V1-V4 buttons + assign current user (idempotent)
-        async with pool.acquire() as c:
-            unlocked = await c.fetchval(
+        if existing_rows and int(existing_rows) > 0:
+            unlocked = await conn.fetchval(
                 """
                 UPDATE bqms_rfq
-                SET quote_unlocked = true,
-                    assigned_to = COALESCE(assigned_to, $1::uuid),
-                    updated_at = NOW()
+                SET quote_unlocked = true, assigned_to = $1::uuid, updated_at = NOW()
                 WHERE rfq_number = $2
                 RETURNING (SELECT COUNT(*) FROM bqms_rfq WHERE rfq_number = $2)
                 """,
                 token_data.user_id, rfq_number,
             )
-            summary["quote_unlocked"] = int(unlocked or 0)
-
-            # 4. Mark staging approved
-            await c.execute(
-                """
-                UPDATE bqms_vendor_portal_staging
-                SET status='approved', reviewed_by=$1, reviewed_at=NOW()
-                WHERE id=$2 AND status IN ('pending_review','approved')
-                """,
+            await conn.execute(
+                "UPDATE bqms_vendor_portal_staging "
+                "SET status='approved', reviewed_by=$1, reviewed_at=NOW() "
+                "WHERE id=$2 AND status IN ('pending_review','approved')",
                 token_data.user_id, staging_id,
             )
+            summary["bqms_rfq_upserts"] = 0
+            summary["quote_unlocked"] = int(unlocked or 0)
             summary["staging_status"] = "approved"
-    finally:
-        await pool.close()
+            logger.info(
+                "quote staging #%d (RFQ %s): _detail rỗng nhưng đã có %s bqms_rfq "
+                "row → UNLOCK trực tiếp (no drill) unlocked=%d",
+                staging_id, rfq_number, existing_rows, summary["quote_unlocked"],
+            )
+            return {"data": summary}
+
+        # Chưa có row bqms_rfq nào → ON-DEMAND DRILL (Thang 2026-06-23). RFQ thật
+        # sự chưa được drill lần nào. Enqueue NGAY 1 job drill riêng RFQ này qua
+        # hạ tầng quote-batch có sẵn; FE poll rồi tự unlock khi xong. KHÔNG mở
+        # Playwright trong request (job nặng trên sc-worker).
+        drill = await _ensure_ondemand_drill(conn, staging_id, rfq_number, token_data.user_id)
+        summary.update(drill)
+        summary["bqms_rfq_upserts"] = 0
+        summary["quote_unlocked"] = 0
+        summary["staging_status"] = "pending_review"
+        logger.info(
+            "quote staging #%d (RFQ %s): empty _detail.items — on-demand drill %s (batch=%s)",
+            staging_id, rfq_number, drill.get("status"), drill.get("batch_id"),
+        )
+        return {"data": summary}
+
+    # 1. Idempotent UPSERT bqms_rfq (nếu cron đã làm thì no-op)
+    # Thang 2026-06-22 (fix nút Báo giá chập chờn): KHÔNG còn tạo asyncpg pool
+    # MỚI mỗi request (apg.create_pool). Đó là nguyên nhân fail ngẫu nhiên khi
+    # nhiều user bấm cùng lúc / scraper đang chạy → tổng connection vượt
+    # max_connections của Postgres → TooManyConnectionsError/timeout. Giờ dùng
+    # GLOBAL pool (đã init sẵn, size 20) cho upsert + connection request-scoped
+    # đã inject (Depends(get_db)) cho 2 UPDATE → không mở connection mới.
+    from app.etl.bqms_bidding_scraper import upsert_bqms_rfq_for_one_staging_row
+    from app.core.database import db_pool as _global_db_pool
+
+    n = await upsert_bqms_rfq_for_one_staging_row(_global_db_pool.pool(), raw)
+    summary["bqms_rfq_upserts"] = n
+
+    # 2 + 3. UNLOCK V1-V4 buttons + assign current user (idempotent) — chạy
+    # trên request-scoped conn, KHÔNG mở connection mới.
+    # Thang 2026-05-15: assigned_to GHI ĐÈ (không COALESCE) — user nào nhấn
+    # "Báo giá" thì cột Người PT cập nhật về user đó.
+    unlocked = await conn.fetchval(
+        """
+        UPDATE bqms_rfq
+        SET quote_unlocked = true,
+            assigned_to = $1::uuid,
+            updated_at = NOW()
+        WHERE rfq_number = $2
+        RETURNING (SELECT COUNT(*) FROM bqms_rfq WHERE rfq_number = $2)
+        """,
+        token_data.user_id, rfq_number,
+    )
+    summary["quote_unlocked"] = int(unlocked or 0)
+
+    # 4. Mark staging approved
+    await conn.execute(
+        """
+        UPDATE bqms_vendor_portal_staging
+        SET status='approved', reviewed_by=$1, reviewed_at=NOW()
+        WHERE id=$2 AND status IN ('pending_review','approved')
+        """,
+        token_data.user_id, staging_id,
+    )
+    summary["staging_status"] = "approved"
 
     logger.info(
         "quote staging #%d (RFQ %s) UNLOCKED by user=%s: upserts=%d unlocked=%d",
@@ -4295,7 +7092,10 @@ class QuoteBatchRequest(BaseModel):
 
 
 @router.post("/vendor-staging/quote-batch")
+@limiter.limit("10/minute")
 async def create_quote_batch(
+    request: Request,
+    response: Response,
     payload: QuoteBatchRequest,
     token_data: TokenData = Depends(require_role("admin")),
     conn: asyncpg.Connection = Depends(get_db),
@@ -5180,12 +7980,29 @@ async def get_push_preview(
         else:
             classification = "TM"
 
+    # Thang 2026-06-13 (FIX V2 push fail):
+    # Dedup at query time SAME WAY rfq-table does. Without this, duplicate
+    # (rfq_number, bqms_code) twins (etl + onedrive_sync) would both come
+    # back here; if the twin with NULL V2 ranks first, push-preview reads
+    # price_v=NULL → throws "chưa có giá V2" warning + 0-price push.
+    # DISTINCT ON ordered by V-presence DESC ensures the row carrying real
+    # V{round_n} price wins.
     items_db = await conn.fetch(
-        """SELECT id, rfq_number, bqms_code, specification,
+        """SELECT DISTINCT ON (rfq_number, bqms_code)
+                  id, rfq_number, bqms_code, specification,
                   expected_qty, unit, maker,
                   quoted_price_bqms_v1, quoted_price_bqms_v2,
                   quoted_price_bqms_v3, quoted_price_bqms_v4
-           FROM bqms_rfq WHERE rfq_number = $1 ORDER BY id""", rfq_number,
+           FROM bqms_rfq WHERE rfq_number = $1
+           ORDER BY rfq_number, bqms_code,
+                    (COALESCE(quote_unlocked, false))::int DESC,
+                    (quoted_price_bqms_v4 IS NOT NULL)::int DESC,
+                    (quoted_price_bqms_v3 IS NOT NULL)::int DESC,
+                    (quoted_price_bqms_v2 IS NOT NULL)::int DESC,
+                    (quoted_price_bqms_v1 IS NOT NULL)::int DESC,
+                    updated_at DESC NULLS LAST,
+                    id DESC""",
+        rfq_number,
     )
     if not items_db:
         raise HTTPException(400, "Không có item nào")
@@ -5216,6 +8033,22 @@ async def get_push_preview(
         logger.warning("push-preview description_map fetch failed for %s: %s",
                        rfq_number, str(exc)[:120])
 
+    # Look up user-pinned primary images in one query (Thang 2026-05-20):
+    # picker modal stores choices in bqms_code_primary_image — push-preview must
+    # respect that so chosen ảnh thực sự được dùng khi đẩy lên Samsung.
+    primary_map: dict[str, str] = {}
+    codes_for_primary = [it["bqms_code"] for it in items_db if it.get("bqms_code")]
+    if codes_for_primary and round_n == 1:
+        try:
+            primary_rows = await conn.fetch(
+                "SELECT bqms_code, image_path FROM bqms_code_primary_image "
+                "WHERE bqms_code = ANY($1::text[])",
+                codes_for_primary,
+            )
+            primary_map = {r["bqms_code"]: r["image_path"] for r in primary_rows}
+        except Exception as exc:
+            logger.warning("push-preview primary-image lookup failed: %s", exc)
+
     items_out: list[dict] = []
     warnings: list[str] = []
     for it in items_db:
@@ -5223,15 +8056,37 @@ async def get_push_preview(
         if not code:
             continue
         # Round 1 needs image; round 2+ uses Samsung's stored image (don't re-upload)
-        img_src = resolve_image_for_bqms_code(code, rfq_number) if round_n == 1 else None
+        img_src = None
         image_path = None
         image_source = "missing"
         if round_n == 1:
+            # PRIORITY 0 — user pinned via picker modal (DB).
+            pinned = primary_map.get(code)
+            if pinned:
+                p = Path(pinned)
+                if p.exists():
+                    img_src = p
+                else:
+                    logger.warning("push-preview: pinned primary %s for %s gone",
+                                   pinned, code)
+            # Fallback to filesystem auto-pick if no pinned or pinned file vanished.
+            if img_src is None:
+                img_src = resolve_image_for_bqms_code(code, rfq_number)
+
             if img_src:
                 try:
                     resized = resize_for_samsung(img_src)
                     image_path = str(resized)
-                    image_source = "override" if "quote-overrides" in str(img_src) else "auto"
+                    # Mark "override" when user explicitly pinned OR file is under
+                    # /quote-overrides OR /bqms-image-uploads OR .user-image-uploads.
+                    src_str = str(img_src)
+                    is_user = (
+                        bool(pinned)
+                        or "quote-overrides" in src_str
+                        or ".user-image-uploads" in src_str
+                        or "bqms-image-uploads" in src_str
+                    )
+                    image_source = "override" if is_user else "auto"
                 except Exception as exc:
                     warnings.append(f"{code}: resize ảnh lỗi - {exc}")
             else:
@@ -5320,11 +8175,29 @@ async def get_push_preview(
 
 
 def _find_round_folder_bqms(rfq_number: str, round_n: int):
-    """Locate /data/onedrive-staging/.../{QT}_*/QT_AMA BAC NINH_L{round}/"""
+    """Locate /data/onedrive-staging/.../{QT}<sep><meta>/QT_AMABACNINH_L{round}/.
+
+    Folder-name compat:
+      - Bare:   `{rfq}` (legacy)
+      - OLD:    `{rfq}_<first_item>_<qty>_<date>_<time>` (underscore-joined, pre-2026-05-19)
+      - NEW:    `{rfq} {qty_total} {date} {time}`        (SPACE-joined, since 2026-05-19)
+
+    Round-subfolder compat:
+      - NEW: `{rfq}_AMABACNINH_L{n}`   (no spaces inside AMABACNINH, since 2026-05-19)
+      - OLD: `{rfq}_AMA BAC NINH_L{n}` (with spaces, before 2026-05-19)
+
+    Critical bug fix (Thang 2026-05-20): previously rejected folders that don't
+    start with `{rfq}_` — but the 2026-05-19 NEW pretty-name uses `{rfq} ` (space).
+    So all newly-generated quote folders were invisible to push-preview.
+    """
     from pathlib import Path as _Path
     from datetime import datetime as _dt
     root = _Path("/data/onedrive-staging/Puplic/BQMS/RFQ")
     now = _dt.now()
+    patterns = [
+        f"{rfq_number}_AMABACNINH_L{round_n}",      # NEW
+        f"{rfq_number}_AMA BAC NINH_L{round_n}",    # OLD (backward compat)
+    ]
     for y in [now.year, now.year - 1]:
         year_root = root / f"RFQ {y}"
         if not year_root.exists():
@@ -5336,11 +8209,15 @@ def _find_round_folder_bqms(rfq_number: str, round_n: int):
             for d in month_root.iterdir():
                 if not d.is_dir():
                     continue
-                if d.name != rfq_number and not d.name.startswith(f"{rfq_number}_"):
+                # Accept: bare match, underscore-prefix (old pretty), space-prefix (new pretty).
+                if (d.name != rfq_number
+                        and not d.name.startswith(f"{rfq_number}_")
+                        and not d.name.startswith(f"{rfq_number} ")):
                     continue
-                round_sub = d / f"{rfq_number}_AMA BAC NINH_L{round_n}"
-                if round_sub.exists():
-                    return round_sub
+                for pat in patterns:
+                    round_sub = d / pat
+                    if round_sub.exists():
+                        return round_sub
     return None
 
 
@@ -5353,21 +8230,44 @@ class PushToSecRequest(BaseModel):
 
 
 @router.post("/rfq/{rfq_id}/push-to-sec")
+@limiter.limit("5/minute")
 async def push_to_sec(
+    request: Request,
+    response: Response,
     rfq_id: int,
     body: PushToSecRequest,
     token_data: TokenData = Depends(require_role("admin", "manager", "staff", "sales")),
     conn: asyncpg.Connection = Depends(get_db),
 ):
-    """Dispatch Procrastinate task bqms_submit_quote."""
+    """Dispatch Procrastinate task bqms_submit_quote.
+
+    Thang 2026-05-23: dedupe theo `rfq_number` thay vì id đơn lẻ. 1 RFQ có thể
+    có N items (mỗi item là 1 row bqms_rfq) — nếu chỉ check id, user click 9 lần
+    cho 9 items sẽ tạo 9 jobs duplicate cho cùng QT26066620. Sửa: check trạng
+    thái của BẤT KỲ row nào trong RFQ → 409 nếu có job đang chạy.
+    """
     rfq = await conn.fetchrow(
         "SELECT id, rfq_number, bqms_push_status FROM bqms_rfq WHERE id = $1",
         rfq_id,
     )
     if not rfq:
         raise HTTPException(404)
-    if rfq["bqms_push_status"] in ("queued", "running"):
-        raise HTTPException(409, f"QT đang được đẩy (status={rfq['bqms_push_status']})")
+
+    # Dedupe by rfq_number: nếu BẤT KỲ row nào của RFQ này đang queued/running → 409
+    busy = await conn.fetchval(
+        """
+        SELECT bqms_push_status FROM bqms_rfq
+        WHERE rfq_number = $1 AND bqms_push_status IN ('queued', 'running')
+        LIMIT 1
+        """,
+        rfq["rfq_number"],
+    )
+    if busy:
+        raise HTTPException(
+            409,
+            f"QT {rfq['rfq_number']} đang được đẩy (status={busy}). "
+            f"Vào popup ở giữa màn hình bấm \"Hủy queue\" nếu muốn đẩy lại.",
+        )
 
     errors: list[str] = []
     if not body.submission_opinion or not body.submission_opinion.strip():
@@ -5376,11 +8276,15 @@ async def push_to_sec(
         errors.append("Cần ít nhất 1 file đính kèm")
     # Image required ONLY on round 1 — rounds 2-4 reuse Samsung's stored image.
     image_required = (body.round == 1)
+    logger.info(
+        "push_to_sec.image_gate rfq=%s round=%d image_required=%s",
+        rfq["rfq_number"], body.round, image_required,
+    )
     for i, it in enumerate(body.items, 1):
         if it.get("abandonment", "N") == "Y":
             continue
         if image_required and not it.get("image_path"):
-            errors.append(f"Item #{i} ({it.get('bqms_code')}) thiếu ảnh")
+            errors.append(f"Item #{i} ({it.get('bqms_code')}) thiếu ảnh (V1 yêu cầu — V2+ không cần)")
         if not it.get("quotation_price") or float(it["quotation_price"]) <= 0:
             errors.append(f"Item #{i} ({it.get('bqms_code')}) thiếu giá")
     if errors:
@@ -5398,9 +8302,13 @@ async def push_to_sec(
         """UPDATE bqms_rfq SET
             bqms_push_status='queued',
             bqms_push_payload=$1::jsonb,
-            bqms_push_error=NULL
-           WHERE id=$2""",
-        _json.dumps(payload), rfq_id,
+            bqms_push_error=NULL,
+            bqms_push_round_active=$2,
+            bqms_push_step_index=0,
+            bqms_push_started_at=NOW(),
+            bqms_push_heartbeat_at=NOW()
+           WHERE id=$3""",
+        _json.dumps(payload), int(body.round), rfq_id,
     )
 
     from app.tasks.bqms_auto_submit import bqms_submit_quote_task
@@ -5430,30 +8338,195 @@ async def push_to_sec(
     }
 
 
+class BatchPushToSecRequest(BaseModel):
+    rfq_ids: list[int]
+    round: int = 1
+
+
+@router.post("/push-to-sec/batch")
+@limiter.limit("3/minute")
+async def push_to_sec_batch(
+    request: Request,
+    response: Response,
+    body: BatchPushToSecRequest,
+    token_data: TokenData = Depends(require_role("admin", "manager", "staff", "sales")),
+    conn: asyncpg.Connection = Depends(get_db),
+):
+    """ĐẨY NHIỀU mã lên SEC THEO THỨ TỰ trong 1 phiên (Thang 2026-06-29).
+
+    Build payload SERVER-SIDE per RFQ qua get_push_preview (ĐÚNG logic modal đơn) +
+    validate y hệt push đơn. Mã thiếu giá/ảnh/file → BỎ QUA (skip) kèm lý do, KHÔNG
+    làm hỏng cả mẻ. Mã hợp lệ → set queued + enqueue 1 job `bqms_submit_batch` (giữ
+    samsung_session_lock 1 lần, đẩy lần lượt). Tối đa 8 mã/mẻ. Dedup theo rfq_number.
+    """
+    rfq_ids = list(dict.fromkeys(int(x) for x in (body.rfq_ids or [])))
+    if not rfq_ids:
+        raise HTTPException(400, "Cần ít nhất 1 mã")
+    if len(rfq_ids) > 8:
+        raise HTTPException(400, "Tối đa 8 mã mỗi lần đẩy (giới hạn phiên Samsung) — chia nhỏ giúp em.")
+    round_n = max(1, min(4, int(body.round or 1)))
+
+    enqueued: list[dict] = []
+    skipped: list[dict] = []
+    seen_rfq_numbers: set[str] = set()
+    batch_rfqs: list[dict] = []
+
+    for rid in rfq_ids:
+        rno = None
+        try:
+            rfq = await conn.fetchrow(
+                "SELECT id, rfq_number, bqms_push_status FROM bqms_rfq WHERE id=$1", rid)
+            if not rfq:
+                skipped.append({"rfq_id": rid, "rfq_number": None, "errors": ["Không tồn tại"]})
+                continue
+            rno = rfq["rfq_number"]
+            if rno in seen_rfq_numbers:
+                continue  # cùng 1 RFQ chọn nhiều dòng (nhiều item) → chỉ xử lý 1 lần
+            seen_rfq_numbers.add(rno)
+            busy = await conn.fetchval(
+                "SELECT bqms_push_status FROM bqms_rfq WHERE rfq_number=$1 "
+                "AND bqms_push_status IN ('queued','running') LIMIT 1", rno)
+            if busy:
+                skipped.append({"rfq_id": rid, "rfq_number": rno, "errors": [f"Đang được đẩy (status={busy})"]})
+                continue
+            # Build payload bằng CHÍNH get_push_preview (không tự dựng lại → không lệch).
+            preview = await get_push_preview(rfq_id=rid, round_n=round_n, token_data=token_data, conn=conn)
+            data = preview["data"]
+            items = data.get("items") or []
+            opinion = data.get("submission_opinion") or ""
+            attachments = data.get("attachment_paths") or []
+            valid_date = data.get("quote_valid_date")
+            # Validate y hệt push đơn (push_to_sec).
+            errs: list[str] = []
+            if not opinion.strip():
+                errs.append("Thiếu Submission Opinion")
+            if not attachments:
+                errs.append(f"Không có file đính kèm (folder L{round_n})")
+            image_required = (round_n == 1)
+            for i, it in enumerate(items, 1):
+                if it.get("abandonment", "N") == "Y":
+                    continue
+                if image_required and not it.get("image_path"):
+                    errs.append(f"#{i} {it.get('bqms_code')}: thiếu ảnh (V1)")
+                if not it.get("quotation_price") or float(it["quotation_price"]) <= 0:
+                    errs.append(f"#{i} {it.get('bqms_code')}: thiếu giá")
+            if errs:
+                skipped.append({"rfq_id": rid, "rfq_number": rno, "errors": errs[:5]})
+                continue
+            payload = {
+                "rfq_number": rno, "round": round_n, "items": items,
+                "submission_opinion": opinion, "quote_valid_date": valid_date,
+                "attachment_paths": attachments,
+            }
+            # Set queued CHỈ trên dòng rid (giống push đơn) — popup dedup theo rfq_number
+            # sẽ chọn đúng dòng đang chạy; tránh kẹt các dòng item khác ở 'queued'.
+            await conn.execute(
+                """UPDATE bqms_rfq SET bqms_push_status='queued', bqms_push_payload=$1::jsonb,
+                   bqms_push_error=NULL, bqms_push_round_active=$2, bqms_push_step_index=0,
+                   bqms_push_progress_pct=0, bqms_push_progress_step='Chờ trong hàng đợi...',
+                   bqms_push_started_at=NOW(), bqms_push_heartbeat_at=NOW() WHERE id=$3""",
+                _json.dumps(payload), round_n, rid)
+            batch_rfqs.append({"rfq_id": rid, "payload": payload})
+            enqueued.append({"rfq_id": rid, "rfq_number": rno})
+        except HTTPException as he:
+            skipped.append({"rfq_id": rid, "rfq_number": rno, "errors": [str(he.detail)[:200]]})
+        except Exception as exc:
+            logger.warning("batch push prep failed rfq_id=%d: %s", rid, exc)
+            skipped.append({"rfq_id": rid, "rfq_number": rno, "errors": [str(exc)[:200]]})
+
+    if not batch_rfqs:
+        # Tất cả bị bỏ qua → trả 200 (KHÔNG 400) để FE render ĐẦY ĐỦ lý do skip
+        # (api.ts ép `detail` của lỗi 400 về string → mất danh sách chi tiết).
+        return {
+            "data": {"job_id": "", "enqueued": [], "skipped": skipped},
+            "message": "Không có mã nào đủ điều kiện để đẩy",
+        }
+
+    from app.tasks.bqms_auto_submit import bqms_submit_batch_task
+    from app.core.procrastinate_app import app as proc_app
+    try:
+        async with proc_app.open_async():
+            job_id = await bqms_submit_batch_task.defer_async(
+                rfqs=batch_rfqs, user_id=str(token_data.user_id))
+    except Exception:
+        # Enqueue lỗi → reset các dòng vừa set 'queued' về NULL để không kẹt popup.
+        logger.exception("push_to_sec_batch defer_async failed")
+        for e in enqueued:
+            await conn.execute(
+                "UPDATE bqms_rfq SET bqms_push_status=NULL, bqms_push_job_id=NULL WHERE id=$1",
+                e["rfq_id"])
+        raise HTTPException(500, "Không xếp được hàng đợi — vui lòng thử lại sau")
+    for e in enqueued:
+        await conn.execute(
+            "UPDATE bqms_rfq SET bqms_push_job_id=$1 WHERE id=$2", str(job_id), e["rfq_id"])
+
+    logger.info("push_to_sec_batch: enqueued=%d skipped=%d job=%s", len(enqueued), len(skipped), job_id)
+    return {
+        "data": {"job_id": str(job_id), "enqueued": enqueued, "skipped": skipped},
+        "message": f"Đã xếp hàng {len(enqueued)} mã đẩy lần lượt"
+        + (f" · bỏ qua {len(skipped)} mã" if skipped else ""),
+    }
+
+
 @router.get("/push-queue/status")
 async def get_push_queue_status(
     token_data: TokenData = Depends(require_role("admin", "manager", "staff", "sales")),
     conn: asyncpg.Connection = Depends(get_db),
 ):
-    """Danh sách tất cả job queued + running + recent done."""
+    """Danh sách tất cả job queued + running + recent done.
+
+    Thang 2026-05-23: DEDUPE by (rfq_number, bqms_pushed_round) — vì 1 RFQ có
+    nhiều bqms_rfq rows (1 row per item) đều bị set status='queued' cùng lúc
+    → user thấy 9 popup chồng nhau cho cùng 1 push. Giờ chỉ trả 1 row đại diện
+    per (RFQ, round). Thêm cột item_count để hiển thị số mã trong RFQ.
+    """
     rows = await conn.fetch(
         """
-        SELECT r.id, r.rfq_number, r.bqms_push_status, r.bqms_push_job_id,
-               r.bqms_push_error, r.bqms_pushed_at, r.bqms_pushed_round,
-               r.bqms_push_screenshot_path,
-               j.status AS job_status, j.scheduled_at, j.attempts
-        FROM bqms_rfq r
-        LEFT JOIN procrastinate_jobs j ON j.id::text = r.bqms_push_job_id
-        WHERE r.bqms_push_status IN ('queued', 'running', 'failed', 'saved_temp')
-          AND (r.bqms_pushed_at IS NULL OR r.bqms_pushed_at > NOW() - INTERVAL '24 hours')
+        WITH ranked AS (
+            SELECT r.id, r.rfq_number, r.bqms_push_status, r.bqms_push_job_id,
+                   r.bqms_push_error, r.bqms_pushed_at, r.bqms_pushed_round,
+                   r.bqms_push_screenshot_path,
+                   r.bqms_push_progress_pct, r.bqms_push_progress_step,
+                   r.bqms_push_started_at,
+                   r.bqms_push_round_active, r.bqms_push_step_index,
+                   r.bqms_push_total_steps, r.bqms_push_step_key,
+                   j.status AS job_status, j.scheduled_at, j.attempts,
+                   ROW_NUMBER() OVER (
+                       PARTITION BY r.rfq_number, COALESCE(r.bqms_push_round_active, r.bqms_pushed_round, 0)
+                       ORDER BY
+                           CASE r.bqms_push_status
+                               WHEN 'running' THEN 1
+                               WHEN 'queued' THEN 2
+                               WHEN 'failed' THEN 3
+                               ELSE 4
+                           END,
+                           r.id ASC
+                   ) AS rn,
+                   COUNT(*) OVER (PARTITION BY r.rfq_number, COALESCE(r.bqms_push_round_active, r.bqms_pushed_round, 0)) AS item_count
+            FROM bqms_rfq r
+            LEFT JOIN procrastinate_jobs j ON j.id::text = r.bqms_push_job_id
+            WHERE r.bqms_push_status IN ('queued', 'running', 'failed', 'saved_temp')
+              AND (
+                    -- BUG FIX (Thang 2026-06-29): re-push 1 QT đã đẩy >24h trước thì
+                    -- bqms_pushed_at là lần THÀNH CÔNG CŨ → điều kiện "trong 24h" loại
+                    -- bỏ cả job mới đang chạy/failed → popup không hiện. Sửa: luôn hiện
+                    -- job queued/running; với failed/saved_temp dùng started_at (lần ĐẨY
+                    -- HIỆN TẠI), pushed_at chỉ là fallback cho rows cũ chưa có started_at.
+                    r.bqms_push_status IN ('queued', 'running')
+                 OR r.bqms_push_started_at > NOW() - INTERVAL '24 hours'
+                 OR r.bqms_pushed_at      > NOW() - INTERVAL '24 hours'
+                  )
+        )
+        SELECT * FROM ranked
+        WHERE rn = 1
         ORDER BY
-            CASE r.bqms_push_status
+            CASE bqms_push_status
                 WHEN 'running' THEN 1
                 WHEN 'queued' THEN 2
                 WHEN 'failed' THEN 3
                 ELSE 4
             END,
-            r.bqms_pushed_at DESC NULLS LAST
+            bqms_pushed_at DESC NULLS LAST
         LIMIT 20
         """,
     )
@@ -5462,8 +8535,61 @@ async def get_push_queue_status(
         for k, v in d.items():
             if isinstance(v, (date, datetime)):
                 d[k] = v.isoformat()
+        d.pop("rn", None)  # internal field
         return d
     return {"data": [_ser_q(r) for r in rows]}
+
+
+@router.post("/push-queue/cancel/{rfq_number}")
+async def cancel_push_queue(
+    rfq_number: str,
+    round_n: int | None = Query(None, ge=1, le=4, description="Round cụ thể; None=tất cả round"),
+    token_data: TokenData = Depends(require_role("admin", "manager", "staff", "sales")),
+    conn: asyncpg.Connection = Depends(get_db),
+):
+    """Hủy queued job + reset status về NULL.
+
+    Chỉ hủy được status='queued' (chưa chạy). Job đang 'running' phải chờ.
+    """
+    conditions = ["rfq_number = $1", "bqms_push_status = 'queued'"]
+    params: list[Any] = [rfq_number]
+    if round_n is not None:
+        conditions.append(f"bqms_pushed_round = ${len(params) + 1}")
+        params.append(round_n)
+    where = " AND ".join(conditions)
+
+    affected = await conn.fetch(
+        f"""
+        UPDATE bqms_rfq
+        SET bqms_push_status = NULL,
+            bqms_push_job_id = NULL,
+            bqms_push_error = NULL,
+            bqms_push_payload = NULL,
+            bqms_push_progress_pct = NULL,
+            bqms_push_progress_step = NULL,
+            bqms_push_started_at = NULL
+        WHERE {where}
+        RETURNING id, bqms_push_job_id
+        """,
+        *params,
+    )
+    # Try cancel procrastinate jobs too (best-effort)
+    job_ids = [r["bqms_push_job_id"] for r in affected if r["bqms_push_job_id"]]
+    if job_ids:
+        await conn.execute(
+            "UPDATE procrastinate_jobs SET status = 'cancelled' "
+            "WHERE id::text = ANY($1::text[]) AND status = 'todo'",
+            list(set(job_ids)),
+        )
+    logger.info("cancel push queue rfq=%s round=%s rows=%d", rfq_number, round_n, len(affected))
+    return {
+        "data": {
+            "rfq_number": rfq_number,
+            "round": round_n,
+            "cancelled_rows": len(affected),
+        },
+        "message": f"Đã hủy {len(affected)} dòng trong queue",
+    }
 
 
 @router.get("/rfq/{rfq_id}/push-screenshot")
@@ -5509,3 +8635,104 @@ async def upload_override_image(
     out_path.write_bytes(contents)
     logger.info("Override image saved: %s (%d bytes)", out_path, len(contents))
     return {"data": {"path": str(out_path), "size": len(contents)}}
+
+
+# ---------------------------------------------------------------------------
+# Batch 2C — V-round / D-N round history (event-log timeline)
+# ---------------------------------------------------------------------------
+@router.get("/rfq/{rfq_number}/round-history")
+async def rfq_round_history(
+    rfq_number: str,
+    token_data: TokenData = Depends(require_role(
+        "admin", "manager", "staff", "sales", "procurement", "warehouse", "accountant"
+    )),
+    conn: asyncpg.Connection = Depends(get_db),
+):
+    """Lịch sử báo giá V1→V2→V3 + chuyển trạng thái cho 1 RFQ.
+
+    Source of truth = bqms_qt_events (append-only). Returns the full timeline
+    plus the current materialized state from bqms_rfq. Guarded: if the Batch-2C
+    schema is not present yet, returns an empty timeline instead of 500.
+    """
+    has_events = bool(await conn.fetchval(
+        "SELECT to_regclass('public.bqms_qt_events') IS NOT NULL"
+    ))
+    if not has_events:
+        return {
+            "data": {
+                "rfq_number": rfq_number,
+                "current_state": None,
+                "deadline_dt": None,
+                "current_round": None,
+                "events": [],
+            },
+            "message": "Chưa kích hoạt theo dõi V-round (migration chưa chạy)",
+        }
+
+    # Current materialized state (may be NULL if columns not yet present — guard).
+    has_state_cols = bool(await conn.fetchval(
+        "SELECT EXISTS (SELECT 1 FROM information_schema.columns "
+        "WHERE table_name='bqms_rfq' AND column_name='qt_state')"
+    ))
+    cur = None
+    if has_state_cols:
+        cur = await conn.fetchrow(
+            """
+            SELECT qt_state::text AS qt_state, deadline_dt, current_round,
+                   version AS samsung_round, reinvited_at, state_changed_at
+              FROM bqms_rfq
+             WHERE rfq_number = $1
+             ORDER BY updated_at DESC NULLS LAST, id DESC
+             LIMIT 1
+            """,
+            rfq_number,
+        )
+
+    rows = await conn.fetch(
+        """
+        SELECT id, bqms_code, event_type,
+               from_state::text AS from_state, to_state::text AS to_state,
+               round_no, deadline_dt, actor, evidence, created_at
+          FROM bqms_qt_events
+         WHERE rfq_number = $1
+         ORDER BY created_at ASC, id ASC
+        """,
+        rfq_number,
+    )
+
+    def _iso(v):
+        return v.isoformat() if isinstance(v, (date, datetime)) else v
+
+    events = []
+    for r in rows:
+        ev = r["evidence"]
+        if isinstance(ev, str):
+            try:
+                ev = _json.loads(ev)
+            except Exception:
+                ev = {}
+        events.append({
+            "id": int(r["id"]),
+            "bqms_code": r["bqms_code"],
+            "event_type": r["event_type"],
+            "from_state": r["from_state"],
+            "to_state": r["to_state"],
+            "round_no": r["round_no"],
+            "deadline_dt": _iso(r["deadline_dt"]),
+            "actor": r["actor"],
+            "evidence": ev,
+            "created_at": _iso(r["created_at"]),
+        })
+
+    return {
+        "data": {
+            "rfq_number": rfq_number,
+            "current_state": cur["qt_state"] if cur else None,
+            "deadline_dt": _iso(cur["deadline_dt"]) if cur else None,
+            "current_round": cur["current_round"] if cur else None,
+            "samsung_round": cur["samsung_round"] if cur else None,
+            "reinvited_at": _iso(cur["reinvited_at"]) if cur else None,
+            "state_changed_at": _iso(cur["state_changed_at"]) if cur else None,
+            "events": events,
+        }
+    }

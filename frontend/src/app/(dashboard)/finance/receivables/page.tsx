@@ -12,6 +12,9 @@ import {
   X,
   CheckCircle,
 } from 'lucide-react';
+import { PageHeader } from '@/components/shared/page-header';
+import { EmptyState } from '@/components/shared/empty-state';
+import { StatCard, type StatTone } from '@/components/shared/stat-card';
 
 // ─── Types ──────────────────────────────────────────────────────
 
@@ -53,7 +56,7 @@ function fmtVnd(value: number): string {
 function StatusBadge({ status, daysOverdue }: { status?: string; daysOverdue?: number }) {
   if (daysOverdue && daysOverdue > 0) {
     return (
-      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium bg-red-100 text-red-700">
+      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium bg-rose-100 text-rose-700">
         <AlertTriangle className="h-3 w-3" />
         Quá hạn {daysOverdue}N
       </span>
@@ -85,6 +88,14 @@ function TableSkeleton() {
 
 // ─── Summary Card ────────────────────────────────────────────────
 
+// SummaryCard — thin adapter over the shared <StatCard> primitive (T4).
+// Prop signature kept identical so all call sites are intact; the legacy
+// `color` class string maps onto the shared StatTone vocabulary.
+const RECEIVABLE_TONE: Array<{ test: string; tone: StatTone }> = [
+  { test: 'brand', tone: 'brand' },
+  { test: 'rose', tone: 'danger' },
+];
+
 function SummaryCard({
   label,
   value,
@@ -94,21 +105,11 @@ function SummaryCard({
   label: string;
   value: string;
   color: string;
-  icon: React.ElementType;
+  icon: typeof Banknote;
 }) {
-  return (
-    <div className="bg-white rounded-lg shadow-sm border border-slate-200 p-4">
-      <div className="flex items-center gap-3">
-        <div className={`p-2 rounded-lg ${color}`}>
-          <Icon className="h-5 w-5" />
-        </div>
-        <div>
-          <p className="text-xs text-slate-500">{label}</p>
-          <p className="text-lg font-bold font-mono text-slate-900 mt-0.5">{value}</p>
-        </div>
-      </div>
-    </div>
-  );
+  const tone: StatTone =
+    RECEIVABLE_TONE.find((m) => color.includes(m.test))?.tone ?? 'neutral';
+  return <StatCard label={label} value={value} tone={tone} icon={Icon} />;
 }
 
 // ─── Receipt Form (inline) ────────────────────────────────────────
@@ -158,7 +159,7 @@ function ReceiptForm({
   }
 
   return (
-    <td colSpan={7} className="px-4 py-3 bg-emerald-50/60 border-t border-emerald-100">
+    <td colSpan={7} className="px-4 py-3 bg-brand-50/50 border-t border-brand-100">
       <form onSubmit={handleSubmit} className="flex flex-wrap items-end gap-3">
         <div className="flex flex-col gap-1">
           <label className="text-xs text-slate-500">Ngày thu tiền</label>
@@ -166,7 +167,7 @@ function ReceiptForm({
             type="date"
             value={form.payment_date}
             onChange={e => setForm(f => ({ ...f, payment_date: e.target.value }))}
-            className="border border-slate-300 rounded px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-400"
+            className="border border-slate-300 rounded px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-brand-100 focus:border-brand-400"
             required
           />
         </div>
@@ -178,7 +179,7 @@ function ReceiptForm({
             onChange={e => setForm(f => ({ ...f, amount: e.target.value }))}
             placeholder="0"
             min="1"
-            className="border border-slate-300 rounded px-2 py-1 text-sm w-36 focus:outline-none focus:ring-2 focus:ring-emerald-400"
+            className="border border-slate-300 rounded px-2 py-1 text-sm w-36 focus:outline-none focus:ring-2 focus:ring-brand-100 focus:border-brand-400"
             required
           />
         </div>
@@ -189,14 +190,14 @@ function ReceiptForm({
             value={form.bank_ref}
             onChange={e => setForm(f => ({ ...f, bank_ref: e.target.value }))}
             placeholder="Tuỳ chọn"
-            className="border border-slate-300 rounded px-2 py-1 text-sm w-36 focus:outline-none focus:ring-2 focus:ring-emerald-400"
+            className="border border-slate-300 rounded px-2 py-1 text-sm w-36 focus:outline-none focus:ring-2 focus:ring-brand-100 focus:border-brand-400"
           />
         </div>
         <div className="flex items-end gap-2 mb-0.5">
           <button
             type="submit"
             disabled={mutation.isPending}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded bg-emerald-600 text-white text-sm font-medium hover:bg-emerald-700 disabled:opacity-60 transition-colors"
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded bg-brand-600 text-white text-sm font-medium hover:bg-brand-700 disabled:opacity-60 transition-colors"
           >
             <CheckCircle className="h-4 w-4" />
             {mutation.isPending ? 'Đang lưu...' : 'Xác nhận thu'}
@@ -210,7 +211,7 @@ function ReceiptForm({
             Huỷ
           </button>
         </div>
-        {error && <p className="w-full text-xs text-red-600 mt-1">{error}</p>}
+        {error && <p className="w-full text-xs text-rose-600 mt-1">{error}</p>}
       </form>
     </td>
   );
@@ -239,11 +240,11 @@ export default function ReceivablesPage() {
     <div>
       {/* Header */}
       <div className="mb-6">
-        <h2 className="text-xl font-display font-bold text-slate-900 flex items-center gap-2">
-          <Banknote className="h-5 w-5 text-brand-600" />
-          Công nợ phải thu
-        </h2>
-        <p className="text-sm text-slate-500 mt-0.5">Theo dõi công nợ từ khách hàng</p>
+        <PageHeader
+          title="Công nợ phải thu"
+          subtitle="Theo dõi công nợ từ khách hàng"
+          icon={Banknote}
+        />
       </div>
 
       {/* Summary Cards */}
@@ -251,13 +252,13 @@ export default function ReceivablesPage() {
         <SummaryCard
           label="Tổng phải thu"
           value={summary ? fmtVnd(summary.total) : '—'}
-          color="text-emerald-600 bg-emerald-50"
+          color="text-brand-600 bg-brand-50"
           icon={Banknote}
         />
         <SummaryCard
           label="Quá hạn"
           value={summary ? fmtVnd(summary.overdue) : '—'}
-          color="text-red-600 bg-red-50"
+          color="text-rose-600 bg-rose-50"
           icon={AlertTriangle}
         />
         <SummaryCard
@@ -273,10 +274,7 @@ export default function ReceivablesPage() {
         {isLoading ? (
           <TableSkeleton />
         ) : customers.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-16 text-slate-300">
-            <Inbox className="h-12 w-12 mb-3" />
-            <p className="text-sm text-slate-400">Không có công nợ nào</p>
-          </div>
+          <EmptyState icon={Inbox} heading="Không có công nợ nào" />
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full">
@@ -300,7 +298,7 @@ export default function ReceivablesPage() {
                     <>
                       <tr
                         key={idx}
-                        className={`hover:bg-slate-50/50 transition-colors ${isOverdue ? 'bg-red-50/30' : ''}`}
+                        className={`hover:bg-slate-50/50 transition-colors ${isOverdue ? 'bg-rose-50/30' : ''}`}
                       >
                         <td className="px-4 py-3">
                           <div className="flex items-center gap-2">
@@ -331,7 +329,7 @@ export default function ReceivablesPage() {
                           {!isPaid && (
                             <button
                               onClick={() => setOpenFormIdx(isOpen ? null : idx)}
-                              className="inline-flex items-center gap-1 px-2.5 py-1 rounded text-xs font-medium bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200 transition-colors"
+                              className="inline-flex items-center gap-1 px-2.5 py-1 rounded text-xs font-medium bg-brand-50 text-brand-700 hover:bg-brand-100 border border-brand-200 transition-colors"
                             >
                               {isOpen ? 'Đóng' : 'Ghi nhận thu tiền'}
                             </button>
@@ -339,7 +337,7 @@ export default function ReceivablesPage() {
                         </td>
                       </tr>
                       {isOpen && (
-                        <tr key={`form-${idx}`} className="border-b border-emerald-100">
+                        <tr key={`form-${idx}`} className="border-b border-brand-100">
                           <ReceiptForm
                             item={item}
                             onClose={() => setOpenFormIdx(null)}

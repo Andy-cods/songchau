@@ -204,3 +204,114 @@ def dispatch_new_po_sync(po_numbers: list[str]) -> None:
         asyncio.run(_run())
     except Exception as exc:
         logger.warning("dispatch_new_po_sync failed: %s", exc)
+
+
+# ---------------------------------------------------------------------------
+# V1 → V2 / V3 round bump event (per Thang 2026-05-12)
+# ---------------------------------------------------------------------------
+
+async def dispatch_rfq_version_bump(
+    conn: asyncpg.Connection,
+    rfq_id: str,
+    rfq_number: str,
+    bqms_code: str | None,
+    old_version: int,
+    new_version: int,
+    assigned_to: str | None = None,
+    person_in_charge_name: str | None = None,
+) -> int:
+    """Notify when a Samsung RFQ jumps from V1 → V2 or V2 → V3 (etc.).
+
+    Used by the bidding scraper when re-scraping detects the RFQ name now
+    has "/ 2 th" or "/ 3 th" suffix while the local row was still v1/v2.
+    Rule (Thang): only the Detail Version field is updated — other fields
+    keep their existing values — and the assigned PIC must get pinged.
+
+    Recipients (in priority order):
+      1. `assigned_to` user_id if present (column added in Phase 2)
+      2. All users matching `person_in_charge_name` by full_name (best effort)
+      3. Fallback: all managers + procurement role
+
+    Returns count of notifications inserted.
+    """
+    if new_version <= old_version:
+        return 0
+
+    try:
+        recipients: list[str] = []
+
+        # Path 1: explicit assignee
+        if assigned_to:
+            row = await conn.fetchrow(
+                "SELECT id FROM users WHERE id = $1::uuid AND is_active = true",
+                assigned_to,
+            )
+            if row:
+                recipients.append(str(row["id"]))
+
+        # Path 2: match by full_name
+        if not recipients and person_in_charge_name:
+            rows = await conn.fetch(
+                """
+                SELECT id FROM users
+                WHERE LOWER(full_name) = LOWER($1) AND is_active = true
+                """,
+                person_in_charge_name.strip(),
+            )
+            recipients.extend(str(r["id"]) for r in rows)
+
+        # Path 3: fallback to manager + procurement team
+        if not recipients:
+            recipients = await _recipients_by_roles(
+                conn, ["admin", "manager", "procurement"]
+            )
+
+        if not recipients:
+            return 0
+
+        title = f"RFQ {rfq_number} đã lên V{new_version}"
+        body_lines = [
+            f"Mã: {bqms_code or '—'}",
+            f"Vòng cũ: V{old_version} → Vòng mới: V{new_version}",
+            "Samsung đã cập nhật lại RFQ này — kiểm tra báo giá lại.",
+        ]
+        body = "\n".join(body_lines)
+
+        # Use bqms_rfq_new type (no version-bump enum value — closest match)
+        meta = (
+            f'{{"rfq_number":"{rfq_number}",'
+            f'"bqms_code":"{bqms_code or ""}",'
+            f'"old_version":{old_version},'
+            f'"new_version":{new_version}}}'
+        )
+
+        # Populate ref_id with the RFQ id so the notification deep-links to the
+        # specific record (frontend uses backend _compute_notification_link →
+        # /bqms?focus=<rfq_id>). Coerce to int when possible; otherwise leave NULL.
+        ref_id: int | None = None
+        if rfq_id is not None:
+            try:
+                ref_id = int(rfq_id)
+            except (TypeError, ValueError):
+                ref_id = None
+
+        inserted = 0
+        for uid in recipients:
+            await conn.execute(
+                """
+                INSERT INTO notifications
+                  (recipient_id, type, title, body, ref_type, ref_id, metadata)
+                VALUES ($1::uuid, 'bqms_rfq_new', $2, $3, 'bqms_rfq', $4, $5::jsonb)
+                """,
+                uid, title, body, ref_id, meta,
+            )
+            inserted += 1
+
+        logger.info(
+            "event_notifications: dispatched %d version-bump notifications for RFQ %s (v%d→v%d)",
+            inserted, rfq_number, old_version, new_version,
+        )
+        return inserted
+    except Exception as exc:
+        logger.warning("dispatch_rfq_version_bump failed for %s: %s", rfq_number, exc)
+        return 0

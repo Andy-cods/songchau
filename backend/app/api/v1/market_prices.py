@@ -282,6 +282,76 @@ async def get_by_bqms(
     }
 
 
+@router.get("/multi-source/{bqms_code}")
+async def get_multi_source(
+    bqms_code: str,
+    token_data: TokenData = Depends(
+        require_role("staff", "manager", "admin", "procurement", "sales", "director", allow_viewer=False)
+    ),
+    conn: asyncpg.Connection = Depends(get_db),
+):
+    """Giá ĐA NGUỒN cho 1 mã BQMS (đã gộp + làm sạch, tất cả VND):
+    thị trường XNK + giá mình chào (V1) + giá vốn NCC + sourcing + IMV.
+    Nguồn: v_price_observations_clean (migration price_intel_v1.sql).
+    Nội bộ — KHÔNG mount vendor router; giá nội bộ không lộ cổng NCC."""
+    agg = await conn.fetch(
+        """
+        SELECT src, price_role,
+               COUNT(*)::int AS n,
+               PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY price_vnd) AS median_vnd,
+               MIN(price_vnd) AS min_vnd,
+               MAX(price_vnd) AS max_vnd,
+               MAX(obs_date)  AS last_date
+          FROM v_price_observations_clean
+         WHERE (product_key = $1 OR bqms_code = $1) AND price_vnd > 0
+         GROUP BY src, price_role
+        """,
+        bqms_code,
+    )
+    obs = await conn.fetch(
+        """
+        SELECT src, price_role, price_vnd, obs_date, party_name, party_role
+          FROM v_price_observations_clean
+         WHERE (product_key = $1 OR bqms_code = $1) AND price_vnd > 0
+         ORDER BY obs_date DESC NULLS LAST
+         LIMIT 40
+        """,
+        bqms_code,
+    )
+
+    def _f(v):
+        return float(v) if v is not None else None
+
+    sources: dict = {}
+    for r in agg:
+        sources[f"{r['src']}_{r['price_role']}"] = {
+            "src": r["src"],
+            "price_role": r["price_role"],
+            "n": r["n"],
+            "median_vnd": _f(r["median_vnd"]),
+            "min_vnd": _f(r["min_vnd"]),
+            "max_vnd": _f(r["max_vnd"]),
+            "last_date": r["last_date"].isoformat() if r["last_date"] else None,
+        }
+    return {
+        "data": {
+            "bqms_code": bqms_code,
+            "sources": sources,
+            "observations": [
+                {
+                    "src": r["src"],
+                    "price_role": r["price_role"],
+                    "price_vnd": _f(r["price_vnd"]),
+                    "obs_date": r["obs_date"].isoformat() if r["obs_date"] else None,
+                    "party_name": r["party_name"],
+                    "party_role": r["party_role"],
+                }
+                for r in obs
+            ],
+        }
+    }
+
+
 @router.get("/dashboard")
 async def xnk_dashboard(
     q: str = Query("", description="Tìm theo BQMS code, tên hàng, mã HS, bên bán"),

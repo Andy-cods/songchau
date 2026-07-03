@@ -5,8 +5,20 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { ShoppingCart, Plus, Search } from 'lucide-react';
 import { api } from '@/lib/api';
-import { cn, formatCurrency, formatDate } from '@/lib/utils';
+import { formatCurrency, formatDate } from '@/lib/utils';
 import { StatusBadge } from '@/components/shared/status-badge';
+import { PageHeader } from '@/components/shared/page-header';
+import { Card } from '@/components/shared/card';
+import { EmptyState } from '@/components/shared/empty-state';
+import {
+  Table,
+  TableHeader,
+  TableBody,
+  TableRow,
+  TableHead,
+  TableCell,
+} from '@/components/shared/table';
+import { Skeleton } from '@/components/ui/skeleton';
 import { PO_STATUS_CONFIG } from '@/lib/constants';
 import type { PaginatedResponse, PurchaseOrder } from '@/types/models';
 
@@ -23,23 +35,21 @@ export default function PurchaseOrdersPage() {
   return (
     <div>
       {/* Header */}
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <h2 className="text-xl font-display font-bold text-slate-900">
-            Đơn mua hàng
-          </h2>
-          <p className="text-sm text-slate-500 mt-0.5">
-            Quản lý tất cả đơn đặt hàng
-          </p>
-        </div>
-        <Link
-          href="/purchase-orders/new"
-          className="flex items-center gap-2 px-4 py-2 bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium rounded-lg transition-colors"
-        >
-          <Plus className="h-4 w-4" />
-          Tạo đơn mới
-        </Link>
-      </div>
+      <PageHeader
+        title="Đơn mua hàng"
+        subtitle="Quản lý tất cả đơn đặt hàng"
+        icon={ShoppingCart}
+        className="mb-6"
+        actions={
+          <Link
+            href="/purchase-orders/new"
+            className="flex items-center gap-2 px-4 py-2 bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium rounded-lg transition-colors"
+          >
+            <Plus className="h-4 w-4" />
+            Tạo đơn mới
+          </Link>
+        }
+      />
 
       {/* Search bar placeholder */}
       <div className="mb-4">
@@ -54,81 +64,80 @@ export default function PurchaseOrdersPage() {
       </div>
 
       {/* Table */}
-      <div className="bg-white rounded-lg shadow-sm border border-slate-200 overflow-hidden">
+      <Card padded={false} className="overflow-hidden">
         {isLoading ? (
           <TableSkeleton />
-        ) : error || orders.length === 0 ? (
-          <EmptyState />
+        ) : error ? (
+          <EmptyState
+            variant="error"
+            icon={ShoppingCart}
+            heading="Không tải được đơn mua hàng"
+            description="Đã có lỗi xảy ra. Vui lòng thử lại."
+          />
+        ) : orders.length === 0 ? (
+          <EmptyState
+            icon={ShoppingCart}
+            heading="Chưa có đơn mua hàng nào"
+            description='Bấm "Tạo đơn mới" để bắt đầu'
+          />
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead>
-                <tr className="border-b border-slate-100 bg-slate-50/50">
-                  <th className="text-left text-xs font-mono uppercase tracking-wider text-slate-400 px-4 py-3">
-                    Mã PO
-                  </th>
-                  <th className="text-left text-xs font-mono uppercase tracking-wider text-slate-400 px-4 py-3">
-                    Nhà cung cấp
-                  </th>
-                  <th className="text-left text-xs font-mono uppercase tracking-wider text-slate-400 px-4 py-3">
-                    Trạng thái
-                  </th>
-                  <th className="text-right text-xs font-mono uppercase tracking-wider text-slate-400 px-4 py-3">
-                    Giá trị
-                  </th>
-                  <th className="text-left text-xs font-mono uppercase tracking-wider text-slate-400 px-4 py-3">
-                    Ngày tạo
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {orders.map((po) => {
-                  const statusConfig = PO_STATUS_CONFIG[po.status];
-                  return (
-                    <tr
-                      key={po.id}
-                      onClick={() => router.push(`/purchase-orders/${po.id}`)}
-                      className="hover:bg-slate-50/50 transition-colors cursor-pointer"
-                    >
-                      <td className="px-4 py-3">
-                        <span className="text-sm font-mono font-medium text-brand-600">
-                          {po.po_number}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3">
-                        <span className="text-sm text-slate-700">
-                          {po.supplier?.name || '—'}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3">
-                        {statusConfig ? (
-                          <StatusBadge
-                            label={statusConfig.label}
-                            variant={statusConfig.variant}
-                            pulse={statusConfig.pulse}
-                          />
-                        ) : (
-                          <span className="text-sm text-slate-400">{po.status}</span>
-                        )}
-                      </td>
-                      <td className="px-4 py-3 text-right">
-                        <span className="text-sm font-mono text-slate-900">
-                          {formatCurrency(po.total_amount, po.currency)}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3">
-                        <span className="text-sm text-slate-500">
-                          {formatDate(po.created_at)}
-                        </span>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Mã PO</TableHead>
+                <TableHead>Nhà cung cấp</TableHead>
+                <TableHead>Trạng thái</TableHead>
+                <TableHead className="text-right">Giá trị</TableHead>
+                <TableHead>Ngày tạo</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {orders.map((po) => {
+                const statusConfig = PO_STATUS_CONFIG[po.status];
+                return (
+                  <TableRow
+                    key={po.id}
+                    onClick={() => router.push(`/purchase-orders/${po.id}`)}
+                    className="cursor-pointer"
+                  >
+                    <TableCell>
+                      <span className="text-sm font-mono font-medium text-brand-600">
+                        {po.po_number}
+                      </span>
+                    </TableCell>
+                    <TableCell>
+                      <span className="text-sm text-slate-700">
+                        {po.supplier?.name || '—'}
+                      </span>
+                    </TableCell>
+                    <TableCell>
+                      {statusConfig ? (
+                        <StatusBadge
+                          label={statusConfig.label}
+                          variant={statusConfig.variant}
+                          pulse={statusConfig.pulse}
+                        />
+                      ) : (
+                        <span className="text-sm text-slate-400">{po.status}</span>
+                      )}
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <span className="text-sm font-mono text-slate-900">
+                        {formatCurrency(po.total_amount, po.currency)}
+                      </span>
+                    </TableCell>
+                    <TableCell>
+                      <span className="text-sm text-slate-500">
+                        {formatDate(po.created_at)}
+                      </span>
+                    </TableCell>
+                  </TableRow>
+                );
+              })}
+            </TableBody>
+          </Table>
         )}
-      </div>
+      </Card>
 
       {/* Pagination info */}
       {data && data.total > 0 && (
@@ -152,29 +161,13 @@ function TableSkeleton() {
     <div className="p-4 space-y-3">
       {Array.from({ length: 5 }).map((_, i) => (
         <div key={i} className="flex items-center gap-4">
-          <div className="h-4 w-24 bg-slate-200 rounded animate-pulse" />
-          <div className="h-4 w-36 bg-slate-200 rounded animate-pulse" />
-          <div className="h-5 w-20 bg-slate-200 rounded-full animate-pulse" />
-          <div className="h-4 w-28 bg-slate-200 rounded animate-pulse ml-auto" />
-          <div className="h-4 w-20 bg-slate-200 rounded animate-pulse" />
+          <Skeleton className="h-4 w-24" />
+          <Skeleton className="h-4 w-36" />
+          <Skeleton className="h-5 w-20 rounded-full" />
+          <Skeleton className="h-4 w-28 ml-auto" />
+          <Skeleton className="h-4 w-20" />
         </div>
       ))}
-    </div>
-  );
-}
-
-// ─── Empty State ────────────────────────────────────────────────
-
-function EmptyState() {
-  return (
-    <div className="flex flex-col items-center justify-center py-16 text-slate-300">
-      <ShoppingCart className="h-12 w-12 mb-3" />
-      <p className="text-sm text-slate-400 font-medium">
-        Chưa có đơn mua hàng nào
-      </p>
-      <p className="text-xs text-slate-400 mt-1">
-        Bấm &quot;Tạo đơn mới&quot; để bắt đầu
-      </p>
     </div>
   );
 }

@@ -6,6 +6,8 @@ import { FileSearch, Search } from 'lucide-react';
 import { api } from '@/lib/api';
 import { cn, formatCurrency } from '@/lib/utils';
 import { StatusBadge } from '@/components/shared/status-badge';
+import { PageHeader } from '@/components/shared/page-header';
+import { EmptyState } from '@/components/shared/empty-state';
 
 // ─── Types ─────────────────────────────────────────────────────
 
@@ -85,38 +87,35 @@ export default function BQMSRfqPage() {
   return (
     <div>
       {/* Header */}
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <h2 className="text-xl font-display font-bold text-slate-900">
-            BQMS - Yêu cầu báo giá (RFQ)
-          </h2>
-          <p className="text-sm text-slate-500 mt-0.5">
-            Quản lý và theo dõi kết quả báo giá
-          </p>
-        </div>
-        {rfqs.length > 0 && (
-          <div className="flex items-center gap-4 text-sm">
-            <div className="flex items-center gap-1.5">
-              <span className="h-2 w-2 rounded-full bg-emerald-500" />
-              <span className="text-slate-600">
-                Trúng: <strong>{totalWon}</strong>
-              </span>
+      <PageHeader
+        title="BQMS - Yêu cầu báo giá (RFQ)"
+        subtitle="Quản lý và theo dõi kết quả báo giá"
+        className="mb-6"
+        actions={
+          rfqs.length > 0 ? (
+            <div className="flex items-center gap-4 text-sm">
+              <div className="flex items-center gap-1.5">
+                <span className="h-2 w-2 rounded-full bg-emerald-500" />
+                <span className="text-slate-600">
+                  Trúng: <strong>{totalWon}</strong>
+                </span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <span className="h-2 w-2 rounded-full bg-red-500" />
+                <span className="text-slate-600">
+                  Trượt: <strong>{totalLost}</strong>
+                </span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <span className="h-2 w-2 rounded-full bg-amber-500" />
+                <span className="text-slate-600">
+                  Chờ: <strong>{totalPending}</strong>
+                </span>
+              </div>
             </div>
-            <div className="flex items-center gap-1.5">
-              <span className="h-2 w-2 rounded-full bg-red-500" />
-              <span className="text-slate-600">
-                Trượt: <strong>{totalLost}</strong>
-              </span>
-            </div>
-            <div className="flex items-center gap-1.5">
-              <span className="h-2 w-2 rounded-full bg-amber-500" />
-              <span className="text-slate-600">
-                Chờ: <strong>{totalPending}</strong>
-              </span>
-            </div>
-          </div>
-        )}
-      </div>
+          ) : undefined
+        }
+      />
 
       {/* Filters */}
       <div className="flex flex-wrap items-center gap-3 mb-4">
@@ -154,8 +153,8 @@ export default function BQMSRfqPage() {
 
       {/* Error State */}
       {error && !isLoading && (
-        <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-lg">
-          <p className="text-sm text-red-700">Có lỗi xảy ra, thử lại sau</p>
+        <div className="mb-4 bg-white rounded-lg shadow-sm border border-slate-200 overflow-hidden">
+          <EmptyState variant="error" heading="Có lỗi xảy ra, thử lại sau" />
         </div>
       )}
 
@@ -164,14 +163,10 @@ export default function BQMSRfqPage() {
         {isLoading ? (
           <TableSkeleton />
         ) : filtered.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-16 text-slate-300">
-            <FileSearch className="h-12 w-12 mb-3" />
-            <p className="text-sm text-slate-400 font-medium">
-              {rfqs.length === 0
-                ? 'Chưa có dữ liệu RFQ'
-                : 'Không tìm thấy RFQ nào'}
-            </p>
-          </div>
+          <EmptyState
+            icon={FileSearch}
+            heading={rfqs.length === 0 ? 'Chưa có dữ liệu RFQ' : 'Không tìm thấy RFQ nào'}
+          />
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full">

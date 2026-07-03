@@ -12,6 +12,18 @@ import {
 } from 'lucide-react';
 import { api } from '@/lib/api';
 import { cn, formatRelativeTime } from '@/lib/utils';
+import { PageHeader } from '@/components/shared/page-header';
+import { Card } from '@/components/shared/card';
+import { EmptyState } from '@/components/shared/empty-state';
+import { Skeleton } from '@/components/ui/skeleton';
+import {
+  Table,
+  TableHeader,
+  TableBody,
+  TableRow,
+  TableHead,
+  TableCell,
+} from '@/components/shared/table';
 
 // ─── Types ───────────────────────────────────────────────────────
 
@@ -174,12 +186,11 @@ export default function SecurityLogPage() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div>
-        <h2 className="text-xl font-display font-bold text-slate-900">Nhật ký bảo mật</h2>
-        <p className="text-sm text-slate-500 mt-0.5">
-          Giám sát đăng nhập, truy cập và các sự kiện bảo mật hệ thống
-        </p>
-      </div>
+      <PageHeader
+        icon={Shield}
+        title="Nhật ký bảo mật"
+        subtitle="Giám sát đăng nhập, truy cập và các sự kiện bảo mật hệ thống"
+      />
 
       {/* Summary Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
@@ -255,102 +266,91 @@ export default function SecurityLogPage() {
       </div>
 
       {/* Log Table */}
-      <div className="bg-white rounded-lg shadow-sm border border-slate-100 overflow-hidden">
+      <Card padded={false} className="overflow-hidden">
         <div className="flex items-center gap-2 p-4 border-b border-slate-100">
           <Shield className="h-4 w-4 text-brand-600" />
           <h3 className="text-sm font-semibold text-slate-700">Nhật ký sự kiện</h3>
           <span className="ml-auto text-xs text-slate-400 font-mono">{total} sự kiện</span>
           {logsLoading && <Loader2 className="h-4 w-4 animate-spin text-slate-400" />}
         </div>
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="bg-slate-50 border-b border-slate-100">
-                <th className="text-left px-4 py-2.5 text-xs font-medium text-slate-500 uppercase tracking-wide">
-                  Thời gian
-                </th>
-                <th className="text-left px-4 py-2.5 text-xs font-medium text-slate-500 uppercase tracking-wide">
-                  Loại sự kiện
-                </th>
-                <th className="text-left px-4 py-2.5 text-xs font-medium text-slate-500 uppercase tracking-wide">
-                  Người dùng
-                </th>
-                <th className="text-left px-4 py-2.5 text-xs font-medium text-slate-500 uppercase tracking-wide">
-                  Địa chỉ IP
-                </th>
-                <th className="text-left px-4 py-2.5 text-xs font-medium text-slate-500 uppercase tracking-wide">
-                  Mức độ
-                </th>
-                <th className="text-left px-4 py-2.5 text-xs font-medium text-slate-500 uppercase tracking-wide">
-                  Chi tiết
-                </th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-50">
-              {logsLoading
-                ? Array.from({ length: 8 }).map((_, i) => (
-                    <tr key={i}>
-                      {Array.from({ length: 6 }).map((__, j) => (
-                        <td key={j} className="px-4 py-3">
-                          <div className="h-4 bg-slate-200 rounded animate-pulse" />
-                        </td>
-                      ))}
-                    </tr>
-                  ))
-                : items.length === 0
-                  ? (
-                    <tr>
-                      <td colSpan={6} className="text-center py-12 text-slate-400 text-sm">
-                        Không có sự kiện bảo mật
-                      </td>
-                    </tr>
-                  )
-                  : items.map((log) => (
-                      <tr
-                        key={log.id}
-                        className={cn(
-                          'hover:bg-slate-50/50 transition-colors',
-                          (log.event_type === 'suspicious' || log.event_type === 'login_failed') &&
-                            'bg-red-50/30'
-                        )}
-                      >
-                        <td className="px-4 py-3 text-xs text-slate-500 whitespace-nowrap font-mono">
-                          {formatRelativeTime(log.created_at)}
-                        </td>
-                        <td className="px-4 py-3">
-                          <span
-                            className={cn(
-                              'inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium border',
-                              eventTypeBadge(log.event_type)
-                            )}
-                          >
-                            {eventTypeLabel(log.event_type)}
-                          </span>
-                        </td>
-                        <td className="px-4 py-3 text-xs text-slate-600">
-                          {log.user_email ?? (log.user_id ? `User #${log.user_id}` : 'Khách')}
-                        </td>
-                        <td className="px-4 py-3 font-mono text-xs text-slate-500">
-                          {log.ip_address}
-                        </td>
-                        <td className="px-4 py-3">
-                          <span
-                            className={cn(
-                              'inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium border',
-                              severityBadge(log.severity)
-                            )}
-                          >
-                            {severityLabel(log.severity)}
-                          </span>
-                        </td>
-                        <td className="px-4 py-3 text-xs text-slate-500 max-w-[200px] truncate">
-                          {log.details ?? '—'}
-                        </td>
-                      </tr>
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Thời gian</TableHead>
+              <TableHead>Loại sự kiện</TableHead>
+              <TableHead>Người dùng</TableHead>
+              <TableHead>Địa chỉ IP</TableHead>
+              <TableHead>Mức độ</TableHead>
+              <TableHead>Chi tiết</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {logsLoading
+              ? Array.from({ length: 8 }).map((_, i) => (
+                  <TableRow key={i}>
+                    {Array.from({ length: 6 }).map((__, j) => (
+                      <TableCell key={j}>
+                        <Skeleton className="h-4 w-full" />
+                      </TableCell>
                     ))}
-            </tbody>
-          </table>
-        </div>
+                  </TableRow>
+                ))
+              : items.length === 0
+                ? (
+                  <tr>
+                    <td colSpan={6}>
+                      <EmptyState
+                        icon={Shield}
+                        heading="Không có sự kiện bảo mật"
+                        className="py-12"
+                      />
+                    </td>
+                  </tr>
+                )
+                : items.map((log) => (
+                    <TableRow
+                      key={log.id}
+                      className={cn(
+                        (log.event_type === 'suspicious' || log.event_type === 'login_failed') &&
+                          'bg-red-50/30'
+                      )}
+                    >
+                      <TableCell className="text-xs text-slate-500 whitespace-nowrap font-mono">
+                        {formatRelativeTime(log.created_at)}
+                      </TableCell>
+                      <TableCell>
+                        <span
+                          className={cn(
+                            'inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium border',
+                            eventTypeBadge(log.event_type)
+                          )}
+                        >
+                          {eventTypeLabel(log.event_type)}
+                        </span>
+                      </TableCell>
+                      <TableCell className="text-xs text-slate-600">
+                        {log.user_email ?? (log.user_id ? `User #${log.user_id}` : 'Khách')}
+                      </TableCell>
+                      <TableCell className="font-mono text-xs text-slate-500">
+                        {log.ip_address}
+                      </TableCell>
+                      <TableCell>
+                        <span
+                          className={cn(
+                            'inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium border',
+                            severityBadge(log.severity)
+                          )}
+                        >
+                          {severityLabel(log.severity)}
+                        </span>
+                      </TableCell>
+                      <TableCell className="text-xs text-slate-500 max-w-[200px] truncate">
+                        {log.details ?? '—'}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+          </TableBody>
+        </Table>
 
         {/* Pagination */}
         {totalPages > 1 && (
@@ -376,7 +376,7 @@ export default function SecurityLogPage() {
             </div>
           </div>
         )}
-      </div>
+      </Card>
     </div>
   );
 }

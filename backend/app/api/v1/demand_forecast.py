@@ -84,7 +84,7 @@ def _predict_next(series: list[float], window: int, horizon: int) -> tuple[list[
 async def list_products_with_forecast(
     search: Optional[str] = Query(None, description="Tìm theo tên sản phẩm / BQMS code"),
     page: int = Query(1, ge=1),
-    page_size: int = Query(20, ge=1, le=100),
+    page_size: int = Query(20, ge=1, le=500),
     token_data: TokenData = Depends(require_role("staff", "manager", "admin")),
     conn: asyncpg.Connection = Depends(get_db),
 ):
@@ -241,6 +241,7 @@ async def generate_forecast(
         "month_labels": month_labels,
         "series": series,
         "forecast_labels": forecast_labels,
+        "predictions": predictions,
     }
 
     total_predicted = round(sum(predictions), 2)

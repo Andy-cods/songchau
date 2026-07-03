@@ -15,6 +15,19 @@ import {
   ChevronRight,
 } from 'lucide-react';
 import Link from 'next/link';
+import { PageHeader } from '@/components/shared/page-header';
+import { StatCard } from '@/components/shared/stat-card';
+import { Card } from '@/components/shared/card';
+import {
+  Table,
+  TableHeader,
+  TableBody,
+  TableRow,
+  TableHead,
+  TableCell,
+} from '@/components/shared/table';
+import { EmptyState } from '@/components/shared/empty-state';
+import { Skeleton } from '@/components/ui/skeleton';
 
 // ─── Types ─────────────────────────────────────────────────────
 
@@ -52,7 +65,7 @@ interface MovementItem {
 const ALERT_TYPE_CONFIG: Record<AlertItem['alert_type'], { label: string; className: string }> = {
   low_stock: { label: 'Tồn thấp', className: 'bg-amber-100 text-amber-700' },
   out_of_stock: { label: 'Hết hàng', className: 'bg-red-100 text-red-700' },
-  overstock: { label: 'Tồn dư', className: 'bg-blue-100 text-blue-700' },
+  overstock: { label: 'Tồn dư', className: 'bg-sky-100 text-sky-700' },
   reorder_suggested: { label: 'Đề xuất đặt hàng', className: 'bg-green-100 text-green-700' },
 };
 
@@ -61,38 +74,6 @@ const MOVEMENT_TYPE_LABEL: Record<string, string> = {
   out: 'Xuất kho',
   adjust: 'Điều chỉnh',
 };
-
-// ─── KPI Card ───────────────────────────────────────────────────
-
-function KpiCard({
-  label,
-  value,
-  icon: Icon,
-  colorClass,
-  loading,
-}: {
-  label: string;
-  value: string | number;
-  icon: React.ElementType;
-  colorClass: string;
-  loading: boolean;
-}) {
-  return (
-    <div className="bg-white rounded-lg shadow-sm border border-slate-200 p-5 flex items-center gap-4">
-      <div className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-full ${colorClass}`}>
-        <Icon className="h-6 w-6" />
-      </div>
-      <div>
-        <p className="text-xs text-slate-500 uppercase tracking-wider font-medium">{label}</p>
-        {loading ? (
-          <div className="h-6 w-20 bg-slate-200 rounded animate-pulse mt-1" />
-        ) : (
-          <p className="text-2xl font-bold text-slate-900 mt-0.5">{value}</p>
-        )}
-      </div>
-    </div>
-  );
-}
 
 // ─── Page ───────────────────────────────────────────────────────
 
@@ -146,27 +127,26 @@ export default function InventoryForecastPage() {
   return (
     <div>
       {/* Header */}
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <h2 className="text-xl font-display font-bold text-slate-900 flex items-center gap-2">
-            <Package className="h-5 w-5 text-brand-600" />
-            Kho Thông Minh
-          </h2>
-          <p className="text-sm text-slate-500 mt-0.5">Theo dõi cảnh báo tồn kho và dự báo nhu cầu</p>
-        </div>
-        <button
-          onClick={() => reorderCheckMutation.mutate()}
-          disabled={reorderCheckMutation.isPending}
-          className="flex items-center gap-2 px-4 py-2 bg-brand-600 text-white rounded-lg text-sm font-medium hover:bg-brand-700 disabled:opacity-60 transition-colors"
-        >
-          {reorderCheckMutation.isPending ? (
-            <Loader2 className="h-4 w-4 animate-spin" />
-          ) : (
-            <RefreshCw className="h-4 w-4" />
-          )}
-          Kiểm tra tồn kho
-        </button>
-      </div>
+      <PageHeader
+        icon={Package}
+        title="Kho Thông Minh"
+        subtitle="Theo dõi cảnh báo tồn kho và dự báo nhu cầu"
+        className="mb-6"
+        actions={
+          <button
+            onClick={() => reorderCheckMutation.mutate()}
+            disabled={reorderCheckMutation.isPending}
+            className="flex items-center gap-2 px-4 py-2 bg-brand-600 text-white rounded-lg text-sm font-medium hover:bg-brand-700 disabled:opacity-60 transition-colors"
+          >
+            {reorderCheckMutation.isPending ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <RefreshCw className="h-4 w-4" />
+            )}
+            Kiểm tra tồn kho
+          </button>
+        }
+      />
 
       {/* Success/Error feedback for reorder check */}
       {reorderCheckMutation.isSuccess && (
@@ -182,28 +162,27 @@ export default function InventoryForecastPage() {
 
       {/* KPI Cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-        <KpiCard
+        <StatCard
           label="Tổng sản phẩm"
           value={(dashboard?.total_products ?? 0).toLocaleString('vi-VN')}
           icon={Package}
-          colorClass="bg-blue-50 text-blue-600"
           loading={dashboardLoading}
         />
-        <KpiCard
+        <StatCard
           label="Cảnh báo thấp"
           value={dashboard?.low_stock_count ?? 0}
           icon={AlertTriangle}
-          colorClass="bg-amber-50 text-amber-600"
+          tone="warning"
           loading={dashboardLoading}
         />
-        <KpiCard
+        <StatCard
           label="Hết hàng"
           value={dashboard?.out_of_stock_count ?? 0}
           icon={XCircle}
-          colorClass="bg-red-50 text-red-600"
+          tone="danger"
           loading={dashboardLoading}
         />
-        <KpiCard
+        <StatCard
           label="Giá trị kho"
           value={
             dashboard
@@ -213,13 +192,13 @@ export default function InventoryForecastPage() {
               : '0 ₫'
           }
           icon={DollarSign}
-          colorClass="bg-green-50 text-green-600"
+          tone="brand"
           loading={dashboardLoading}
         />
       </div>
 
       {/* Stock Alerts */}
-      <div className="bg-white rounded-lg shadow-sm border border-slate-200 mb-6">
+      <Card padded={false} className="mb-6">
         <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
           <h3 className="text-sm font-semibold text-slate-700 flex items-center gap-2">
             <AlertTriangle className="h-4 w-4 text-amber-500" />
@@ -232,92 +211,89 @@ export default function InventoryForecastPage() {
           </h3>
         </div>
         {alertsLoading ? (
-          <div className="flex items-center justify-center py-12 text-slate-400">
-            <Loader2 className="h-6 w-6 animate-spin" />
+          <div className="p-4 space-y-3">
+            {Array.from({ length: 4 }).map((_, i) => (
+              <Skeleton key={i} className="h-10 w-full" />
+            ))}
           </div>
         ) : alerts.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-12 text-slate-400">
-            <Package className="h-8 w-8 mb-2 opacity-50" />
-            <p className="text-sm">Không có cảnh báo tồn kho</p>
-          </div>
+          <EmptyState icon={Package} heading="Không có cảnh báo tồn kho" />
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead>
-                <tr className="border-b border-slate-100 bg-slate-50/50">
-                  <th className="text-left text-xs font-mono uppercase tracking-wider text-slate-400 px-4 py-3">Sản phẩm</th>
-                  <th className="text-left text-xs font-mono uppercase tracking-wider text-slate-400 px-4 py-3">Loại cảnh báo</th>
-                  <th className="text-right text-xs font-mono uppercase tracking-wider text-slate-400 px-4 py-3">Tồn kho hiện tại</th>
-                  <th className="text-right text-xs font-mono uppercase tracking-wider text-slate-400 px-4 py-3">Ngưỡng</th>
-                  <th className="text-right text-xs font-mono uppercase tracking-wider text-slate-400 px-4 py-3">Đề xuất đặt</th>
-                  <th className="text-left text-xs font-mono uppercase tracking-wider text-slate-400 px-4 py-3">Thao tác</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {alerts.map((alert) => {
-                  const typeConfig = ALERT_TYPE_CONFIG[alert.alert_type] ?? {
-                    label: alert.alert_type,
-                    className: 'bg-slate-100 text-slate-600',
-                  };
-                  const isAcknowledged = acknowledgedIds.has(alert.id) || alert.status === 'acknowledged';
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Sản phẩm</TableHead>
+                <TableHead>Loại cảnh báo</TableHead>
+                <TableHead className="text-right">Tồn kho hiện tại</TableHead>
+                <TableHead className="text-right">Ngưỡng</TableHead>
+                <TableHead className="text-right">Đề xuất đặt</TableHead>
+                <TableHead>Thao tác</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {alerts.map((alert) => {
+                const typeConfig = ALERT_TYPE_CONFIG[alert.alert_type] ?? {
+                  label: alert.alert_type,
+                  className: 'bg-slate-100 text-slate-600',
+                };
+                const isAcknowledged = acknowledgedIds.has(alert.id) || alert.status === 'acknowledged';
 
-                  return (
-                    <tr key={alert.id} className="hover:bg-slate-50/50 transition-colors">
-                      <td className="px-4 py-3">
-                        <Link
-                          href={`/inventory/forecast/${alert.id}`}
-                          className="text-sm font-medium text-brand-600 hover:underline flex items-center gap-1"
-                        >
-                          {alert.product_name}
-                          <ChevronRight className="h-3 w-3" />
-                        </Link>
-                      </td>
-                      <td className="px-4 py-3">
-                        <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${typeConfig.className}`}>
-                          {typeConfig.label}
+                return (
+                  <TableRow key={alert.id}>
+                    <TableCell>
+                      <Link
+                        href={`/inventory/forecast/${alert.id}`}
+                        className="text-sm font-medium text-brand-600 hover:underline flex items-center gap-1"
+                      >
+                        {alert.product_name}
+                        <ChevronRight className="h-3 w-3" />
+                      </Link>
+                    </TableCell>
+                    <TableCell>
+                      <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${typeConfig.className}`}>
+                        {typeConfig.label}
+                      </span>
+                    </TableCell>
+                    <TableCell className="text-sm text-right font-mono text-slate-700">
+                      {(alert.current_qty ?? 0).toLocaleString('vi-VN')}
+                    </TableCell>
+                    <TableCell className="text-sm text-right font-mono text-slate-500">
+                      {(alert.threshold_qty ?? 0).toLocaleString('vi-VN')}
+                    </TableCell>
+                    <TableCell className="text-sm text-right font-mono text-slate-700">
+                      {(alert.suggested_order_qty ?? 0).toLocaleString('vi-VN')}
+                    </TableCell>
+                    <TableCell>
+                      {isAcknowledged ? (
+                        <span className="text-xs text-green-600 font-medium flex items-center gap-1">
+                          <Eye className="h-3 w-3" />
+                          Đã xem
                         </span>
-                      </td>
-                      <td className="px-4 py-3 text-sm text-right font-mono text-slate-700">
-                        {(alert.current_qty ?? 0).toLocaleString('vi-VN')}
-                      </td>
-                      <td className="px-4 py-3 text-sm text-right font-mono text-slate-500">
-                        {(alert.threshold_qty ?? 0).toLocaleString('vi-VN')}
-                      </td>
-                      <td className="px-4 py-3 text-sm text-right font-mono text-slate-700">
-                        {(alert.suggested_order_qty ?? 0).toLocaleString('vi-VN')}
-                      </td>
-                      <td className="px-4 py-3">
-                        {isAcknowledged ? (
-                          <span className="text-xs text-green-600 font-medium flex items-center gap-1">
+                      ) : (
+                        <button
+                          onClick={() => acknowledgeMutation.mutate(alert.id)}
+                          disabled={acknowledgeMutation.isPending && acknowledgeMutation.variables === alert.id}
+                          className="flex items-center gap-1 text-xs px-3 py-1.5 border border-slate-200 rounded-lg hover:bg-slate-50 disabled:opacity-60 transition-colors text-slate-600"
+                        >
+                          {acknowledgeMutation.isPending && acknowledgeMutation.variables === alert.id ? (
+                            <Loader2 className="h-3 w-3 animate-spin" />
+                          ) : (
                             <Eye className="h-3 w-3" />
-                            Đã xem
-                          </span>
-                        ) : (
-                          <button
-                            onClick={() => acknowledgeMutation.mutate(alert.id)}
-                            disabled={acknowledgeMutation.isPending && acknowledgeMutation.variables === alert.id}
-                            className="flex items-center gap-1 text-xs px-3 py-1.5 border border-slate-200 rounded-lg hover:bg-slate-50 disabled:opacity-60 transition-colors text-slate-600"
-                          >
-                            {acknowledgeMutation.isPending && acknowledgeMutation.variables === alert.id ? (
-                              <Loader2 className="h-3 w-3 animate-spin" />
-                            ) : (
-                              <Eye className="h-3 w-3" />
-                            )}
-                            Đã xem
-                          </button>
-                        )}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
+                          )}
+                          Đã xem
+                        </button>
+                      )}
+                    </TableCell>
+                  </TableRow>
+                );
+              })}
+            </TableBody>
+          </Table>
         )}
-      </div>
+      </Card>
 
       {/* Movement History */}
-      <div className="bg-white rounded-lg shadow-sm border border-slate-200">
+      <Card padded={false}>
         <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
           <h3 className="text-sm font-semibold text-slate-700">Lịch sử nhập/xuất kho</h3>
           <div className="flex items-center gap-2">
@@ -335,86 +311,83 @@ export default function InventoryForecastPage() {
           </div>
         </div>
         {movementsLoading ? (
-          <div className="flex items-center justify-center py-12 text-slate-400">
-            <Loader2 className="h-6 w-6 animate-spin" />
+          <div className="p-4 space-y-3">
+            {Array.from({ length: 5 }).map((_, i) => (
+              <Skeleton key={i} className="h-10 w-full" />
+            ))}
           </div>
         ) : movements.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-12 text-slate-400">
-            <Package className="h-8 w-8 mb-2 opacity-50" />
-            <p className="text-sm">Không có lịch sử giao dịch</p>
-          </div>
+          <EmptyState icon={Package} heading="Không có lịch sử giao dịch" />
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead>
-                <tr className="border-b border-slate-100 bg-slate-50/50">
-                  <th className="text-left text-xs font-mono uppercase tracking-wider text-slate-400 px-4 py-3">Mã hàng</th>
-                  <th className="text-left text-xs font-mono uppercase tracking-wider text-slate-400 px-4 py-3">Tên hàng</th>
-                  <th className="text-left text-xs font-mono uppercase tracking-wider text-slate-400 px-4 py-3">Loại</th>
-                  <th className="text-right text-xs font-mono uppercase tracking-wider text-slate-400 px-4 py-3">Số lượng</th>
-                  <th className="text-right text-xs font-mono uppercase tracking-wider text-slate-400 px-4 py-3">Trước</th>
-                  <th className="text-right text-xs font-mono uppercase tracking-wider text-slate-400 px-4 py-3">Sau</th>
-                  <th className="text-left text-xs font-mono uppercase tracking-wider text-slate-400 px-4 py-3">Ghi chú</th>
-                  <th className="text-left text-xs font-mono uppercase tracking-wider text-slate-400 px-4 py-3">Thời gian</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {movements.map((item) => (
-                  <tr key={item.id} className="hover:bg-slate-50/50 transition-colors">
-                    <td className="px-4 py-3 text-sm font-mono text-brand-600">{item.product_code}</td>
-                    <td className="px-4 py-3 text-sm text-slate-700">{item.product_name}</td>
-                    <td className="px-4 py-3">
-                      <span
-                        className={`text-xs px-2 py-0.5 rounded-full font-medium ${
-                          item.movement_type === 'in'
-                            ? 'bg-green-100 text-green-700'
-                            : item.movement_type === 'out'
-                            ? 'bg-red-100 text-red-700'
-                            : 'bg-slate-100 text-slate-600'
-                        }`}
-                      >
-                        {MOVEMENT_TYPE_LABEL[item.movement_type] ?? item.movement_type}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3 text-sm text-right font-mono">
-                      <span
-                        className={
-                          item.movement_type === 'in'
-                            ? 'text-green-600'
-                            : item.movement_type === 'out'
-                            ? 'text-red-600'
-                            : 'text-slate-700'
-                        }
-                      >
-                        {item.movement_type === 'in' ? '+' : item.movement_type === 'out' ? '-' : ''}
-                        {(item.quantity ?? 0).toLocaleString('vi-VN')}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3 text-sm text-right font-mono text-slate-500">
-                      {(item.before_qty ?? 0).toLocaleString('vi-VN')}
-                    </td>
-                    <td className="px-4 py-3 text-sm text-right font-mono text-slate-700">
-                      {(item.after_qty ?? 0).toLocaleString('vi-VN')}
-                    </td>
-                    <td className="px-4 py-3 text-sm text-slate-500 max-w-[150px] truncate">
-                      {item.notes || '—'}
-                    </td>
-                    <td className="px-4 py-3 text-sm text-slate-400">
-                      {new Date(item.created_at).toLocaleDateString('vi-VN', {
-                        day: '2-digit',
-                        month: '2-digit',
-                        year: 'numeric',
-                        hour: '2-digit',
-                        minute: '2-digit',
-                      })}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Mã hàng</TableHead>
+                <TableHead>Tên hàng</TableHead>
+                <TableHead>Loại</TableHead>
+                <TableHead className="text-right">Số lượng</TableHead>
+                <TableHead className="text-right">Trước</TableHead>
+                <TableHead className="text-right">Sau</TableHead>
+                <TableHead>Ghi chú</TableHead>
+                <TableHead>Thời gian</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {movements.map((item) => (
+                <TableRow key={item.id}>
+                  <TableCell className="text-sm font-mono text-brand-600">{item.product_code}</TableCell>
+                  <TableCell className="text-sm text-slate-700">{item.product_name}</TableCell>
+                  <TableCell>
+                    <span
+                      className={`text-xs px-2 py-0.5 rounded-full font-medium ${
+                        item.movement_type === 'in'
+                          ? 'bg-green-100 text-green-700'
+                          : item.movement_type === 'out'
+                          ? 'bg-red-100 text-red-700'
+                          : 'bg-slate-100 text-slate-600'
+                      }`}
+                    >
+                      {MOVEMENT_TYPE_LABEL[item.movement_type] ?? item.movement_type}
+                    </span>
+                  </TableCell>
+                  <TableCell className="text-sm text-right font-mono">
+                    <span
+                      className={
+                        item.movement_type === 'in'
+                          ? 'text-green-600'
+                          : item.movement_type === 'out'
+                          ? 'text-red-600'
+                          : 'text-slate-700'
+                      }
+                    >
+                      {item.movement_type === 'in' ? '+' : item.movement_type === 'out' ? '-' : ''}
+                      {(item.quantity ?? 0).toLocaleString('vi-VN')}
+                    </span>
+                  </TableCell>
+                  <TableCell className="text-sm text-right font-mono text-slate-500">
+                    {(item.before_qty ?? 0).toLocaleString('vi-VN')}
+                  </TableCell>
+                  <TableCell className="text-sm text-right font-mono text-slate-700">
+                    {(item.after_qty ?? 0).toLocaleString('vi-VN')}
+                  </TableCell>
+                  <TableCell className="text-sm text-slate-500 max-w-[150px] truncate">
+                    {item.notes || '—'}
+                  </TableCell>
+                  <TableCell className="text-sm text-slate-400">
+                    {new Date(item.created_at).toLocaleDateString('vi-VN', {
+                      day: '2-digit',
+                      month: '2-digit',
+                      year: 'numeric',
+                      hour: '2-digit',
+                      minute: '2-digit',
+                    })}
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
         )}
-      </div>
+      </Card>
     </div>
   );
 }

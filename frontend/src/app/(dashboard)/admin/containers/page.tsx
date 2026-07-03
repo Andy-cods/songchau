@@ -13,6 +13,9 @@ import {
 } from 'lucide-react';
 import { api } from '@/lib/api';
 import { cn } from '@/lib/utils';
+import { PageHeader } from '@/components/shared/page-header';
+import { EmptyState } from '@/components/shared/empty-state';
+import { Skeleton } from '@/components/ui/skeleton';
 
 // ─── Types ───────────────────────────────────────────────────────
 
@@ -75,17 +78,17 @@ function LogViewer({
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
       <div className="bg-white rounded-xl shadow-2xl w-full max-w-4xl max-h-[85vh] flex flex-col overflow-hidden">
         {/* Header */}
-        <div className="flex items-center justify-between px-4 py-3 bg-slate-900 rounded-t-xl">
+        <div className="flex items-center justify-between px-4 py-3 bg-white border-b border-slate-200 rounded-t-xl">
           <div className="flex items-center gap-2">
-            <Terminal className="h-4 w-4 text-green-400" />
-            <span className="text-sm font-mono font-medium text-white">{containerName}</span>
-            <span className="text-xs text-slate-400">— 50 dòng cuối</span>
+            <Terminal className="h-4 w-4 text-emerald-600" />
+            <span className="text-sm font-mono font-medium text-slate-900">{containerName}</span>
+            <span className="text-xs text-slate-500">— 50 dòng cuối</span>
           </div>
           <div className="flex items-center gap-2">
             {isLoading && <Loader2 className="h-4 w-4 animate-spin text-slate-400" />}
             <button
               onClick={onClose}
-              className="p-1 rounded hover:bg-slate-700 text-slate-400 hover:text-white transition-colors"
+              className="p-1 rounded bg-slate-100 hover:bg-slate-200 text-slate-600 hover:text-slate-900 transition-colors"
             >
               <X className="h-4 w-4" />
             </button>
@@ -191,39 +194,41 @@ export default function ContainersPage() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-xl font-display font-bold text-slate-900">Containers</h2>
-          <p className="text-sm text-slate-500 mt-0.5">Theo dõi trạng thái và logs containers</p>
-        </div>
-        {!isLoading && containers.length > 0 && (
-          <div className="flex items-center gap-3 text-sm">
-            <span className="flex items-center gap-1.5 text-emerald-600">
-              <span className="h-2 w-2 rounded-full bg-emerald-400" />
-              {upCount} hoạt động
-            </span>
-            {downCount > 0 && (
-              <span className="flex items-center gap-1.5 text-red-600">
-                <span className="h-2 w-2 rounded-full bg-red-400" />
-                {downCount} dừng
+      <PageHeader
+        icon={Server}
+        title="Containers"
+        subtitle="Theo dõi trạng thái và logs containers"
+        actions={
+          !isLoading && containers.length > 0 ? (
+            <div className="flex items-center gap-3 text-sm">
+              <span className="flex items-center gap-1.5 text-emerald-600">
+                <span className="h-2 w-2 rounded-full bg-emerald-400" />
+                {upCount} hoạt động
               </span>
-            )}
-          </div>
-        )}
-      </div>
+              {downCount > 0 && (
+                <span className="flex items-center gap-1.5 text-red-600">
+                  <span className="h-2 w-2 rounded-full bg-red-400" />
+                  {downCount} dừng
+                </span>
+              )}
+            </div>
+          ) : undefined
+        }
+      />
 
       {/* Container Grid */}
       {isLoading ? (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
           {Array.from({ length: 8 }).map((_, i) => (
-            <div key={i} className="h-40 bg-slate-200 rounded-xl animate-pulse" />
+            <Skeleton key={i} className="h-40 rounded-xl" />
           ))}
         </div>
       ) : containers.length === 0 ? (
-        <div className="bg-white rounded-xl border border-slate-100 shadow-sm p-12 text-center">
-          <Server className="h-12 w-12 text-slate-300 mx-auto mb-3" />
-          <p className="text-slate-500 text-sm">Không có dữ liệu container</p>
-        </div>
+        <EmptyState
+          icon={Server}
+          heading="Không có dữ liệu container"
+          className="py-12"
+        />
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
           {containers.map((c) => (

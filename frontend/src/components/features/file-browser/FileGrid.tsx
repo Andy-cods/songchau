@@ -170,12 +170,12 @@ function GridView({
             {item.name}
           </p>
           {!item.is_folder && (
-            <p className="text-[10px] text-slate-400 mt-0.5">
+            <p className="text-[11px] text-slate-400 mt-0.5">
               {formatFileSize(item.file_size)}
             </p>
           )}
           {item.is_folder && (
-            <p className="text-[10px] text-slate-400 mt-0.5">Thư mục</p>
+            <p className="text-[11px] text-slate-400 mt-0.5">Thư mục</p>
           )}
         </button>
       ))}

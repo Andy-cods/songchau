@@ -39,34 +39,44 @@ IMPORT_TIMEOUT = 600  # seconds; full bqms_rfq import on ~7k rows is ~30s
 # Group files by target table — import_precise reads ALL files for a table in
 # one call, so we collapse the deliveries trio to a single subprocess run.
 GROUPS: dict[str, list[str]] = {
-    'bqms_rfq': [
-        'Puplic/BQMS/Thong ke hoi hang BQMS.xlsx',
-    ],
+    # Per user 2026-05-18 (Thang): DISABLED bqms_rfq auto-import.
+    # ERP is now the source-of-truth for RFQ data (see TH1/TH2/TH3 policy in
+    # bqms_quote_scenario.py). New RFQs come from BQMS portal scrape only —
+    # auto-importing Excel would overwrite ERP-side edits + V1 prices.
+    # 'bqms_rfq': [
+    #     'Puplic/BQMS/Thong ke hoi hang BQMS.xlsx',
+    # ],
     # Per user 2026-05-04: only ingest deliveries from 2026 onward.
     # Old 2023-2024 + 2025 files are kept on disk but no longer
     # auto-imported. Historical data archived to
     # bqms_deliveries_archive_pre2026.
+    #
+    # Thang 2026-06-01: KEEP ONLY bqms_deliveries (báo cáo doanh thu hàng ngày).
+    # bqms_won_quotations + các nguồn khác DISABLED — user chỉ muốn auto-import
+    # phần Báo cáo, không động vào dữ liệu Trúng BG / RFQ khác.
     'bqms_deliveries': [
         'Puplic/BQMS/Thong ke giao hang/Thong ke giao hang 2026.xlsx',
     ],
-    # Per user 2026-05-08: sheet "TRUNG BG" of the same hoi hang file
-    # tracks PO won (giá PO, hạn PO) + manually-filled HS code &
-    # goods_description. The frontend "Trúng" tab queries this table.
-    # File mtime triggers re-import; user edits to hs_code/
-    # goods_description are preserved (importer uses NULLIF guard).
-    'bqms_won_quotations': [
-        'Puplic/BQMS/Thong ke hoi hang BQMS.xlsx',
-    ],
+    # 'bqms_won_quotations' DISABLED 2026-06-01 per Thang — không auto-import
+    # sheet TRUNG BG nữa. Khi user muốn cập nhật, làm thủ công qua
+    # admin/migration hoặc import_precise CLI.
+    # 'bqms_won_quotations': [
+    #     'Puplic/BQMS/Thong ke hoi hang BQMS.xlsx',
+    # ],
 }
 
 
 @app.periodic(cron='*/2 * * * *')
 @app.task(name='bqms_excel_auto_import', queue='etl')
-def bqms_excel_auto_import(timestamp: int = 0) -> dict[str, Any]:
-    """Detect changed BQMS Excel files in staging and trigger import_precise."""
+def bqms_excel_auto_import(timestamp: int = 0, force: bool = False) -> dict[str, Any]:
+    """Detect changed BQMS Excel files in staging and trigger import_precise.
+
+    force=True: bỏ qua mtime check + bỏ qua flag check → luôn re-import.
+    Dùng bởi endpoint /daily-report/force-import khi user bấm "Import lại ngay".
+    """
     started = datetime.now(timezone.utc)
     t0 = time.monotonic()
-    logger.info('bqms_excel_auto_import: starting (utc=%s)', started.isoformat())
+    logger.info('bqms_excel_auto_import: starting (utc=%s, force=%s)', started.isoformat(), force)
 
     result: dict[str, Any] = {
         'imported': [],   # [(table, files, inserted)]
@@ -80,11 +90,34 @@ def bqms_excel_auto_import(timestamp: int = 0) -> dict[str, Any]:
         result['errors'].append(('_setup', f'staging missing: {STAGING_ROOT}'))
         return result
 
+    # Phase E2 (Thang 2026-05-12): Honor app_config.bqms_excel_auto_import_enabled
+    # flag — when false, skip entirely. Allows user to wipe data without it
+    # being re-imported every 2 min from OneDrive Thong ke hoi hang BQMS.xlsx.
+    # force=True bypass flag (user explicit click "Import lại ngay").
+    if not force:
+        try:
+            _flag_conn = psycopg2.connect(SYNC_DSN)
+            with _flag_conn.cursor() as _cur:
+                _cur.execute(
+                    "SELECT value FROM app_config WHERE key='bqms_excel_auto_import_enabled' LIMIT 1"
+                )
+                _row = _cur.fetchone()
+                if _row is not None:
+                    _val = str(_row[0]).strip().lower().strip('"')
+                    if _val in ('false', '0', 'no', 'off'):
+                        logger.info('bqms_excel_auto_import: SKIPPED (flag=false)')
+                        _flag_conn.close()
+                        result['errors'].append(('_flag', 'disabled by app_config'))
+                        return result
+            _flag_conn.close()
+        except Exception as _flag_exc:
+            logger.warning('flag check failed: %s', _flag_exc)
+
     conn = psycopg2.connect(SYNC_DSN)
     try:
         for table, rel_files in GROUPS.items():
             try:
-                _process_group(conn, table, rel_files, result)
+                _process_group(conn, table, rel_files, result, force=force)
             except Exception as exc:
                 logger.exception('group %s failed: %s', table, exc)
                 result['errors'].append((table, str(exc)[:300]))
@@ -105,9 +138,14 @@ def _process_group(
     table: str,
     rel_files: list[str],
     result: dict[str, Any],
+    force: bool = False,
 ) -> None:
-    """For a (table, files) group, decide if we need to re-import + do it."""
-    needs_import = False
+    """For a (table, files) group, decide if we need to re-import + do it.
+
+    force=True: bỏ qua mtime check → luôn re-import bất kể file đã thay đổi
+    hay chưa. Dùng khi user bấm "Import lại ngay" trên UI.
+    """
+    needs_import = bool(force)
     file_states: list[tuple[str, datetime, datetime | None]] = []
 
     with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
@@ -198,13 +236,24 @@ def _process_group(
 
 
 def _parse_inserted(stdout: str) -> int:
-    """Best-effort: extract inserted count from import_precise stdout."""
-    # import_precise prints lines like:
-    #   "Total: 6543 inserted, 12 skipped"
-    m = re.search(r'(\d+)\s+insert', stdout, re.IGNORECASE)
+    """Extract INSERT + UPDATE count from import_precise summary table.
+
+    import_precise prints a summary like:
+        TABLE                          INSERT   UPDATE     SKIP    ERROR
+        ------------------------------------------------------------------
+        bqms_deliveries                   135      207        0        0
+        ------------------------------------------------------------------
+        TOTAL                             135      207        0        0
+
+    Trả về INSERT+UPDATE để user thấy số row thực sự đã được động (cả mới
+    + đã cập nhật). Trước đây chỉ match "insert" regex → luôn = 0.
+    """
+    m = re.search(r'TOTAL\s+(\d+)\s+(\d+)\s+\d+\s+\d+', stdout)
     if m:
-        return int(m.group(1))
-    return 0
+        return int(m.group(1)) + int(m.group(2))
+    # Fallback (older format): just count first "N insert" if any
+    m = re.search(r'(\d+)\s+insert', stdout, re.IGNORECASE)
+    return int(m.group(1)) if m else 0
 
 
 def _create_sync_log(

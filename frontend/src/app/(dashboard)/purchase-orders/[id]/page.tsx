@@ -610,9 +610,9 @@ function TimelineStep({
 }) {
   const dotColor: Record<string, string> = {
     approved: 'bg-emerald-500',
-    rejected: 'bg-red-500',
+    rejected: 'bg-rose-500',
     pending: 'bg-slate-300',
-    in_review: 'bg-cyan-500',
+    in_review: 'bg-sky-500',
     escalated: 'bg-amber-500',
   };
 

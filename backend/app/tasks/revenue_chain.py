@@ -21,9 +21,11 @@ from app.core.procrastinate_app import SYNC_DSN
 
 logger = logging.getLogger(__name__)
 
-# Can't use @app.periodic until procrastinate connector is fixed
-# These functions are called manually via API trigger or will be
-# registered when connector issue is resolved
+# CỐ Ý chạy THỦ CÔNG (quyết định D4 — plans/master-completion/DECISIONS.md).
+# Các hàm này KHÔNG đăng ký @app.periodic một cách có chủ đích: detect_rfq_wins tự
+# tạo Sales Order từ RFQ thắng — một hành động tài chính KHÔNG được tự động hoá nếu
+# chưa có người xác nhận (maker-checker) và cơ chế W3-07/W3-12 sẵn sàng. Chỉ gọi qua
+# API trigger thủ công; TUYỆT ĐỐI không bật auto cho tới khi Thang đồng ý.
 
 
 def detect_rfq_wins() -> dict[str, Any]:

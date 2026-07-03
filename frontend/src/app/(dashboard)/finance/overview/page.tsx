@@ -1,19 +1,7 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import {
-  BarChart,
-  Bar,
-  AreaChart,
-  Area,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  Legend,
-  ResponsiveContainer,
-} from 'recharts';
 import {
   TrendingUp,
   TrendingDown,
@@ -23,8 +11,6 @@ import {
   Inbox,
   CreditCard,
   DollarSign,
-  ArrowUpRight,
-  ArrowDownRight,
   Plus,
   Save,
   Loader2,
@@ -32,6 +18,103 @@ import {
 } from 'lucide-react';
 import { api } from '@/lib/api';
 import { formatDate } from '@/lib/utils';
+import { KPICard } from '@/components/shared/kpi-card';
+import { TableSkeleton } from '@/components/shared/table-skeleton';
+import { EmptyState } from '@/components/shared/empty-state';
+import { PageHeader } from '@/components/shared/page-header';
+
+// ─── Constants ───────────────────────────────────────────────────
+
+/** Auto-refresh cadence (ms) for the finance overview queries. */
+const REFRESH_INTERVAL_MS = 30_000;
+
+/** Max width (px) for the cash-book create modal. */
+const MODAL_MAX_W = 480;
+
+// ─── Types ──────────────────────────────────────────────────────
+
+interface AgingBuckets {
+  current?: number;
+  '0_30'?: number;
+  '30_days'?: number;
+  '30_60'?: number;
+  '60_days'?: number;
+  '60_90'?: number;
+  '90_plus'?: number;
+  'over_90'?: number;
+}
+
+/** Accounts-Receivable row (customer-side). */
+interface ARRow {
+  ar_id?: number | string;
+  customer_name?: string | null;
+  client_name?: string | null;
+  invoice_number?: string | null;
+  amount?: number | null;
+  due_date?: string | null;
+  received_amount?: number | null;
+  paid_amount?: number | null;
+  days_overdue?: number | null;
+  status?: string | null;
+}
+
+/** Accounts-Payable row (supplier-side). */
+interface APRow {
+  ap_id?: number | string;
+  supplier_name?: string | null;
+  invoice_number?: string | null;
+  amount?: number | null;
+  due_date?: string | null;
+  paid_amount?: number | null;
+  days_overdue?: number | null;
+  status?: string | null;
+}
+
+interface CashBookEntry {
+  id?: number | string;
+  date?: string | null;
+  transaction_date?: string | null;
+  type?: string | null;
+  amount?: number | null;
+  amount_in?: number | null;
+  amount_out?: number | null;
+  balance?: number | null;
+  running_balance?: number | null;
+  description?: string | null;
+  note?: string | null;
+}
+
+interface CashFlowPoint {
+  income?: number;
+  expense?: number;
+  ar?: number;
+  ap?: number;
+  net?: number;
+  net_cash?: number;
+}
+
+interface DashboardData {
+  total_ar?: number;
+  total_ap?: number;
+  cash_balance?: number;
+  cash?: number;
+  ap_aging?: AgingBuckets;
+  ar_aging?: AgingBuckets;
+}
+
+interface APResponse {
+  total?: number;
+  aging?: AgingBuckets;
+  by_supplier?: APRow[];
+  items?: APRow[];
+}
+
+interface ARResponse {
+  total?: number;
+  aging?: AgingBuckets;
+  by_customer?: ARRow[];
+  items?: ARRow[];
+}
 
 // ─── Helpers ────────────────────────────────────────────────────
 
@@ -46,263 +129,281 @@ function fmtVnd(value?: number | null): string {
   return sign + new Intl.NumberFormat('vi-VN').format(abs) + '₫';
 }
 
-function fmtChartVnd(value: number): string {
-  if (Math.abs(value) >= 1_000_000_000) return (value / 1_000_000_000).toFixed(1) + 'tỷ';
-  if (Math.abs(value) >= 1_000_000) return (value / 1_000_000).toFixed(0) + 'tr';
-  return String(value);
-}
-
-// ─── KPI Card ────────────────────────────────────────────────────
-
-function KPICard({
-  label,
-  value,
-  sub,
-  icon: Icon,
-  trend,
-  accentClass,
-  loading,
-}: {
-  label: string;
-  value?: string;
-  sub?: string;
-  icon: React.ElementType;
-  trend?: 'up' | 'down' | 'neutral';
-  accentClass: string;
-  loading?: boolean;
-}) {
-  return (
-    <div className={`bg-white rounded-xl shadow-sm border-l-4 ${accentClass} p-4 flex items-center gap-4`}>
-      <div className="p-2.5 rounded-xl bg-slate-50">
-        <Icon className="h-5 w-5 text-slate-600" />
-      </div>
-      <div className="flex-1 min-w-0">
-        <p className="text-xs text-slate-500 truncate">{label}</p>
-        {loading ? (
-          <div className="h-6 w-24 bg-slate-200 rounded animate-pulse mt-1" />
-        ) : (
-          <p className="text-xl font-bold font-mono text-slate-900 leading-tight">{value ?? '—'}</p>
-        )}
-        {sub && <p className="text-xs text-slate-400 mt-0.5">{sub}</p>}
-      </div>
-      {trend === 'up' && <ArrowUpRight className="h-5 w-5 text-emerald-500 flex-shrink-0" />}
-      {trend === 'down' && <ArrowDownRight className="h-5 w-5 text-red-500 flex-shrink-0" />}
-    </div>
-  );
-}
-
-// ─── Table Skeleton ──────────────────────────────────────────────
-
-function TableSkeleton({ rows = 6 }: { rows?: number }) {
-  return (
-    <div className="p-4 space-y-3">
-      {Array.from({ length: rows }).map((_, i) => (
-        <div key={i} className="flex items-center gap-4">
-          <div className="h-4 w-40 bg-slate-200 rounded animate-pulse" />
-          <div className="h-4 w-28 bg-slate-200 rounded animate-pulse" />
-          <div className="h-4 w-24 bg-slate-200 rounded animate-pulse" />
-          <div className="h-4 w-24 bg-slate-200 rounded animate-pulse" />
-          <div className="h-5 w-20 bg-slate-200 rounded-full animate-pulse ml-auto" />
-        </div>
-      ))}
-    </div>
-  );
-}
-
 // ─── Status Badge ────────────────────────────────────────────────
 
 function StatusBadge({
   status,
   daysOverdue,
 }: {
-  status?: string;
-  daysOverdue?: number;
+  status?: string | null;
+  daysOverdue?: number | null;
 }) {
   if ((daysOverdue ?? 0) > 0)
     return (
-      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-semibold bg-red-100 text-red-700">
-        <AlertTriangle className="h-3 w-3" />
+      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-semibold bg-rose-50 text-rose-700 ring-1 ring-inset ring-rose-200">
+        <AlertTriangle className="h-3 w-3" aria-hidden="true" />
         Quá hạn {daysOverdue}N
       </span>
     );
   const s = (status ?? '').toLowerCase();
   if (s === 'paid' || s === 'received')
-    return <span className="px-2 py-0.5 rounded text-xs font-semibold bg-emerald-100 text-emerald-700">Đã thanh toán</span>;
-  if (s === 'partial')
-    return <span className="px-2 py-0.5 rounded text-xs font-semibold bg-amber-100 text-amber-700">Một phần</span>;
-  return <span className="px-2 py-0.5 rounded text-xs font-semibold bg-slate-100 text-slate-500">Chưa TT</span>;
-}
-
-// ─── AP Table ───────────────────────────────────────────────────
-
-function APTable({ isLoading, items }: { isLoading: boolean; items: any[] }) {
-  if (isLoading) return <TableSkeleton />;
-  if (!items.length)
     return (
-      <div className="flex flex-col items-center justify-center py-12 text-slate-300">
-        <Inbox className="h-10 w-10 mb-2" />
-        <p className="text-sm text-slate-400">Không có dữ liệu công nợ trả</p>
-      </div>
+      <span className="inline-flex px-2 py-0.5 rounded text-xs font-semibold bg-emerald-50 text-emerald-700 ring-1 ring-inset ring-emerald-200">
+        Đã thanh toán
+      </span>
+    );
+  if (s === 'partial')
+    return (
+      <span className="inline-flex px-2 py-0.5 rounded text-xs font-semibold bg-amber-50 text-amber-700 ring-1 ring-inset ring-amber-200">
+        Một phần
+      </span>
     );
   return (
-    <div className="overflow-x-auto">
-      <table className="w-full">
-        <thead>
-          <tr className="bg-slate-50/60 border-b border-slate-100">
-            <th className="text-left text-xs font-mono uppercase tracking-wider text-slate-400 px-4 py-2.5">Nhà cung cấp</th>
-            <th className="text-left text-xs font-mono uppercase tracking-wider text-slate-400 px-4 py-2.5">Số HĐ</th>
-            <th className="text-right text-xs font-mono uppercase tracking-wider text-slate-400 px-4 py-2.5">Số tiền</th>
-            <th className="text-left text-xs font-mono uppercase tracking-wider text-slate-400 px-4 py-2.5">Hạn TT</th>
-            <th className="text-right text-xs font-mono uppercase tracking-wider text-slate-400 px-4 py-2.5">Đã trả</th>
-            <th className="text-left text-xs font-mono uppercase tracking-wider text-slate-400 px-4 py-2.5">Trạng thái</th>
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-slate-100">
-          {items.map((item: any, i: number) => {
-            const overdue = (item.days_overdue ?? 0) > 0;
-            return (
-              <tr
-                key={item.ap_id ?? i}
-                className={`hover:bg-slate-50/50 transition-colors ${overdue ? 'bg-red-50/25' : ''}`}
-              >
-                <td className="px-4 py-2.5">
-                  <div className="flex items-center gap-1.5">
-                    {overdue && <AlertTriangle className="h-3.5 w-3.5 text-red-500 flex-shrink-0" />}
-                    <span className="text-sm font-medium text-slate-800">{item.supplier_name ?? '—'}</span>
-                  </div>
-                </td>
-                <td className="px-4 py-2.5 text-xs font-mono text-slate-500">{item.invoice_number ?? '—'}</td>
-                <td className="px-4 py-2.5 text-right text-sm font-mono font-medium text-slate-900">{fmtVnd(item.amount)}</td>
-                <td className="px-4 py-2.5 text-xs text-slate-500">{formatDate(item.due_date)}</td>
-                <td className="px-4 py-2.5 text-right text-sm font-mono text-slate-600">{fmtVnd(item.paid_amount)}</td>
-                <td className="px-4 py-2.5"><StatusBadge status={item.status} daysOverdue={item.days_overdue} /></td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
-    </div>
+    <span className="inline-flex px-2 py-0.5 rounded text-xs font-semibold bg-slate-100 text-slate-600 ring-1 ring-inset ring-slate-200">
+      Chưa TT
+    </span>
   );
 }
 
-// ─── AR Table ───────────────────────────────────────────────────
+// ─── AR / AP Table ──────────────────────────────────────────────
 
-function ARTable({ isLoading, items }: { isLoading: boolean; items: any[] }) {
-  if (isLoading) return <TableSkeleton />;
-  if (!items.length)
-    return (
-      <div className="flex flex-col items-center justify-center py-12 text-slate-300">
-        <Inbox className="h-10 w-10 mb-2" />
-        <p className="text-sm text-slate-400">Không có dữ liệu công nợ thu</p>
-      </div>
-    );
+function ARAPTable({
+  title,
+  isLoading,
+  items,
+  variant,
+}: {
+  title: string;
+  isLoading: boolean;
+  items: Array<ARRow | APRow>;
+  variant: 'ar' | 'ap';
+}) {
+  const isAR = variant === 'ar';
+  const partyLabel = isAR ? 'Khách hàng' : 'Nhà cung cấp';
+  const dueLabel = isAR ? 'Hạn thu' : 'Hạn TT';
+  const paidLabel = isAR ? 'Đã thu' : 'Đã trả';
+  const partyKey = (item: ARRow | APRow): string => {
+    if (isAR) {
+      const ar = item as ARRow;
+      return ar.customer_name ?? ar.client_name ?? '—';
+    }
+    return (item as APRow).supplier_name ?? '—';
+  };
+  const paidKey = (item: ARRow | APRow): number | null | undefined => {
+    if (isAR) {
+      const ar = item as ARRow;
+      return ar.received_amount ?? ar.paid_amount;
+    }
+    return (item as APRow).paid_amount;
+  };
+
   return (
-    <div className="overflow-x-auto">
-      <table className="w-full">
-        <thead>
-          <tr className="bg-slate-50/60 border-b border-slate-100">
-            <th className="text-left text-xs font-mono uppercase tracking-wider text-slate-400 px-4 py-2.5">Khách hàng</th>
-            <th className="text-left text-xs font-mono uppercase tracking-wider text-slate-400 px-4 py-2.5">Số HĐ</th>
-            <th className="text-right text-xs font-mono uppercase tracking-wider text-slate-400 px-4 py-2.5">Số tiền</th>
-            <th className="text-left text-xs font-mono uppercase tracking-wider text-slate-400 px-4 py-2.5">Hạn thu</th>
-            <th className="text-right text-xs font-mono uppercase tracking-wider text-slate-400 px-4 py-2.5">Đã thu</th>
-            <th className="text-left text-xs font-mono uppercase tracking-wider text-slate-400 px-4 py-2.5">Trạng thái</th>
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-slate-100">
-          {items.map((item: any, i: number) => {
-            const overdue = (item.days_overdue ?? 0) > 0;
-            return (
-              <tr
-                key={item.ar_id ?? i}
-                className={`hover:bg-slate-50/50 transition-colors ${overdue ? 'bg-red-50/25' : ''}`}
-              >
-                <td className="px-4 py-2.5">
-                  <div className="flex items-center gap-1.5">
-                    {overdue && <AlertTriangle className="h-3.5 w-3.5 text-red-500 flex-shrink-0" />}
-                    <span className="text-sm font-medium text-slate-800">{item.customer_name ?? item.client_name ?? '—'}</span>
-                  </div>
-                </td>
-                <td className="px-4 py-2.5 text-xs font-mono text-slate-500">{item.invoice_number ?? '—'}</td>
-                <td className="px-4 py-2.5 text-right text-sm font-mono font-medium text-slate-900">{fmtVnd(item.amount)}</td>
-                <td className="px-4 py-2.5 text-xs text-slate-500">{formatDate(item.due_date)}</td>
-                <td className="px-4 py-2.5 text-right text-sm font-mono text-slate-600">{fmtVnd(item.received_amount ?? item.paid_amount)}</td>
-                <td className="px-4 py-2.5"><StatusBadge status={item.status} daysOverdue={item.days_overdue} /></td>
+    <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+      <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100">
+        <h3 className="text-sm font-semibold text-slate-700 leading-snug">{title}</h3>
+        {!isLoading && items.length > 0 && (
+          <span className="text-xs text-slate-500 tabular-nums">{items.length} bản ghi</span>
+        )}
+      </div>
+      {isLoading ? (
+        <TableSkeleton rows={6} cols={6} />
+      ) : items.length === 0 ? (
+        <EmptyState
+          icon={Inbox}
+          heading={isAR ? 'Không có công nợ thu' : 'Không có công nợ trả'}
+          description={
+            isAR
+              ? 'Hóa đơn bán hàng sẽ hiển thị ở đây'
+              : 'Hóa đơn nhà cung cấp sẽ hiển thị ở đây'
+          }
+        />
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="bg-slate-50/60 border-b border-slate-100">
+                <th scope="col" className="text-left text-[11px] font-mono font-semibold uppercase tracking-wider text-slate-500 px-4 py-2.5">
+                  {partyLabel}
+                </th>
+                <th scope="col" className="text-left text-[11px] font-mono font-semibold uppercase tracking-wider text-slate-500 px-4 py-2.5">
+                  Số HĐ
+                </th>
+                <th scope="col" className="text-right text-[11px] font-mono font-semibold uppercase tracking-wider text-slate-500 px-4 py-2.5">
+                  Số tiền
+                </th>
+                <th scope="col" className="text-left text-[11px] font-mono font-semibold uppercase tracking-wider text-slate-500 px-4 py-2.5">
+                  {dueLabel}
+                </th>
+                <th scope="col" className="text-right text-[11px] font-mono font-semibold uppercase tracking-wider text-slate-500 px-4 py-2.5">
+                  {paidLabel}
+                </th>
+                <th scope="col" className="text-left text-[11px] font-mono font-semibold uppercase tracking-wider text-slate-500 px-4 py-2.5">
+                  Trạng thái
+                </th>
               </tr>
-            );
-          })}
-        </tbody>
-      </table>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {items.map((item, i) => {
+                const overdue = (item.days_overdue ?? 0) > 0;
+                const idKey =
+                  isAR
+                    ? (item as ARRow).ar_id
+                    : (item as APRow).ap_id;
+                const partyName = partyKey(item);
+                return (
+                  <tr
+                    key={idKey ?? i}
+                    className={`hover:bg-slate-50/60 transition-colors ${overdue ? 'bg-rose-50/40' : ''}`}
+                  >
+                    <td className="px-4 py-2.5">
+                      <div className="flex items-center gap-1.5">
+                        {overdue && (
+                          <>
+                            <span className="sr-only">Quá hạn —</span>
+                            <AlertTriangle className="h-3.5 w-3.5 text-rose-500 flex-shrink-0" aria-hidden="true" />
+                          </>
+                        )}
+                        <span
+                          className="text-sm font-medium text-slate-900 truncate max-w-[180px]"
+                          title={partyName}
+                        >
+                          {partyName}
+                        </span>
+                      </div>
+                    </td>
+                    <td className="px-4 py-2.5 text-xs font-mono text-slate-500">{item.invoice_number ?? '—'}</td>
+                    <td className="px-4 py-2.5 text-right text-sm font-mono tabular-nums text-slate-900">
+                      {fmtVnd(item.amount)}
+                    </td>
+                    <td className="px-4 py-2.5 text-xs text-slate-500 whitespace-nowrap">
+                      {overdue ? (
+                        <span className="text-rose-600 font-medium">{formatDate(item.due_date)}</span>
+                      ) : (
+                        formatDate(item.due_date)
+                      )}
+                    </td>
+                    <td className="px-4 py-2.5 text-right text-sm font-mono tabular-nums text-slate-500">
+                      {fmtVnd(paidKey(item))}
+                    </td>
+                    <td className="px-4 py-2.5">
+                      <StatusBadge status={item.status} daysOverdue={item.days_overdue} />
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   );
 }
 
 // ─── Cash Book Table ─────────────────────────────────────────────
 
-function CashBookTable({ isLoading, items }: { isLoading: boolean; items: any[] }) {
-  if (isLoading) return <TableSkeleton />;
-  if (!items.length)
-    return (
-      <div className="flex flex-col items-center justify-center py-12 text-slate-300">
-        <Inbox className="h-10 w-10 mb-2" />
-        <p className="text-sm text-slate-400">Không có dữ liệu sổ quỹ</p>
-      </div>
-    );
+function CashBookTable({
+  isLoading,
+  items,
+}: {
+  isLoading: boolean;
+  items: CashBookEntry[];
+}) {
   return (
-    <div className="overflow-x-auto">
-      <table className="w-full">
-        <thead>
-          <tr className="bg-slate-50/60 border-b border-slate-100">
-            <th className="text-left text-xs font-mono uppercase tracking-wider text-slate-400 px-4 py-2.5">Ngày</th>
-            <th className="text-left text-xs font-mono uppercase tracking-wider text-slate-400 px-4 py-2.5">Diễn giải</th>
-            <th className="text-right text-xs font-mono uppercase tracking-wider text-slate-400 px-4 py-2.5">Thu</th>
-            <th className="text-right text-xs font-mono uppercase tracking-wider text-slate-400 px-4 py-2.5">Chi</th>
-            <th className="text-right text-xs font-mono uppercase tracking-wider text-slate-400 px-4 py-2.5">Số dư</th>
-            <th className="text-left text-xs font-mono uppercase tracking-wider text-slate-400 px-4 py-2.5">Loại</th>
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-slate-100">
-          {items.map((item: any, i: number) => {
-            const isIncome = (item.type ?? '').toLowerCase() === 'income' || (item.amount_in ?? 0) > 0;
-            return (
-              <tr key={item.id ?? i} className="hover:bg-slate-50/50 transition-colors">
-                <td className="px-4 py-2.5 text-xs text-slate-500 whitespace-nowrap">
-                  {formatDate(item.date ?? item.transaction_date)}
-                </td>
-                <td className="px-4 py-2.5 text-sm text-slate-700 max-w-[220px] truncate">
-                  {item.description ?? item.note ?? '—'}
-                </td>
-                <td className="px-4 py-2.5 text-right text-sm font-mono font-medium text-emerald-700">
-                  {item.amount_in || isIncome ? fmtVnd(item.amount_in ?? item.amount) : '—'}
-                </td>
-                <td className="px-4 py-2.5 text-right text-sm font-mono font-medium text-red-600">
-                  {item.amount_out || (!isIncome && !item.amount_in)
-                    ? fmtVnd(item.amount_out ?? item.amount)
-                    : '—'}
-                </td>
-                <td className="px-4 py-2.5 text-right text-sm font-mono text-slate-700">
-                  {fmtVnd(item.balance ?? item.running_balance)}
-                </td>
-                <td className="px-4 py-2.5">
-                  <span
-                    className={`inline-flex px-2 py-0.5 rounded text-xs font-semibold ${
-                      isIncome ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-700'
-                    }`}
-                  >
-                    {isIncome ? 'Thu' : 'Chi'}
-                  </span>
-                </td>
+    <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+      <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100">
+        <h3 className="text-sm font-semibold text-slate-700 leading-snug">Sổ quỹ gần đây</h3>
+        {!isLoading && items.length > 0 && (
+          <span className="text-xs text-slate-500 tabular-nums">{items.length} bút toán</span>
+        )}
+      </div>
+      {isLoading ? (
+        <TableSkeleton rows={6} cols={5} />
+      ) : items.length === 0 ? (
+        <EmptyState
+          icon={DollarSign}
+          heading="Chưa có bút toán sổ quỹ"
+          description="Bấm 'Ghi sổ quỹ' để tạo bút toán đầu tiên"
+        />
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="bg-slate-50/60 border-b border-slate-100">
+                <th scope="col" className="text-left text-[11px] font-mono font-semibold uppercase tracking-wider text-slate-500 px-4 py-2.5">
+                  Ngày
+                </th>
+                <th scope="col" className="text-left text-[11px] font-mono font-semibold uppercase tracking-wider text-slate-500 px-4 py-2.5">
+                  Loại
+                </th>
+                <th scope="col" className="text-left text-[11px] font-mono font-semibold uppercase tracking-wider text-slate-500 px-4 py-2.5">
+                  Mô tả
+                </th>
+                <th scope="col" className="text-right text-[11px] font-mono font-semibold uppercase tracking-wider text-slate-500 px-4 py-2.5">
+                  Số tiền
+                </th>
+                <th scope="col" className="text-right text-[11px] font-mono font-semibold uppercase tracking-wider text-slate-500 px-4 py-2.5">
+                  Số dư
+                </th>
               </tr>
-            );
-          })}
-        </tbody>
-      </table>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {items.map((item, i) => {
+                const isIncome =
+                  (item.type ?? '').toLowerCase() === 'income' || (item.amount_in ?? 0) > 0;
+                const amount = item.amount_in ?? item.amount_out ?? item.amount ?? 0;
+                const description = item.description ?? item.note ?? '—';
+                return (
+                  <tr key={item.id ?? i} className="hover:bg-slate-50/60 transition-colors">
+                    <td className="px-4 py-2.5 text-xs text-slate-500 whitespace-nowrap">
+                      {formatDate(item.date ?? item.transaction_date)}
+                    </td>
+                    <td className="px-4 py-2.5">
+                      <span
+                        className={`inline-flex px-2 py-0.5 rounded text-xs font-semibold ring-1 ring-inset ${
+                          isIncome
+                            ? 'bg-emerald-50 text-emerald-700 ring-emerald-200'
+                            : 'bg-rose-50 text-rose-700 ring-rose-200'
+                        }`}
+                      >
+                        {isIncome ? 'Thu' : 'Chi'}
+                      </span>
+                    </td>
+                    <td
+                      className="px-4 py-2.5 text-sm text-slate-700 max-w-[320px] truncate"
+                      title={description}
+                    >
+                      {description}
+                    </td>
+                    <td
+                      className={`px-4 py-2.5 text-right text-sm font-mono tabular-nums font-medium ${
+                        isIncome ? 'text-emerald-600' : 'text-rose-600'
+                      }`}
+                    >
+                      {isIncome ? '+' : '−'}
+                      {fmtVnd(Math.abs(amount))}
+                    </td>
+                    <td className="px-4 py-2.5 text-right text-sm font-mono tabular-nums text-slate-900">
+                      {fmtVnd(item.balance ?? item.running_balance)}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   );
 }
 
-// ─── Aging Analysis ──────────────────────────────────────────────
+// ─── Aging Block (4-bucket horizontal bar) ───────────────────────
 
+/**
+ * Finding #2: palette restraint — drop bg-orange-500 (out of whitelist),
+ * use slate-300 / amber-300 / amber-500 / rose-500.
+ * Finding #10: aria-valuetext on each progressbar so SR users hear the
+ * formatted amount alongside the percentage.
+ */
 function AgingBlock({
   label,
   current,
@@ -316,50 +417,51 @@ function AgingBlock({
   d60?: number;
   d90?: number;
 }) {
-  const total = (current ?? 0) + (d30 ?? 0) + (d60 ?? 0) + (d90 ?? 0);
-  const pct = (v?: number) => total > 0 ? Math.round(((v ?? 0) / total) * 100) : 0;
+  const buckets = [
+    { name: '0–30 ngày', value: current ?? 0, color: 'bg-slate-300' },
+    { name: '31–60 ngày', value: d30 ?? 0, color: 'bg-amber-300' },
+    { name: '61–90 ngày', value: d60 ?? 0, color: 'bg-amber-500' },
+    { name: '> 90 ngày', value: d90 ?? 0, color: 'bg-rose-500' },
+  ];
+  const total = buckets.reduce((s, b) => s + b.value, 0);
+
   return (
-    <div className="flex-1 min-w-[200px]">
-      <p className="text-xs font-semibold text-slate-600 mb-3">{label}</p>
-      <div className="space-y-2">
-        {[
-          { name: 'Hiện tại', value: current, pctVal: pct(current), color: 'bg-emerald-400' },
-          { name: '1-30 ngày', value: d30, pctVal: pct(d30), color: 'bg-amber-400' },
-          { name: '31-60 ngày', value: d60, pctVal: pct(d60), color: 'bg-orange-500' },
-          { name: '60+ ngày', value: d90, pctVal: pct(d90), color: 'bg-red-500' },
-        ].map((row) => (
-          <div key={row.name}>
-            <div className="flex items-center justify-between mb-0.5">
-              <span className="text-xs text-slate-500">{row.name}</span>
-              <span className="text-xs font-mono text-slate-700">{fmtVnd(row.value)}</span>
-            </div>
-            <div className="h-1.5 rounded-full bg-slate-100 overflow-hidden">
-              <div
-                className={`h-full rounded-full ${row.color}`}
-                style={{ width: `${row.pctVal}%` }}
-              />
-            </div>
-          </div>
-        ))}
+    <div className="flex-1 min-w-0">
+      <div className="flex items-center justify-between mb-2">
+        <p className="text-sm font-semibold text-slate-700 leading-snug">{label}</p>
+        <p className="text-xs font-mono tabular-nums text-slate-500">
+          Tổng: <span className="text-slate-900 font-semibold">{fmtVnd(total)}</span>
+        </p>
       </div>
-    </div>
-  );
-}
-
-// ─── Custom Tooltip for Recharts ─────────────────────────────────
-
-function CustomTooltip({ active, payload, label }: any) {
-  if (!active || !payload?.length) return null;
-  return (
-    <div className="bg-white border border-slate-200 rounded-lg shadow-lg p-3 text-xs">
-      <p className="font-semibold text-slate-700 mb-1.5">{label}</p>
-      {payload.map((p: any) => (
-        <div key={p.dataKey} className="flex items-center gap-2 py-0.5">
-          <span className="w-2.5 h-2.5 rounded-sm flex-shrink-0" style={{ backgroundColor: p.color }} />
-          <span className="text-slate-600">{p.name}:</span>
-          <span className="font-mono text-slate-900">{fmtChartVnd(p.value)}</span>
-        </div>
-      ))}
+      <div className="grid grid-cols-4 gap-2">
+        {buckets.map((b) => {
+          const pct = total > 0 ? Math.round((b.value / total) * 100) : 0;
+          return (
+            <div key={b.name} className="min-w-0">
+              <div className="flex items-center justify-between mb-1">
+                <span className="text-[11px] text-slate-500 leading-snug truncate" title={b.name}>
+                  {b.name}
+                </span>
+                <span className="text-[11px] font-mono tabular-nums text-slate-700">{pct}%</span>
+              </div>
+              <div
+                className="h-2 bg-slate-100 rounded-full overflow-hidden"
+                role="progressbar"
+                aria-valuenow={pct}
+                aria-valuemin={0}
+                aria-valuemax={100}
+                aria-valuetext={`${b.name}: ${fmtVnd(b.value)} (${pct}%)`}
+                aria-label={`${label} ${b.name}`}
+              >
+                <div className={`h-full ${b.color}`} style={{ width: `${pct}%` }} />
+              </div>
+              <p className="text-[11px] font-mono tabular-nums text-slate-500 mt-1">
+                {fmtVnd(b.value)}
+              </p>
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }
@@ -368,7 +470,6 @@ function CustomTooltip({ active, payload, label }: any) {
 
 export default function FinanceOverviewPage() {
   const queryClient = useQueryClient();
-  const [activeTab, setActiveTab] = useState<'ap' | 'ar' | 'cashbook'>('ap');
   const [showCashBookForm, setShowCashBookForm] = useState(false);
 
   const refetchAll = useCallback(() => {
@@ -379,292 +480,205 @@ export default function FinanceOverviewPage() {
     queryClient.invalidateQueries({ queryKey: ['finance-cashbook'] });
   }, [queryClient]);
 
-  // Auto-refresh every 30s
+  // Auto-refresh — interval defined as named constant for clarity (Finding #16).
   useEffect(() => {
-    const interval = setInterval(refetchAll, 30000);
+    const interval = setInterval(refetchAll, REFRESH_INTERVAL_MS);
     return () => clearInterval(interval);
   }, [refetchAll]);
 
-  // Queries
-  const { data: dashRaw, isLoading: dashLoading } = useQuery({
+  // Queries — preserved exactly
+  const { data: dashRaw, isLoading: dashLoading, isFetching: dashFetching } = useQuery({
     queryKey: ['finance-dashboard'],
-    queryFn: () => api.get<any>('/api/v1/finance-management/dashboard'),
+    queryFn: () => api.get<DashboardData | { data: DashboardData }>('/api/v1/finance-management/dashboard'),
     retry: 1,
   });
 
   const { data: apRaw, isLoading: apLoading } = useQuery({
     queryKey: ['finance-ap'],
-    queryFn: () => api.get<any>('/api/v1/finance-management/ap-summary'),
+    queryFn: () => api.get<{ data: APResponse } | APResponse>('/api/v1/finance-management/ap-summary'),
     retry: 1,
   });
 
   const { data: arRaw, isLoading: arLoading } = useQuery({
     queryKey: ['finance-ar'],
-    queryFn: () => api.get<any>('/api/v1/finance-management/ar-summary'),
+    queryFn: () => api.get<{ data: ARResponse } | ARResponse>('/api/v1/finance-management/ar-summary'),
     retry: 1,
   });
 
   const { data: cashflowRaw, isLoading: cashflowLoading } = useQuery({
     queryKey: ['finance-cashflow'],
-    queryFn: () => api.get<any>('/api/v1/finance-management/cash-flow'),
+    queryFn: () => api.get<{ data?: CashFlowPoint[]; items?: CashFlowPoint[] }>('/api/v1/finance-management/cash-flow'),
     retry: 1,
   });
 
   const { data: cashbookRaw, isLoading: cashbookLoading } = useQuery({
     queryKey: ['finance-cashbook'],
-    queryFn: () => api.get<any>('/api/v1/finance-management/cash-book?page=1'),
+    queryFn: () => api.get<{ data?: CashBookEntry[]; items?: CashBookEntry[] }>('/api/v1/finance-management/cash-book?page=1'),
     retry: 1,
   });
 
-  // Extract data
-  const dashData = dashRaw?.data ?? dashRaw ?? {};
-  const apData = apRaw?.data ?? {};
-  const arData = arRaw?.data ?? {};
-  const cashflowData: any[] = cashflowRaw?.data ?? cashflowRaw?.items ?? [];
-  const cashbookItems: any[] = cashbookRaw?.data ?? cashbookRaw?.items ?? [];
-  const apItems: any[] = apData.by_supplier ?? apData.items ?? [];
-  const arItems: any[] = arData.by_customer ?? arData.items ?? [];
+  // Extract data — narrow via interfaces; "as" only to disambiguate union shapes.
+  const dashData: DashboardData =
+    ((dashRaw as { data?: DashboardData } | undefined)?.data as DashboardData) ??
+    (dashRaw as DashboardData) ??
+    {};
+  const apData: APResponse =
+    ((apRaw as { data?: APResponse } | undefined)?.data as APResponse) ??
+    (apRaw as APResponse) ??
+    {};
+  const arData: ARResponse =
+    ((arRaw as { data?: ARResponse } | undefined)?.data as ARResponse) ??
+    (arRaw as ARResponse) ??
+    {};
+  const cashflowData: CashFlowPoint[] =
+    (cashflowRaw as { data?: CashFlowPoint[] } | undefined)?.data ??
+    (cashflowRaw as { items?: CashFlowPoint[] } | undefined)?.items ??
+    [];
+  const cashbookItems: CashBookEntry[] =
+    (cashbookRaw as { data?: CashBookEntry[] } | undefined)?.data ??
+    (cashbookRaw as { items?: CashBookEntry[] } | undefined)?.items ??
+    [];
+  const apItems: APRow[] = apData.by_supplier ?? apData.items ?? [];
+  const arItems: ARRow[] = arData.by_customer ?? arData.items ?? [];
 
   // KPI values
-  const totalAR = dashData.total_ar ?? arData.total ?? arItems.reduce((s: number, r: any) => s + (r.amount ?? 0), 0);
-  const totalAP = dashData.total_ap ?? apData.total ?? apItems.reduce((s: number, r: any) => s + (r.amount ?? 0), 0);
-  const netBalance = totalAR - totalAP;
+  const totalAR =
+    dashData.total_ar ?? arData.total ?? arItems.reduce((s, r) => s + (r.amount ?? 0), 0);
+  const totalAP =
+    dashData.total_ap ?? apData.total ?? apItems.reduce((s, r) => s + (r.amount ?? 0), 0);
   const cashBalance = dashData.cash_balance ?? dashData.cash ?? null;
 
   // Aging data
-  const apAging = apData.aging ?? dashData.ap_aging ?? {};
-  const arAging = arData.aging ?? dashData.ar_aging ?? {};
+  const apAging: AgingBuckets = apData.aging ?? dashData.ap_aging ?? {};
+  const arAging: AgingBuckets = arData.aging ?? dashData.ar_aging ?? {};
 
-  // Prepare chart data — AP vs AR by month
-  const apvsarData: any[] = (() => {
-    if (cashflowData.length > 0) return cashflowData;
-    // build placeholder if no data
-    return [];
-  })();
+  // Overdue counts (derived)
+  const arOverdueCount = arItems.filter((r) => (r.days_overdue ?? 0) > 0).length;
+  const apOverdueCount = apItems.filter((r) => (r.days_overdue ?? 0) > 0).length;
+  const arOverdueAmount = arItems
+    .filter((r) => (r.days_overdue ?? 0) > 0)
+    .reduce((s, r) => s + (r.amount ?? 0), 0);
+  const apOverdueAmount = apItems
+    .filter((r) => (r.days_overdue ?? 0) > 0)
+    .reduce((s, r) => s + (r.amount ?? 0), 0);
 
-  // Prepare chart for normalized format
-  const normalizedCashflow = apvsarData.map((row: any) => ({
-    month: row.month ?? row.period ?? row.label ?? '',
-    AR: row.ar ?? row.receivable ?? row.income ?? 0,
-    AP: row.ap ?? row.payable ?? row.expense ?? 0,
-    'Thu ròng': row.net ?? row.net_cash ?? (row.income ?? 0) - (row.expense ?? 0),
-    Chi: Math.abs(row.expense ?? row.ap ?? 0),
-    Thu: row.income ?? row.ar ?? 0,
-  }));
+  // Net cash flow this period
+  const netCashflow = cashflowData.reduce((s, r) => {
+    const inc = r.income ?? r.ar ?? 0;
+    const exp = r.expense ?? r.ap ?? 0;
+    return s + (r.net ?? r.net_cash ?? inc - exp);
+  }, 0);
 
   return (
-    <div>
+    <div className="space-y-6">
       {/* ── Header ─────────────────────────────────────────────── */}
-      <div className="flex items-center justify-between mb-5">
-        <div>
-          <h2 className="text-xl font-display font-bold text-slate-900">Tổng quan Tài chính</h2>
-          <p className="text-sm text-slate-500 mt-0.5">
-            Công nợ trả · Công nợ thu · Sổ quỹ
-          </p>
-        </div>
-        <button
-          onClick={refetchAll}
-          className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-600 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors"
-        >
-          <RefreshCw className="h-3.5 w-3.5" />
-          Làm mới
-        </button>
-      </div>
+      <PageHeader
+        title="Tài chính tổng hợp"
+        subtitle="Tổng quan AR · AP · Dòng tiền"
+        actions={
+          <>
+            <button
+              type="button"
+              onClick={refetchAll}
+              aria-label="Tải lại danh sách"
+              className="inline-flex items-center gap-2 h-11 px-4 rounded-lg bg-white border border-slate-200 hover:bg-slate-50 hover:border-slate-300 text-slate-700 text-sm font-semibold disabled:opacity-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/40 focus-visible:ring-offset-2 transition-colors"
+            >
+              <RefreshCw
+                className={`h-4 w-4 text-slate-500 ${dashFetching ? 'motion-safe:animate-spin' : ''}`}
+                aria-hidden="true"
+              />
+              Tải lại
+            </button>
+            <button
+              type="button"
+              onClick={() => setShowCashBookForm(true)}
+              className="inline-flex items-center gap-2 h-11 px-4 rounded-lg bg-brand-600 hover:bg-brand-700 active:bg-brand-800 text-white text-sm font-semibold shadow-sm shadow-brand-600/20 disabled:bg-brand-300 disabled:cursor-not-allowed focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/50 focus-visible:ring-offset-2 transition-colors"
+            >
+              <Plus className="h-4 w-4" aria-hidden="true" />
+              Ghi sổ quỹ
+            </button>
+          </>
+        }
+      />
 
-      {/* ── KPI Row ─────────────────────────────────────────────── */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+      {/* ── KPI Strip (6-up) — Finding #11: shared KPICard ──────── */}
+      <div className="grid grid-cols-2 lg:grid-cols-6 gap-4">
         <KPICard
-          label="Tổng phải thu (AR)"
+          label="Công nợ thu"
           value={fmtVnd(totalAR)}
-          sub={`${arItems.length} khách hàng`}
-          icon={TrendingUp}
-          trend="up"
-          accentClass="border-emerald-500"
+          sub={`${arItems.length} hóa đơn`}
+          icon={Wallet}
+          tone="brand"
           loading={dashLoading || arLoading}
         />
         <KPICard
-          label="Tổng phải trả (AP)"
+          label="Công nợ trả"
           value={fmtVnd(totalAP)}
-          sub={`${apItems.length} nhà cung cấp`}
-          icon={TrendingDown}
-          trend="down"
-          accentClass="border-red-400"
+          sub={`${apItems.length} hóa đơn`}
+          icon={CreditCard}
+          tone="slate"
           loading={dashLoading || apLoading}
         />
         <KPICard
-          label="Số dư ròng (AR - AP)"
-          value={fmtVnd(netBalance)}
-          sub={netBalance >= 0 ? 'Dương — có lợi' : 'Âm — cần theo dõi'}
-          icon={DollarSign}
-          trend={netBalance >= 0 ? 'up' : 'down'}
-          accentClass={netBalance >= 0 ? 'border-cyan-500' : 'border-orange-500'}
-          loading={dashLoading || apLoading || arLoading}
+          label="Quá hạn thu"
+          value={fmtVnd(arOverdueAmount)}
+          sub={arOverdueCount > 0 ? `${arOverdueCount} HĐ quá hạn` : 'Không có HĐ quá hạn'}
+          icon={AlertTriangle}
+          tone="rose"
+          loading={arLoading}
         />
         <KPICard
-          label="Tiền mặt"
+          label="Quá hạn trả"
+          value={fmtVnd(apOverdueAmount)}
+          sub={apOverdueCount > 0 ? `${apOverdueCount} HĐ quá hạn` : 'Không có HĐ quá hạn'}
+          icon={AlertTriangle}
+          tone="rose"
+          loading={apLoading}
+        />
+        <KPICard
+          label="Tiền mặt + NH"
           value={fmtVnd(cashBalance)}
-          icon={Wallet}
-          accentClass="border-brand-500"
+          icon={DollarSign}
+          tone="brand"
           loading={dashLoading}
+        />
+        <KPICard
+          label="Dòng tiền kỳ này"
+          value={fmtVnd(netCashflow)}
+          sub={
+            netCashflow >= 0
+              ? 'Dương — dòng tiền tốt'
+              : 'Âm — cần theo dõi'
+          }
+          icon={netCashflow >= 0 ? TrendingUp : TrendingDown}
+          tone={netCashflow >= 0 ? 'brand' : 'rose'}
+          loading={cashflowLoading}
         />
       </div>
 
-      {/* ── Charts Row ──────────────────────────────────────────── */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 mb-6">
-        {/* AP vs AR Bar Chart */}
-        <div className="bg-white rounded-xl shadow-sm border border-slate-100 p-4">
-          <div className="flex items-center gap-2 mb-4">
-            <CreditCard className="h-4 w-4 text-brand-500" />
-            <h3 className="text-sm font-semibold text-slate-700">AP vs AR theo tháng</h3>
+      {/* ── Aging Block ──────────────────────────────────────── */}
+      <div className="bg-white rounded-xl border border-slate-200 p-5">
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-sm font-semibold text-slate-700 leading-snug">Tuổi nợ</h3>
+          <div
+            className="flex items-center gap-3 text-[11px] text-slate-500"
+            aria-label="Chú thích buckets tuổi nợ"
+          >
+            <span className="inline-flex items-center gap-1.5">
+              <span className="w-2 h-2 rounded-full bg-slate-300" aria-hidden="true" /> 0–30
+            </span>
+            <span className="inline-flex items-center gap-1.5">
+              <span className="w-2 h-2 rounded-full bg-amber-300" aria-hidden="true" /> 31–60
+            </span>
+            <span className="inline-flex items-center gap-1.5">
+              <span className="w-2 h-2 rounded-full bg-amber-500" aria-hidden="true" /> 61–90
+            </span>
+            <span className="inline-flex items-center gap-1.5">
+              <span className="w-2 h-2 rounded-full bg-rose-500" aria-hidden="true" /> &gt;90
+            </span>
           </div>
-          {cashflowLoading ? (
-            <div className="h-[260px] flex items-center justify-center">
-              <div className="space-y-2 w-full px-4">
-                {[70, 50, 80, 60, 40].map((w, i) => (
-                  <div key={i} className="flex gap-2 items-end h-8">
-                    <div className={`h-full bg-slate-200 rounded animate-pulse`} style={{ width: `${w}%` }} />
-                    <div className={`h-2/3 bg-slate-200 rounded animate-pulse`} style={{ width: `${100 - w}%` }} />
-                  </div>
-                ))}
-              </div>
-            </div>
-          ) : normalizedCashflow.length === 0 ? (
-            <div className="flex flex-col items-center justify-center h-[260px] text-slate-300">
-              <Inbox className="h-10 w-10 mb-2" />
-              <p className="text-sm text-slate-400">Chưa có dữ liệu</p>
-            </div>
-          ) : (
-            <ResponsiveContainer width="100%" height={260}>
-              <BarChart data={normalizedCashflow} margin={{ top: 5, right: 10, left: 10, bottom: 5 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
-                <XAxis dataKey="month" tick={{ fontSize: 10, fill: '#94a3b8' }} />
-                <YAxis tickFormatter={fmtChartVnd} tick={{ fontSize: 10, fill: '#94a3b8' }} width={55} />
-                <Tooltip content={<CustomTooltip />} />
-                <Legend wrapperStyle={{ fontSize: 11 }} />
-                <Bar dataKey="AP" name="Phải trả (AP)" fill="#f87171" radius={[3, 3, 0, 0]} />
-                <Bar dataKey="AR" name="Phải thu (AR)" fill="#34d399" radius={[3, 3, 0, 0]} />
-              </BarChart>
-            </ResponsiveContainer>
-          )}
         </div>
-
-        {/* Cash Flow Area Chart */}
-        <div className="bg-white rounded-xl shadow-sm border border-slate-100 p-4">
-          <div className="flex items-center gap-2 mb-4">
-            <Wallet className="h-4 w-4 text-brand-500" />
-            <h3 className="text-sm font-semibold text-slate-700">Dòng tiền theo tháng</h3>
-          </div>
-          {cashflowLoading ? (
-            <div className="h-[260px] flex items-center justify-center">
-              <div className="h-[200px] w-full mx-4 bg-gradient-to-t from-slate-100 to-slate-50 rounded animate-pulse" />
-            </div>
-          ) : normalizedCashflow.length === 0 ? (
-            <div className="flex flex-col items-center justify-center h-[260px] text-slate-300">
-              <Inbox className="h-10 w-10 mb-2" />
-              <p className="text-sm text-slate-400">Chưa có dữ liệu</p>
-            </div>
-          ) : (
-            <ResponsiveContainer width="100%" height={260}>
-              <AreaChart data={normalizedCashflow} margin={{ top: 5, right: 10, left: 10, bottom: 5 }}>
-                <defs>
-                  <linearGradient id="gradThu" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#34d399" stopOpacity={0.3} />
-                    <stop offset="95%" stopColor="#34d399" stopOpacity={0.03} />
-                  </linearGradient>
-                  <linearGradient id="gradChi" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#f87171" stopOpacity={0.3} />
-                    <stop offset="95%" stopColor="#f87171" stopOpacity={0.03} />
-                  </linearGradient>
-                </defs>
-                <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
-                <XAxis dataKey="month" tick={{ fontSize: 10, fill: '#94a3b8' }} />
-                <YAxis tickFormatter={fmtChartVnd} tick={{ fontSize: 10, fill: '#94a3b8' }} width={55} />
-                <Tooltip content={<CustomTooltip />} />
-                <Legend wrapperStyle={{ fontSize: 11 }} />
-                <Area
-                  type="monotone"
-                  dataKey="Thu"
-                  name="Thu"
-                  stroke="#34d399"
-                  strokeWidth={2}
-                  fill="url(#gradThu)"
-                />
-                <Area
-                  type="monotone"
-                  dataKey="Chi"
-                  name="Chi"
-                  stroke="#f87171"
-                  strokeWidth={2}
-                  fill="url(#gradChi)"
-                />
-              </AreaChart>
-            </ResponsiveContainer>
-          )}
-        </div>
-      </div>
-
-      {/* ── Tables (Tabs) ────────────────────────────────────────── */}
-      <div className="bg-white rounded-xl shadow-sm border border-slate-100 overflow-hidden mb-6">
-        {/* Tab Bar */}
-        <div className="flex items-center border-b border-slate-100">
-          <div className="flex flex-1">
-            {(
-              [
-                { key: 'ap', label: 'Công nợ trả', icon: TrendingDown, count: apItems.length },
-                { key: 'ar', label: 'Công nợ thu', icon: TrendingUp, count: arItems.length },
-                { key: 'cashbook', label: 'Sổ quỹ', icon: Wallet, count: cashbookItems.length },
-              ] as const
-            ).map((tab) => (
-              <button
-                key={tab.key}
-                onClick={() => setActiveTab(tab.key)}
-                className={`flex items-center gap-2 px-5 py-3 text-sm font-medium border-b-2 transition-colors ${
-                  activeTab === tab.key
-                    ? 'border-brand-500 text-brand-600'
-                    : 'border-transparent text-slate-500 hover:text-slate-700'
-                }`}
-              >
-                <tab.icon className="h-4 w-4" />
-                {tab.label}
-                {tab.count > 0 && (
-                  <span className="ml-1 text-xs bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded-full">
-                    {tab.count}
-                  </span>
-                )}
-              </button>
-            ))}
-          </div>
-          {activeTab === 'cashbook' && (
-            <button
-              onClick={() => setShowCashBookForm(true)}
-              className="mr-3 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-brand-600 text-white hover:bg-brand-700 transition-colors"
-            >
-              <Plus className="h-3.5 w-3.5" /> Tạo bút toán
-            </button>
-          )}
-        </div>
-
-        {/* Tab Content */}
-        {activeTab === 'ap' && <APTable isLoading={apLoading} items={apItems} />}
-        {activeTab === 'ar' && <ARTable isLoading={arLoading} items={arItems} />}
-        {activeTab === 'cashbook' && <CashBookTable isLoading={cashbookLoading} items={cashbookItems} />}
-      </div>
-
-      {/* ── Aging Analysis ──────────────────────────────────────── */}
-      <div className="bg-white rounded-xl shadow-sm border border-slate-100 p-5">
-        <div className="flex items-center gap-2 mb-5">
-          <AlertTriangle className="h-4 w-4 text-amber-500" />
-          <h3 className="text-sm font-semibold text-slate-700">Phân tích tuổi nợ (Aging)</h3>
-        </div>
-        <div className="flex flex-wrap gap-8">
-          <AgingBlock
-            label="Phải trả (AP)"
-            current={apAging.current ?? apAging['0_30']}
-            d30={apAging['30_days'] ?? apAging['30_60']}
-            d60={apAging['60_days'] ?? apAging['60_90']}
-            d90={apAging['90_plus'] ?? apAging['over_90']}
-          />
-          <div className="w-px bg-slate-100 self-stretch" />
+        <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 xl:divide-x xl:divide-slate-100">
           <AgingBlock
             label="Phải thu (AR)"
             current={arAging.current ?? arAging['0_30']}
@@ -672,27 +686,35 @@ export default function FinanceOverviewPage() {
             d60={arAging['60_days'] ?? arAging['60_90']}
             d90={arAging['90_plus'] ?? arAging['over_90']}
           />
-        </div>
-        <div className="flex flex-wrap gap-4 mt-4 pt-4 border-t border-slate-50">
-          {[
-            { name: 'Hiện tại', color: 'bg-emerald-400' },
-            { name: '1-30 ngày', color: 'bg-amber-400' },
-            { name: '31-60 ngày', color: 'bg-orange-500' },
-            { name: '60+ ngày', color: 'bg-red-500' },
-          ].map((l) => (
-            <div key={l.name} className="flex items-center gap-1.5 text-xs text-slate-500">
-              <span className={`w-2.5 h-2.5 rounded-sm ${l.color}`} />
-              {l.name}
-            </div>
-          ))}
+          <div className="xl:pl-6">
+            <AgingBlock
+              label="Phải trả (AP)"
+              current={apAging.current ?? apAging['0_30']}
+              d30={apAging['30_days'] ?? apAging['30_60']}
+              d60={apAging['60_days'] ?? apAging['60_90']}
+              d90={apAging['90_plus'] ?? apAging['over_90']}
+            />
+          </div>
         </div>
       </div>
+
+      {/* ── Two-column AR / AP Tables ─────────────────────────── */}
+      <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+        <ARAPTable title="Công nợ phải thu" isLoading={arLoading} items={arItems} variant="ar" />
+        <ARAPTable title="Công nợ phải trả" isLoading={apLoading} items={apItems} variant="ap" />
+      </div>
+
+      {/* ── Cashbook Table (full width) ──────────────────────── */}
+      <CashBookTable isLoading={cashbookLoading} items={cashbookItems} />
 
       {/* Cash Book Create Modal */}
       {showCashBookForm && (
         <CashBookCreateModal
           onClose={() => setShowCashBookForm(false)}
-          onCreated={() => { setShowCashBookForm(false); refetchAll(); }}
+          onCreated={() => {
+            setShowCashBookForm(false);
+            refetchAll();
+          }}
         />
       )}
     </div>
@@ -701,10 +723,31 @@ export default function FinanceOverviewPage() {
 
 // ─── Cash Book Create Modal ──────────────────────────────────────
 
-function CashBookCreateModal({ onClose, onCreated }: { onClose: () => void; onCreated: () => void }) {
+type Direction = 'income' | 'expense' | 'transfer';
+
+const DIRECTION_OPTIONS: ReadonlyArray<{ val: Direction; label: string }> = [
+  { val: 'income', label: 'Thu' },
+  { val: 'expense', label: 'Chi' },
+  { val: 'transfer', label: 'Chuyển khoản' },
+];
+
+/**
+ * Finding #5: focus management for the modal
+ *   - Form `onSubmit` so Enter submits (and "Hủy" stays type="button")
+ *   - First radio button receives autoFocus on mount
+ *   - useEffect stores the previously focused element and restores it on close
+ *   - Tab/Shift-Tab focus trap: keep focus inside the dialog while it's open
+ */
+function CashBookCreateModal({
+  onClose,
+  onCreated,
+}: {
+  onClose: () => void;
+  onCreated: () => void;
+}) {
   const [form, setForm] = useState({
-    entry_date: new Date().toISOString().split('T')[0],
-    direction: 'income' as 'income' | 'expense' | 'transfer',
+    entry_date: new Date().toISOString().split('T')[0] as string,
+    direction: 'income' as Direction,
     category: 'other',
     description: '',
     amount: '',
@@ -713,6 +756,60 @@ function CashBookCreateModal({ onClose, onCreated }: { onClose: () => void; onCr
   });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+
+  const dialogRef = useRef<HTMLFormElement | null>(null);
+  const firstRadioRef = useRef<HTMLButtonElement | null>(null);
+  const previouslyFocused = useRef<HTMLElement | null>(null);
+
+  // Store the previously-focused element, autofocus the first radio,
+  // and restore focus on unmount.
+  useEffect(() => {
+    previouslyFocused.current = document.activeElement as HTMLElement | null;
+    // Defer to after first paint so refs are wired.
+    const t = requestAnimationFrame(() => {
+      firstRadioRef.current?.focus();
+    });
+    return () => {
+      cancelAnimationFrame(t);
+      // Restore focus to the launching element so SR users continue
+      // their reading position naturally.
+      previouslyFocused.current?.focus?.();
+    };
+  }, []);
+
+  // ESC to close + Tab focus trap.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        onClose();
+        return;
+      }
+      if (e.key !== 'Tab') return;
+      const container = dialogRef.current;
+      if (!container) return;
+      const focusables = container.querySelectorAll<HTMLElement>(
+        'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])',
+      );
+      if (focusables.length === 0) return;
+      const first = focusables[0];
+      const last = focusables[focusables.length - 1];
+      const active = document.activeElement as HTMLElement | null;
+      if (e.shiftKey) {
+        if (active === first || !container.contains(active)) {
+          e.preventDefault();
+          last.focus();
+        }
+      } else {
+        if (active === last) {
+          e.preventDefault();
+          first.focus();
+        }
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
 
   const CATEGORIES = [
     { value: 'customer_receipt', label: 'Thu từ khách hàng' },
@@ -723,7 +820,8 @@ function CashBookCreateModal({ onClose, onCreated }: { onClose: () => void; onCr
     { value: 'other', label: 'Khác' },
   ];
 
-  const handleSave = async () => {
+  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
     if (!form.description || !form.amount) {
       setError('Vui lòng nhập mô tả và số tiền');
       return;
@@ -736,79 +834,147 @@ function CashBookCreateModal({ onClose, onCreated }: { onClose: () => void; onCr
         amount: Number(form.amount),
       });
       onCreated();
-    } catch (err: any) {
-      setError(err?.detail ?? 'Lỗi tạo bút toán');
+    } catch (err) {
+      const detail = (err as { detail?: string })?.detail;
+      setError(detail ?? 'Lỗi tạo bút toán');
     } finally {
       setSaving(false);
     }
   };
 
   return (
-    <div className="fixed inset-0 bg-black/30 flex items-center justify-center z-50" onClick={onClose}>
-      <div className="bg-white rounded-xl shadow-xl w-[460px] max-h-[80vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+    <div
+      className="fixed inset-0 bg-slate-900/40 flex items-center justify-center z-50 p-4"
+      onClick={onClose}
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="cashbook-modal-title"
+    >
+      <form
+        ref={dialogRef}
+        onSubmit={handleSubmit}
+        className="bg-white rounded-xl shadow-xl w-full max-h-[85vh] overflow-y-auto border border-slate-200"
+        style={{ maxWidth: MODAL_MAX_W }}
+        onClick={(e) => e.stopPropagation()}
+      >
         <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
-          <h3 className="font-semibold text-slate-800">Tạo bút toán sổ quỹ</h3>
-          <button onClick={onClose} className="text-slate-400 hover:text-slate-600"><X className="h-4 w-4" /></button>
+          <h3 id="cashbook-modal-title" className="text-sm font-semibold text-slate-900 leading-snug">
+            Tạo bút toán sổ quỹ
+          </h3>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Đóng"
+            className="h-9 w-9 inline-flex items-center justify-center rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/40 transition-colors"
+          >
+            <X className="h-4 w-4" aria-hidden="true" />
+          </button>
         </div>
-        <div className="px-5 py-4 space-y-3">
+        <div className="px-5 py-4 space-y-4">
           {/* Direction */}
           <div>
-            <label className="text-xs text-slate-500 block mb-1.5">Loại</label>
-            <div className="flex gap-2">
-              {[
-                { val: 'income', label: 'Thu', color: 'bg-emerald-600' },
-                { val: 'expense', label: 'Chi', color: 'bg-red-600' },
-                { val: 'transfer', label: 'Chuyển khoản', color: 'bg-blue-600' },
-              ].map(d => (
-                <button key={d.val}
-                  onClick={() => setForm(f => ({ ...f, direction: d.val as any }))}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
-                    form.direction === d.val ? `${d.color} text-white` : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                  }`}>
-                  {d.label}
-                </button>
-              ))}
+            <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1.5">
+              Loại
+            </label>
+            <div
+              role="radiogroup"
+              aria-label="Loại bút toán"
+              className="flex flex-wrap items-center gap-1.5"
+            >
+              {DIRECTION_OPTIONS.map((d, idx) => {
+                const active = form.direction === d.val;
+                return (
+                  <button
+                    key={d.val}
+                    ref={idx === 0 ? firstRadioRef : undefined}
+                    type="button"
+                    role="radio"
+                    aria-checked={active}
+                    tabIndex={active ? 0 : -1}
+                    onClick={() => setForm((f) => ({ ...f, direction: d.val }))}
+                    className={`h-9 px-3 rounded-lg text-xs font-semibold border transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/40 focus-visible:ring-offset-2 ${
+                      active
+                        ? 'bg-brand-600 border-brand-600 text-white shadow-sm shadow-brand-600/20'
+                        : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50 hover:border-slate-300'
+                    }`}
+                  >
+                    {d.label}
+                  </button>
+                );
+              })}
             </div>
           </div>
           {/* Date + Category */}
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="text-xs text-slate-500 block mb-1">Ngày</label>
-              <input type="date" value={form.entry_date}
-                onChange={e => setForm(f => ({ ...f, entry_date: e.target.value }))}
-                className="w-full px-3 py-1.5 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
+              <label htmlFor="cashbook-date" className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1">
+                Ngày
+              </label>
+              <input
+                id="cashbook-date"
+                type="date"
+                value={form.entry_date}
+                onChange={(e) => setForm((f) => ({ ...f, entry_date: e.target.value }))}
+                className="w-full h-11 px-3 rounded-lg border border-slate-200 bg-white text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-brand-100 focus:border-brand-400"
+              />
             </div>
             <div>
-              <label className="text-xs text-slate-500 block mb-1">Danh mục</label>
-              <select value={form.category}
-                onChange={e => setForm(f => ({ ...f, category: e.target.value }))}
-                className="w-full px-3 py-1.5 border border-slate-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-brand-500">
-                {CATEGORIES.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
+              <label htmlFor="cashbook-category" className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1">
+                Danh mục
+              </label>
+              <select
+                id="cashbook-category"
+                value={form.category}
+                onChange={(e) => setForm((f) => ({ ...f, category: e.target.value }))}
+                className="w-full h-11 px-3 rounded-lg border border-slate-200 bg-white text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-brand-100 focus:border-brand-400"
+              >
+                {CATEGORIES.map((c) => (
+                  <option key={c.value} value={c.value}>
+                    {c.label}
+                  </option>
+                ))}
               </select>
             </div>
           </div>
           {/* Description */}
           <div>
-            <label className="text-xs text-slate-500 block mb-1">Mô tả <span className="text-red-500">*</span></label>
-            <input type="text" value={form.description}
-              onChange={e => setForm(f => ({ ...f, description: e.target.value }))}
+            <label htmlFor="cashbook-desc" className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1">
+              Mô tả <span className="text-rose-500">*</span>
+            </label>
+            <input
+              id="cashbook-desc"
+              type="text"
+              value={form.description}
+              onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
               placeholder="VD: Thanh toán NCC Trung Quốc — PO-2026-0042"
-              className="w-full px-3 py-1.5 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
+              className="w-full h-11 px-3 rounded-lg border border-slate-200 bg-white text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-brand-100 focus:border-brand-400"
+            />
           </div>
           {/* Amount + Currency */}
           <div className="grid grid-cols-3 gap-3">
             <div className="col-span-2">
-              <label className="text-xs text-slate-500 block mb-1">Số tiền <span className="text-red-500">*</span></label>
-              <input type="number" value={form.amount}
-                onChange={e => setForm(f => ({ ...f, amount: e.target.value }))}
+              <label htmlFor="cashbook-amount" className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1">
+                Số tiền <span className="text-rose-500">*</span>
+              </label>
+              <input
+                id="cashbook-amount"
+                type="number"
+                value={form.amount}
+                onChange={(e) => setForm((f) => ({ ...f, amount: e.target.value }))}
                 placeholder="0"
-                className="w-full px-3 py-1.5 border border-slate-200 rounded-lg text-sm font-mono focus:outline-none focus:ring-2 focus:ring-brand-500" />
+                className="w-full h-11 px-3 rounded-lg border border-slate-200 bg-white text-sm text-slate-900 font-mono tabular-nums placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-brand-100 focus:border-brand-400"
+              />
             </div>
             <div>
-              <label className="text-xs text-slate-500 block mb-1">Tiền tệ</label>
-              <select value={form.currency}
-                onChange={e => setForm(f => ({ ...f, currency: e.target.value }))}
-                className="w-full px-3 py-1.5 border border-slate-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-brand-500">
+              <label htmlFor="cashbook-currency" className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1">
+                Tiền tệ
+              </label>
+              <select
+                id="cashbook-currency"
+                value={form.currency}
+                onChange={(e) => setForm((f) => ({ ...f, currency: e.target.value }))}
+                className="w-full h-11 px-3 rounded-lg border border-slate-200 bg-white text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-brand-100 focus:border-brand-400"
+              >
                 <option value="VND">VND</option>
                 <option value="USD">USD</option>
                 <option value="CNY">CNY</option>
@@ -817,24 +983,49 @@ function CashBookCreateModal({ onClose, onCreated }: { onClose: () => void; onCr
           </div>
           {/* Notes */}
           <div>
-            <label className="text-xs text-slate-500 block mb-1">Ghi chú</label>
-            <textarea value={form.notes} rows={2}
-              onChange={e => setForm(f => ({ ...f, notes: e.target.value }))}
-              className="w-full px-3 py-1.5 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand-500" />
+            <label htmlFor="cashbook-notes" className="block text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-1">
+              Ghi chú
+            </label>
+            <textarea
+              id="cashbook-notes"
+              value={form.notes}
+              rows={2}
+              onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))}
+              className="w-full px-3 py-2 rounded-lg border border-slate-200 bg-white text-sm text-slate-900 leading-snug placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-brand-100 focus:border-brand-400"
+            />
           </div>
-          {error && <div className="text-xs text-red-600 bg-red-50 rounded-lg px-3 py-2">{error}</div>}
+          {error && (
+            <div
+              role="alert"
+              className="text-xs text-rose-700 bg-rose-50 ring-1 ring-inset ring-rose-200 rounded-lg px-3 py-2 leading-snug"
+            >
+              {error}
+            </div>
+          )}
         </div>
         <div className="px-5 py-3 border-t border-slate-100 flex items-center justify-end gap-2">
-          <button onClick={onClose} className="px-3 py-1.5 rounded-lg text-xs font-medium border border-slate-200 text-slate-600 hover:bg-slate-50">
+          <button
+            type="button"
+            onClick={onClose}
+            className="inline-flex items-center gap-2 h-11 px-4 rounded-lg bg-white border border-slate-200 hover:bg-slate-50 hover:border-slate-300 text-slate-700 text-sm font-semibold focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/40 focus-visible:ring-offset-2 transition-colors"
+          >
             Hủy
           </button>
-          <button onClick={handleSave} disabled={saving}
-            className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-lg text-xs font-semibold bg-brand-600 text-white hover:bg-brand-700 disabled:opacity-50 transition-colors">
-            {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
+          <button
+            type="submit"
+            disabled={saving}
+            className="inline-flex items-center gap-2 h-11 px-4 rounded-lg bg-brand-600 hover:bg-brand-700 active:bg-brand-800 text-white text-sm font-semibold shadow-sm shadow-brand-600/20 disabled:bg-brand-300 disabled:cursor-not-allowed focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/50 focus-visible:ring-offset-2 transition-colors"
+          >
+            {saving ? (
+              <Loader2 className="h-4 w-4 motion-safe:animate-spin" aria-hidden="true" />
+            ) : (
+              <Save className="h-4 w-4" aria-hidden="true" />
+            )}
             Tạo bút toán
           </button>
         </div>
-      </div>
+      </form>
     </div>
   );
 }
+

@@ -228,7 +228,7 @@ def _process_upcoming(
               AND wi.current_status IN ('pending_l1', 'pending_l2')
               AND NOT EXISTS (
                   SELECT 1 FROM notifications n2
-                  WHERE n2.link = '/workflows/' || wi.id::text
+                  WHERE n2.metadata->>'link' = '/workflows/' || wi.id::text
                     AND n2.type = 'deadline_upcoming'
                     AND n2.created_at >= NOW() - INTERVAL '24 hours'
               )
@@ -254,7 +254,7 @@ def _process_upcoming(
         _notify_approvers(
             conn,
             workflow_id=row["workflow_id"],
-            current_state=row["current_state"],
+            current_state=row["current_status"],
             title="Sắp hết hạn phê duyệt",
             body=(
                 f'Yêu cầu "{row["title"] or row["workflow_id"]}" '
@@ -297,7 +297,7 @@ def _process_overdue(
               AND wi.current_status IN ('pending_l1', 'pending_l2')
               AND NOT EXISTS (
                   SELECT 1 FROM notifications n2
-                  WHERE n2.link = '/workflows/' || wi.id::text
+                  WHERE n2.metadata->>'link' = '/workflows/' || wi.id::text
                     AND n2.type = 'deadline_overdue'
                     AND n2.created_at >= NOW() - INTERVAL '24 hours'
               )
@@ -322,7 +322,7 @@ def _process_overdue(
         _notify_approvers(
             conn,
             workflow_id=row["workflow_id"],
-            current_state=row["current_state"],
+            current_state=row["current_status"],
             title="Quá hạn phê duyệt",
             body=(
                 f'Yêu cầu "{row["title"] or row["workflow_id"]}" '
@@ -355,8 +355,8 @@ def _insert_notification(
     with conn.cursor() as cur:
         cur.execute(
             """
-            INSERT INTO notifications (recipient_id, type, title, body, link)
-            VALUES (%s::uuid, %s, %s, %s, %s)
+            INSERT INTO notifications (recipient_id, type, title, body, ref_type, metadata)
+            VALUES (%s::uuid, %s, %s, %s, 'workflow', jsonb_build_object('link', %s))
             """,
             (recipient_id, notif_type, title, body, link),
         )
@@ -383,15 +383,15 @@ def _notify_approvers(
     with conn.cursor() as cur:
         cur.execute(
             f"""
-            INSERT INTO notifications (recipient_id, type, title, body, link)
-            SELECT u.id, %s, %s, %s, %s
+            INSERT INTO notifications (recipient_id, type, title, body, ref_type, metadata)
+            SELECT u.id, %s, %s, %s, 'workflow', jsonb_build_object('link', %s)
             FROM users u
             WHERE {role_filter}
               AND u.is_active = true
               AND NOT EXISTS (
                   SELECT 1 FROM notifications n2
                   WHERE n2.recipient_id = u.id
-                    AND n2.link = %s
+                    AND n2.metadata->>'link' = %s
                     AND n2.type = %s
                     AND n2.created_at >= NOW() - INTERVAL '24 hours'
               )
@@ -413,7 +413,7 @@ def _build_deadline_email_body(row: dict[str, Any], kind: str) -> str:
         "<p>Kính gửi,</p>"
         "<p>"
         f"Yêu cầu phê duyệt <strong>{title}</strong> "
-        f"hiện đang ở trạng thái <code>{row['current_state']}</code> "
+        f"hiện đang ở trạng thái <code>{row['current_status']}</code> "
         f"và <strong>{label}</strong> kể từ {row['deadline']}."
         "</p>"
         "<p>"

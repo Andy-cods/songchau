@@ -5,6 +5,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Pencil } from 'lucide-react';
 import { api } from '@/lib/api';
 import { cn, formatDate } from '@/lib/utils';
+import { PageHeader } from '@/components/shared/page-header';
 
 interface SaleInvoice {
   id: number;
@@ -114,32 +115,32 @@ export default function QuarterlyInvoicesPage() {
 
   return (
     <div>
-      <div className="mb-4 flex items-center justify-between">
-        <div>
-          <h1 className="text-xl font-bold text-slate-900">Bảng kê hóa đơn</h1>
-          <p className="mt-0.5 text-sm text-slate-500">
-            Dữ liệu thật theo quý. Có thể chỉnh VAT, thuế và các loại chi phí bổ sung trên từng hóa đơn.
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          <select
-            value={quarter}
-            onChange={e => setQuarter(e.target.value)}
-            className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
-          >
-            {QUARTERS.map(q => (
-              <option key={q} value={q}>
-                {q}
-              </option>
-            ))}
-          </select>
-          <button
-            onClick={() => setShowUpload(true)}
-            className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-50"
-          >
-            Tải lên PDF
-          </button>
-        </div>
+      <div className="mb-4">
+        <PageHeader
+          title="Bảng kê hóa đơn"
+          subtitle="Dữ liệu thật theo quý. Có thể chỉnh VAT, thuế và các loại chi phí bổ sung trên từng hóa đơn."
+          actions={
+            <>
+              <select
+                value={quarter}
+                onChange={e => setQuarter(e.target.value)}
+                className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
+              >
+                {QUARTERS.map(q => (
+                  <option key={q} value={q}>
+                    {q}
+                  </option>
+                ))}
+              </select>
+              <button
+                onClick={() => setShowUpload(true)}
+                className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-50"
+              >
+                Tải lên PDF
+              </button>
+            </>
+          }
+        />
       </div>
 
       <div className="mb-4 flex border-b border-slate-200">
@@ -215,9 +216,9 @@ function SalesTable({ quarter, search }: { quarter: string; search: string }) {
         <SummaryCard label="Số HĐ" value={fmtNum(summary.count)} />
         <SummaryCard label="Doanh số chưa thuế" value={fmtVnd(summary.total_before_tax)} color="brand" />
         <SummaryCard label="Thuế GTGT" value={fmtVnd(summary.total_tax)} />
-        <SummaryCard label="Tổng có thuế" value={fmtVnd(summary.total_with_tax)} color="emerald" />
-        <SummaryCard label="Lợi nhuận gộp" value={fmtVnd(summary.gross_profit)} color="violet" />
-        <SummaryCard label="Chi phí cấu hình" value={fmtVnd(summary.total_configured_cost)} color="amber" />
+        <SummaryCard label="Tổng có thuế" value={fmtVnd(summary.total_with_tax)} color="brand" />
+        <SummaryCard label="Lợi nhuận gộp" value={fmtVnd(summary.gross_profit)} color="brand" />
+        <SummaryCard label="Chi phí cấu hình" value={fmtVnd(summary.total_configured_cost)} color="slate" />
       </div>
       <div className="mb-3 grid grid-cols-[1fr_1.2fr] gap-3">
         <SummaryCard label="Lãi sau chi phí" value={fmtVnd(summary.net_profit_after_costs)} color="brand" />
@@ -328,8 +329,8 @@ function PurchasesTable({ quarter, search }: { quarter: string; search: string }
         <SummaryCard label="Số HĐ" value={fmtNum(summary.count)} />
         <SummaryCard label="Chưa thuế" value={fmtVnd(summary.total_before_tax)} color="brand" />
         <SummaryCard label="Thuế GTGT" value={fmtVnd(summary.total_tax)} />
-        <SummaryCard label="Tổng có thuế" value={fmtVnd(summary.total_with_tax)} color="amber" />
-        <SummaryCard label="Chi phí cộng thêm" value={fmtVnd(summary.total_extra_costs)} color="violet" />
+        <SummaryCard label="Tổng có thuế" value={fmtVnd(summary.total_with_tax)} color="brand" />
+        <SummaryCard label="Chi phí cộng thêm" value={fmtVnd(summary.total_extra_costs)} color="slate" />
       </div>
 
       <div className="overflow-hidden rounded-lg border border-slate-200 bg-white">
@@ -447,16 +448,15 @@ function SummaryCard({
   value: string;
   color?: string;
 }) {
+  // One neutral language: plain metrics = slate rule, emphasised metrics =
+  // brand rule. No decorative rainbow — any non-slate tone maps to brand.
   const colors: Record<string, string> = {
-    slate: 'border-slate-200 text-slate-800',
-    brand: 'border-brand-200 text-brand-700',
-    emerald: 'border-emerald-200 text-emerald-700',
-    amber: 'border-amber-200 text-amber-700',
-    violet: 'border-violet-200 text-violet-700',
+    slate: 'border-l-slate-200 text-slate-800',
+    brand: 'border-l-brand-500 text-slate-900',
   };
 
   return (
-    <div className={cn('rounded-lg border border-slate-200 border-l-4 bg-white px-4 py-3', colors[color])}>
+    <div className={cn('rounded-lg border border-slate-200 border-l-4 bg-white px-4 py-3', colors[color] ?? colors.brand)}>
       <p className="text-[11px] font-medium text-slate-500">{label}</p>
       <p className="mt-0.5 text-lg font-bold">{value}</p>
     </div>

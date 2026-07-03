@@ -18,6 +18,18 @@ import {
 } from 'lucide-react';
 import { api } from '@/lib/api';
 import { cn } from '@/lib/utils';
+import { PageHeader } from '@/components/shared/page-header';
+import { Card } from '@/components/shared/card';
+import { EmptyState } from '@/components/shared/empty-state';
+import { Skeleton } from '@/components/ui/skeleton';
+import {
+  Table,
+  TableHeader,
+  TableBody,
+  TableRow,
+  TableHead,
+  TableCell,
+} from '@/components/shared/table';
 
 // ─── Types ───────────────────────────────────────────────────────
 
@@ -131,24 +143,25 @@ export default function PerformancePage() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-xl font-display font-bold text-slate-900">Hiệu suất hệ thống</h2>
-          <p className="text-sm text-slate-500 mt-0.5">Giám sát tài nguyên và sức khỏe hệ thống</p>
-        </div>
-        <button
-          onClick={() => healthCheckMutation.mutate()}
-          disabled={healthCheckMutation.isPending}
-          className="flex items-center gap-2 px-4 py-2 bg-brand-600 text-white rounded-lg text-sm font-medium hover:bg-brand-700 disabled:opacity-60 transition-colors"
-        >
-          {healthCheckMutation.isPending ? (
-            <Loader2 className="h-4 w-4 animate-spin" />
-          ) : (
-            <Activity className="h-4 w-4" />
-          )}
-          Kiểm tra sức khỏe
-        </button>
-      </div>
+      <PageHeader
+        icon={Activity}
+        title="Hiệu suất hệ thống"
+        subtitle="Giám sát tài nguyên và sức khỏe hệ thống"
+        actions={
+          <button
+            onClick={() => healthCheckMutation.mutate()}
+            disabled={healthCheckMutation.isPending}
+            className="flex items-center gap-2 px-4 py-2 bg-brand-600 text-white rounded-lg text-sm font-medium hover:bg-brand-700 disabled:opacity-60 transition-colors"
+          >
+            {healthCheckMutation.isPending ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Activity className="h-4 w-4" />
+            )}
+            Kiểm tra sức khỏe
+          </button>
+        }
+      />
 
       {/* Status Cards */}
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
@@ -156,42 +169,42 @@ export default function PerformancePage() {
           label="Kích thước DB"
           value={dash?.db_size ?? '—'}
           icon={Database}
-          color="text-blue-600"
+          color="text-brand-600"
           loading={dashLoading}
         />
         <StatCard
           label="Số bảng"
           value={dash?.table_count ?? '—'}
           icon={Table2}
-          color="text-purple-600"
+          color="text-brand-600"
           loading={dashLoading}
         />
         <StatCard
           label="Tổng hàng"
           value={dash?.total_rows?.toLocaleString('vi-VN') ?? '—'}
           icon={Rows3}
-          color="text-cyan-600"
+          color="text-brand-600"
           loading={dashLoading}
         />
         <StatCard
           label="Redis bộ nhớ"
           value={dash?.redis_memory ?? '—'}
           icon={MemoryStick}
-          color="text-amber-600"
+          color="text-brand-600"
           loading={dashLoading}
         />
         <StatCard
           label="Uptime"
           value={dash?.uptime ?? '—'}
           icon={Clock}
-          color="text-emerald-600"
+          color="text-brand-600"
           loading={dashLoading}
         />
       </div>
 
       {/* Health Check Results */}
       {healthResults && (
-        <div className="bg-white rounded-lg shadow-sm border border-slate-100 p-4">
+        <Card padded={false} className="p-4">
           <div className="flex items-center gap-2 mb-3">
             <CheckCircle2 className="h-4 w-4 text-emerald-600" />
             <h3 className="text-sm font-semibold text-slate-700">Kết quả kiểm tra sức khỏe</h3>
@@ -222,52 +235,50 @@ export default function PerformancePage() {
               </div>
             ))}
           </div>
-        </div>
+        </Card>
       )}
 
       {/* DB Stats Table */}
-      <div className="bg-white rounded-lg shadow-sm border border-slate-100 overflow-hidden">
+      <Card padded={false} className="overflow-hidden">
         <div className="flex items-center gap-2 p-4 border-b border-slate-100">
           <Database className="h-4 w-4 text-blue-600" />
           <h3 className="text-sm font-semibold text-slate-700">Thống kê bảng dữ liệu</h3>
           {dbStatsLoading && <Loader2 className="h-4 w-4 animate-spin text-slate-400 ml-auto" />}
         </div>
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="bg-slate-50 border-b border-slate-100">
-                <th className="text-left px-4 py-2.5 text-xs font-medium text-slate-500 uppercase tracking-wide">Tên bảng</th>
-                <th className="text-right px-4 py-2.5 text-xs font-medium text-slate-500 uppercase tracking-wide">Số hàng</th>
-                <th className="text-right px-4 py-2.5 text-xs font-medium text-slate-500 uppercase tracking-wide">Kích thước</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-50">
-              {dbStatsLoading
-                ? Array.from({ length: 6 }).map((_, i) => (
-                    <tr key={i}>
-                      <td className="px-4 py-3"><div className="h-4 w-40 bg-slate-200 rounded animate-pulse" /></td>
-                      <td className="px-4 py-3 text-right"><div className="h-4 w-16 bg-slate-200 rounded animate-pulse ml-auto" /></td>
-                      <td className="px-4 py-3 text-right"><div className="h-4 w-16 bg-slate-200 rounded animate-pulse ml-auto" /></td>
-                    </tr>
-                  ))
-                : dbStats.map((row) => (
-                    <tr key={row.table_name} className="hover:bg-slate-50/50 transition-colors">
-                      <td className="px-4 py-2.5 font-mono text-xs text-slate-700">{row.table_name}</td>
-                      <td className="px-4 py-2.5 text-right font-medium text-slate-800">
-                        {(row.row_count ?? 0).toLocaleString('vi-VN')}
-                      </td>
-                      <td className="px-4 py-2.5 text-right text-slate-500 font-mono text-xs">
-                        {formatBytes(row.size_bytes)}
-                      </td>
-                    </tr>
-                  ))}
-            </tbody>
-          </table>
-          {!dbStatsLoading && dbStats.length === 0 && (
-            <div className="text-center py-8 text-slate-400 text-sm">Chưa có dữ liệu</div>
-          )}
-        </div>
-      </div>
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Tên bảng</TableHead>
+              <TableHead className="text-right">Số hàng</TableHead>
+              <TableHead className="text-right">Kích thước</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {dbStatsLoading
+              ? Array.from({ length: 6 }).map((_, i) => (
+                  <TableRow key={i}>
+                    <TableCell><Skeleton className="h-4 w-40" /></TableCell>
+                    <TableCell className="text-right"><Skeleton className="h-4 w-16 ml-auto" /></TableCell>
+                    <TableCell className="text-right"><Skeleton className="h-4 w-16 ml-auto" /></TableCell>
+                  </TableRow>
+                ))
+              : dbStats.map((row) => (
+                  <TableRow key={row.table_name}>
+                    <TableCell className="py-2.5 font-mono text-xs text-slate-700">{row.table_name}</TableCell>
+                    <TableCell className="py-2.5 text-right font-medium text-slate-800">
+                      {(row.row_count ?? 0).toLocaleString('vi-VN')}
+                    </TableCell>
+                    <TableCell className="py-2.5 text-right text-slate-500 font-mono text-xs">
+                      {formatBytes(row.size_bytes)}
+                    </TableCell>
+                  </TableRow>
+                ))}
+          </TableBody>
+        </Table>
+        {!dbStatsLoading && dbStats.length === 0 && (
+          <EmptyState icon={Database} heading="Chưa có dữ liệu" className="py-8" />
+        )}
+      </Card>
 
       {/* Containers Grid */}
       <div>
@@ -278,13 +289,15 @@ export default function PerformancePage() {
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
           {dashLoading
             ? Array.from({ length: 8 }).map((_, i) => (
-                <div key={i} className="h-20 bg-slate-200 rounded-lg animate-pulse" />
+                <Skeleton key={i} className="h-20 rounded-lg" />
               ))
             : containers.length === 0
               ? (
-                <div className="col-span-full text-center py-8 text-slate-400 text-sm">
-                  Không có dữ liệu container
-                </div>
+                <EmptyState
+                  icon={Container}
+                  heading="Không có dữ liệu container"
+                  className="col-span-full py-8"
+                />
               )
               : containers.map((c: { name: string; status: string }) => (
                   <div

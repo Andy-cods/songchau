@@ -14,6 +14,18 @@ import {
 } from 'lucide-react';
 import { api } from '@/lib/api';
 import { cn, formatRelativeTime } from '@/lib/utils';
+import { PageHeader } from '@/components/shared/page-header';
+import { Card } from '@/components/shared/card';
+import { EmptyState } from '@/components/shared/empty-state';
+import { Skeleton } from '@/components/ui/skeleton';
+import {
+  Table,
+  TableHeader,
+  TableBody,
+  TableRow,
+  TableHead,
+  TableCell,
+} from '@/components/shared/table';
 
 // ─── Types ───────────────────────────────────────────────────────
 
@@ -149,24 +161,25 @@ export default function RetryQueuePage() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-xl font-display font-bold text-slate-900">Hàng đợi thử lại</h2>
-          <p className="text-sm text-slate-500 mt-0.5">Quản lý các tác vụ cần thực thi lại</p>
-        </div>
-        <button
-          onClick={() => cleanupMutation.mutate()}
-          disabled={cleanupMutation.isPending}
-          className="flex items-center gap-2 px-4 py-2 bg-slate-700 text-white rounded-lg text-sm font-medium hover:bg-slate-800 disabled:opacity-60 transition-colors"
-        >
-          {cleanupMutation.isPending ? (
-            <Loader2 className="h-4 w-4 animate-spin" />
-          ) : (
-            <Trash2 className="h-4 w-4" />
-          )}
-          Dọn dẹp
-        </button>
-      </div>
+      <PageHeader
+        icon={RotateCcw}
+        title="Hàng đợi thử lại"
+        subtitle="Quản lý các tác vụ cần thực thi lại"
+        actions={
+          <button
+            onClick={() => cleanupMutation.mutate()}
+            disabled={cleanupMutation.isPending}
+            className="flex items-center gap-2 px-4 py-2 bg-brand-600 text-white rounded-lg text-sm font-medium hover:bg-brand-700 disabled:opacity-60 transition-colors"
+          >
+            {cleanupMutation.isPending ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Trash2 className="h-4 w-4" />
+            )}
+            Dọn dẹp
+          </button>
+        }
+      />
 
       {/* Summary Cards */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
@@ -215,7 +228,7 @@ export default function RetryQueuePage() {
       </div>
 
       {/* Jobs Table */}
-      <div className="bg-white rounded-lg shadow-sm border border-slate-100 overflow-hidden">
+      <Card padded={false} className="overflow-hidden">
         <div className="flex items-center gap-2 p-4 border-b border-slate-100">
           <RotateCcw className="h-4 w-4 text-slate-600" />
           <h3 className="text-sm font-semibold text-slate-700">
@@ -224,97 +237,97 @@ export default function RetryQueuePage() {
           </h3>
           {jobsLoading && <Loader2 className="h-4 w-4 animate-spin text-slate-400 ml-auto" />}
         </div>
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="bg-slate-50 border-b border-slate-100">
-                <th className="text-left px-4 py-2.5 text-xs font-medium text-slate-500 uppercase tracking-wide">Loại tác vụ</th>
-                <th className="text-left px-4 py-2.5 text-xs font-medium text-slate-500 uppercase tracking-wide">Trạng thái</th>
-                <th className="text-center px-4 py-2.5 text-xs font-medium text-slate-500 uppercase tracking-wide">Lần thử</th>
-                <th className="text-left px-4 py-2.5 text-xs font-medium text-slate-500 uppercase tracking-wide">Lỗi cuối</th>
-                <th className="text-left px-4 py-2.5 text-xs font-medium text-slate-500 uppercase tracking-wide">Tạo lúc</th>
-                <th className="px-4 py-2.5" />
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-50">
-              {jobsLoading
-                ? Array.from({ length: 6 }).map((_, i) => (
-                    <tr key={i}>
-                      {Array.from({ length: 6 }).map((_, j) => (
-                        <td key={j} className="px-4 py-3">
-                          <div className="h-4 bg-slate-200 rounded animate-pulse" />
-                        </td>
-                      ))}
-                    </tr>
-                  ))
-                : jobs.map((job) => (
-                    <tr key={job.id} className="hover:bg-slate-50/50 transition-colors">
-                      <td className="px-4 py-3">
-                        <span className="text-xs font-mono font-medium bg-slate-100 text-slate-700 px-2 py-0.5 rounded">
-                          {job.job_type}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3">
-                        <span className={cn('text-xs px-2 py-0.5 rounded border font-medium', statusBadgeClass(job.status))}>
-                          {statusLabel(job.status)}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3 text-center">
-                        <span className={cn(
-                          'text-sm font-mono font-bold',
-                          job.attempts >= job.max_attempts ? 'text-red-600' : 'text-slate-700'
-                        )}>
-                          {job.attempts}/{job.max_attempts}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3 text-xs text-slate-500 max-w-[200px] truncate">
-                        {job.last_error ?? <span className="text-slate-300">—</span>}
-                      </td>
-                      <td className="px-4 py-3 text-xs text-slate-500 whitespace-nowrap">
-                        {formatRelativeTime(job.created_at)}
-                      </td>
-                      <td className="px-4 py-3">
-                        <div className="flex items-center gap-2">
-                          {(job.status === 'pending' || job.status === 'failed') && (
-                            <button
-                              onClick={() => retryMutation.mutate(job.id)}
-                              disabled={retryMutation.isPending}
-                              className="flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium bg-blue-50 text-blue-700 border border-blue-200 rounded-lg hover:bg-blue-100 disabled:opacity-60 transition-colors whitespace-nowrap"
-                            >
-                              {retryMutation.isPending ? (
-                                <Loader2 className="h-3 w-3 animate-spin" />
-                              ) : (
-                                <RotateCcw className="h-3 w-3" />
-                              )}
-                              Thử lại
-                            </button>
-                          )}
-                          {(job.status === 'pending' || job.status === 'retrying') && (
-                            <button
-                              onClick={() => cancelMutation.mutate(job.id)}
-                              disabled={cancelMutation.isPending}
-                              className="flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium bg-red-50 text-red-700 border border-red-200 rounded-lg hover:bg-red-100 disabled:opacity-60 transition-colors whitespace-nowrap"
-                            >
-                              {cancelMutation.isPending ? (
-                                <Loader2 className="h-3 w-3 animate-spin" />
-                              ) : (
-                                <XCircle className="h-3 w-3" />
-                              )}
-                              Hủy
-                            </button>
-                          )}
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-            </tbody>
-          </table>
-          {!jobsLoading && jobs.length === 0 && (
-            <div className="text-center py-10 text-slate-400 text-sm">
-              Không có tác vụ nào
-            </div>
-          )}
-        </div>
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Loại tác vụ</TableHead>
+              <TableHead>Trạng thái</TableHead>
+              <TableHead className="text-center">Lần thử</TableHead>
+              <TableHead>Lỗi cuối</TableHead>
+              <TableHead>Tạo lúc</TableHead>
+              <TableHead />
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {jobsLoading
+              ? Array.from({ length: 6 }).map((_, i) => (
+                  <TableRow key={i}>
+                    {Array.from({ length: 6 }).map((_, j) => (
+                      <TableCell key={j}>
+                        <Skeleton className="h-4 w-full" />
+                      </TableCell>
+                    ))}
+                  </TableRow>
+                ))
+              : jobs.map((job) => (
+                  <TableRow key={job.id}>
+                    <TableCell>
+                      <span className="text-xs font-mono font-medium bg-slate-100 text-slate-700 px-2 py-0.5 rounded">
+                        {job.job_type}
+                      </span>
+                    </TableCell>
+                    <TableCell>
+                      <span className={cn('text-xs px-2 py-0.5 rounded border font-medium', statusBadgeClass(job.status))}>
+                        {statusLabel(job.status)}
+                      </span>
+                    </TableCell>
+                    <TableCell className="text-center">
+                      <span className={cn(
+                        'text-sm font-mono font-bold',
+                        job.attempts >= job.max_attempts ? 'text-red-600' : 'text-slate-700'
+                      )}>
+                        {job.attempts}/{job.max_attempts}
+                      </span>
+                    </TableCell>
+                    <TableCell className="text-xs text-slate-500 max-w-[200px] truncate">
+                      {job.last_error ?? <span className="text-slate-300">—</span>}
+                    </TableCell>
+                    <TableCell className="text-xs text-slate-500 whitespace-nowrap">
+                      {formatRelativeTime(job.created_at)}
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex items-center gap-2">
+                        {(job.status === 'pending' || job.status === 'failed') && (
+                          <button
+                            onClick={() => retryMutation.mutate(job.id)}
+                            disabled={retryMutation.isPending}
+                            className="flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium bg-blue-50 text-blue-700 border border-blue-200 rounded-lg hover:bg-blue-100 disabled:opacity-60 transition-colors whitespace-nowrap"
+                          >
+                            {retryMutation.isPending ? (
+                              <Loader2 className="h-3 w-3 animate-spin" />
+                            ) : (
+                              <RotateCcw className="h-3 w-3" />
+                            )}
+                            Thử lại
+                          </button>
+                        )}
+                        {(job.status === 'pending' || job.status === 'retrying') && (
+                          <button
+                            onClick={() => cancelMutation.mutate(job.id)}
+                            disabled={cancelMutation.isPending}
+                            className="flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium bg-red-50 text-red-700 border border-red-200 rounded-lg hover:bg-red-100 disabled:opacity-60 transition-colors whitespace-nowrap"
+                          >
+                            {cancelMutation.isPending ? (
+                              <Loader2 className="h-3 w-3 animate-spin" />
+                            ) : (
+                              <XCircle className="h-3 w-3" />
+                            )}
+                            Hủy
+                          </button>
+                        )}
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ))}
+          </TableBody>
+        </Table>
+        {!jobsLoading && jobs.length === 0 && (
+          <EmptyState
+            icon={RotateCcw}
+            heading="Không có tác vụ nào"
+            className="py-10"
+          />
+        )}
 
         {/* Pagination */}
         {totalPages > 1 && (
@@ -340,7 +353,7 @@ export default function RetryQueuePage() {
             </div>
           </div>
         )}
-      </div>
+      </Card>
     </div>
   );
 }

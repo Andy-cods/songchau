@@ -59,7 +59,7 @@ export default function GlobalError({ error, reset }: ErrorPageProps) {
                 </p>
               )}
               {error.stack && (
-                <pre className="text-[10px] font-mono text-red-600 overflow-x-auto whitespace-pre-wrap break-all leading-5 max-h-48 overflow-y-auto">
+                <pre className="text-[11px] font-mono text-red-600 overflow-x-auto whitespace-pre-wrap break-all leading-5 max-h-48 overflow-y-auto">
                   {error.stack}
                 </pre>
               )}

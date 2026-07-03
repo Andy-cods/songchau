@@ -109,7 +109,13 @@ def resolve_image_for_bqms_code(
             for d in month_root.iterdir():
                 if not d.is_dir():
                     continue
-                if d.name != rfq_number and not d.name.startswith(f"{rfq_number}_"):
+                # Pretty-name compat (Thang 2026-05-19/20):
+                #   NEW: `{rfq} {qty} {date} {time}` (space-prefix)
+                #   OLD: `{rfq}_{item}_{qty}_{date}_{time}` (underscore-prefix)
+                #   Bare: `{rfq}` (legacy)
+                if (d.name != rfq_number
+                        and not d.name.startswith(f"{rfq_number}_")
+                        and not d.name.startswith(f"{rfq_number} ")):
                     continue
                 images_dir = d / "images"
                 if not images_dir.exists():

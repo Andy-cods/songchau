@@ -12,8 +12,9 @@ keep staging fresh. Special handling:
   - Image preservation: download_files_for_rfq already skips re-extract
     if folder has existing images (per same-date fix in scraper).
 
-Schedule: every 30 minutes (cron='*/30 * * * *'). Uses Procrastinate
-periodic dispatcher (same pattern as bqms_excel_auto_import).
+Schedule: every 1 hour at :00 (cron='0 * * * *'). Reduced from */30 per Thang
+2026-05-20 — Samsung server load + portal lock contention with smart_sync.
+Smart_sync runs at :30 to stagger with periodic_scrape at :00.
 """
 from __future__ import annotations
 
@@ -120,7 +121,9 @@ def _write_rescan_state(state: dict[str, Any]) -> None:
         logger.warning("_write_rescan_state failed: %s", exc)
 
 
-@app.periodic(cron="*/5 * * * *")
+# DEPRECATED (Thang 2026-05-18): replaced by `bqms_smart_sync` below.
+# Kept as a regular task (no @app.periodic) so existing UI/code can still call
+# it on-demand if needed. Will be removed in a later cleanup.
 @app.task(name="bqms_smart_rescan", queue="bqms")
 def bqms_smart_rescan(timestamp: int = 0) -> dict[str, Any]:
     """Smart auto-rescan: chạy mỗi 5 phút, chỉ drill RFQ thiếu items.
@@ -226,7 +229,7 @@ async def _smart_rescan_drill(max_rfqs: int, budget_seconds: int) -> dict[str, A
         await pool.close()
 
 
-@app.periodic(cron="*/30 * * * *")
+@app.periodic(cron="0 * * * *")  # Thang 2026-05-20: was */30, reduced to 1h
 @app.task(name="bqms_periodic_scrape", queue="bqms")
 def bqms_periodic_scrape(timestamp: int = 0) -> dict[str, Any]:
     """Scrape bidding/contract/MRO every 30 min, update Closed status,
@@ -577,6 +580,11 @@ async def _auto_drill_new_rfqs(
                         r["id"],
                     )
 
+                # TH2 policy (Thang 2026-05-18 — revised):
+                # KHÔNG auto-backfill V1 từ Samsung portal khi DB.V1=NULL.
+                # User sẽ báo giá mới hoàn toàn trong ERP (xem _detect_round2_invitations
+                # để log warning + UI badge — chỉ informational, không touch data).
+
                 # Phase H (Thang 2026-05-13): Scrape auto-UPSERT bqms_rfq sao cho
                 # rows xuất hiện NGAY trong BQMS table (locked state — V1-V4 ô
                 # khóa cho tới khi user click "Báo giá"). Trước đây upsert chỉ
@@ -696,6 +704,7 @@ async def _mark_closed_rfqs(pool) -> int:
                             updated_at = NOW()
                         WHERE rfq_number = $1
                           AND result IN ('pending'::rfq_result)
+                          AND (deadline_dt IS NULL OR deadline_dt < NOW())
                         """,
                         r["rfq_number"],
                     )
@@ -708,38 +717,51 @@ async def _mark_closed_rfqs(pool) -> int:
 
 
 async def _detect_round2_invitations(pool) -> int:
-    """For RFQs we've quoted (v1 priced), check if Samsung re-opened with a
-    new round — detect '[New]' or '/ 2 th' in reqName/subject. Logs to
-    audit_log so dashboard 'Tổng quan' surfaces it."""
+    """Detect Samsung round-2 invitations. Two branches (Thang 2026-05-18 — B.1 fix):
+
+      A) DB has V1 filled (case B.2 — V1 came from Excel import or earlier ERP quote):
+         Log standard `bqms_periodic.round2_invitation` audit row.
+
+      B) DB has V1=NULL but Samsung subject = '[New]' (case B.1 — V1 reported
+         directly on Samsung BQMS by previous employee, never reached ERP):
+         Log `bqms_periodic.round2_v1_missing_warning` so UI can surface
+         "V1 cũ từ Samsung" badge. Auto-backfill happens separately during drill
+         when portal returns the previous price in `_detail.items[i].submitted_v1`.
+
+    Both branches dedupe by record_id within 7 days.
+    """
     async with pool.acquire() as conn:
         rows = await conn.fetch(
             """
-            SELECT s.id, s.rfq_number, s.raw_json
-            FROM bqms_vendor_portal_staging s
-            JOIN bqms_rfq r ON r.rfq_number = s.rfq_number
-            WHERE s.module = 'bidding'
-              AND s.status = 'approved'
-              AND r.quoted_price_bqms_v1 IS NOT NULL
-              AND (
-                  s.raw_json->>'reqName' ILIKE '[new]%'
-                  OR s.raw_json->>'reqName' ILIKE '%/ 2 th%'
-                  OR s.raw_json->>'reqName' ILIKE '%/ 2th%'
-                  OR s.raw_json->>'subject'  ILIKE '[new]%'
-              )
+            SELECT s.id, s.rfq_number, s.raw_json,
+                   r.id AS rfq_id, r.quoted_price_bqms_v1
+              FROM bqms_vendor_portal_staging s
+         LEFT JOIN bqms_rfq r ON r.rfq_number = s.rfq_number
+             WHERE s.module = 'bidding'
+               AND s.status = 'approved'
+               AND (
+                   s.raw_json->>'reqName' ILIKE '[new]%'
+                OR s.raw_json->>'reqName' ILIKE '%/ 2 th%'
+                OR s.raw_json->>'reqName' ILIKE '%/ 2th%'
+                OR s.raw_json->>'subject'  ILIKE '[new]%'
+               )
             """,
         )
         n = 0
         for r in rows:
             try:
+                has_v1 = r["quoted_price_bqms_v1"] is not None
+                action = ("bqms_periodic.round2_invitation" if has_v1
+                          else "bqms_periodic.round2_v1_missing_warning")
                 existing = await conn.fetchval(
                     """
                     SELECT 1 FROM audit_log
-                    WHERE action = 'bqms_periodic.round2_invitation'
-                      AND record_id = $1
-                      AND created_at > NOW() - INTERVAL '7 days'
-                    LIMIT 1
+                     WHERE action = $1
+                       AND record_id = $2
+                       AND created_at > NOW() - INTERVAL '7 days'
+                     LIMIT 1
                     """,
-                    r["rfq_number"],
+                    action, r["rfq_number"],
                 )
                 if existing:
                     continue
@@ -747,25 +769,32 @@ async def _detect_round2_invitations(pool) -> int:
                 if isinstance(raw, str):
                     raw = json.loads(raw)
                 subject = (raw.get("reqName") or raw.get("subject") or "")[:200]
+                msg = (
+                    f"Round 2 invitation: {subject}" if has_v1
+                    else f"⚠ TH2: V1 cũ trên Samsung — ERP không lưu. "
+                         f"Báo giá mới hoàn toàn trong ERP (sẽ tính là V1 ERP, "
+                         f"Samsung-perspective đang ở round 2): {subject}"
+                )
                 await conn.execute(
                     """
                     INSERT INTO audit_log
                         (action, table_name, record_id, new_data, created_at)
-                    VALUES (
-                        'bqms_periodic.round2_invitation',
-                        'bqms_vendor_portal_staging',
-                        $1, $2::jsonb, NOW()
-                    )
+                    VALUES ($1, 'bqms_vendor_portal_staging', $2, $3::jsonb, NOW())
                     """,
+                    action,
                     r["rfq_number"],
                     json.dumps({
                         "staging_id": r["id"],
                         "subject": subject,
-                        "message": f"Round 2 invitation: {subject}",
+                        "message": msg,
+                        "v1_in_db": has_v1,
                     }),
                 )
                 n += 1
-                logger.info("Round 2 detected for %s: %s", r['rfq_number'], subject[:80])
+                logger.info(
+                    "Round 2 detected for %s [%s]: %s",
+                    r["rfq_number"], "v1=ok" if has_v1 else "v1=MISSING", subject[:80],
+                )
             except Exception as exc:
                 logger.warning("round2 audit insert failed for %s: %s", r['rfq_number'], exc)
         return n
@@ -846,7 +875,8 @@ def _write_code_track_state(state: dict[str, Any]) -> None:
         logger.warning("_write_code_track_state failed: %s", exc)
 
 
-@app.periodic(cron="*/3 * * * *")
+# DEPRECATED (Thang 2026-05-18): replaced by `bqms_smart_sync` below.
+# Kept as a regular task (no @app.periodic) for backward compat.
 @app.task(name="bqms_smart_code_track", queue="bqms")
 def bqms_smart_code_track(timestamp: int = 0) -> dict[str, Any]:
     """Continuous self-healing engine — every 3 min.
@@ -908,5 +938,294 @@ async def _run_code_track_cycle() -> dict[str, Any]:
         except RuntimeError as exc:
             logger.info("code_track skip cycle (Samsung lock busy): %s", exc)
             return {"status": "skipped", "reason": "samsung_lock_busy"}
+    finally:
+        await pool.close()
+
+
+# ───────────────────────────────────────────────────────────────────
+# UNIFIED — bqms_smart_sync (Thang 2026-05-18)
+# Single task that REPLACES bqms_smart_rescan + bqms_smart_code_track.
+# Runs every 5 min. Inside:
+#   1. Items-missing drill (subset of code_track)  — was smart_rescan's job
+#   2. Full gap detector + healer (10 gap types)   — was code_track's job
+#   3. V1 backfill for round-2 RFQs with V1=NULL    — new in B.1 fix
+# One samsung_session_lock acquisition = no race between two tasks.
+# Toggle: app_config.bqms_smart_sync_enabled (default ON).
+# ───────────────────────────────────────────────────────────────────
+
+
+def _smart_sync_enabled() -> bool:
+    """Read app_config.bqms_smart_sync_enabled. Defaults to TRUE.
+
+    Honors the legacy `bqms_smart_rescan_enabled` and `bqms_code_track_enabled`
+    flags by ANDing — if either was explicitly disabled, smart_sync stays off
+    (admins relied on those toggles).
+    """
+    try:
+        with psycopg2.connect(SYNC_DSN) as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT key, value FROM app_config
+                     WHERE key IN ('bqms_smart_sync_enabled',
+                                   'bqms_smart_rescan_enabled',
+                                   'bqms_code_track_enabled')
+                    """
+                )
+                vals = {row[0]: row[1] for row in cur.fetchall()}
+        def _truthy(v):
+            if v is None:
+                return True
+            if isinstance(v, bool):
+                return v
+            if isinstance(v, str):
+                return v.lower() in ("true", "1", "yes")
+            return bool(v)
+        return all(_truthy(vals.get(k)) for k in vals)
+    except Exception:
+        return True
+
+
+def _write_smart_sync_state(state: dict[str, Any]) -> None:
+    try:
+        with psycopg2.connect(SYNC_DSN) as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    INSERT INTO app_config (key, value, updated_at)
+                    VALUES ('bqms_smart_sync_state', %s::jsonb, NOW())
+                    ON CONFLICT (key) DO UPDATE SET
+                        value      = EXCLUDED.value,
+                        updated_at = NOW()
+                    """,
+                    (json.dumps(state, default=str),),
+                )
+                conn.commit()
+    except Exception as exc:
+        logger.warning("_write_smart_sync_state failed: %s", exc)
+
+
+@app.periodic(cron="30 * * * *")  # Thang 2026-05-20: was */5, reduced to 1h at :30 (staggered with periodic_scrape at :00)
+@app.task(name="bqms_smart_sync", queue="bqms")
+def bqms_smart_sync(timestamp: int = 0) -> dict[str, Any]:
+    """Unified smart sync — every 5 min. Replaces smart_rescan + code_track.
+
+    Workflow (single samsung_session_lock acquisition):
+      1. Quick gap count (50ms) — if 0 → exit idle
+      2. Run gap_healer.run_cycle (covers all 10 gap types incl. items-missing)
+      3. Trigger V1 backfill for any RFQ flagged round_2_v1_missing in last 24h
+      4. Write summary to app_config.bqms_smart_sync_state
+
+    Toggle: app_config.bqms_smart_sync_enabled (default ON).
+    Budget: 240s hard cap. Cooldown 10 min/RFQ inside healer.
+    """
+    if _is_sleep_window():
+        return {"status": "sleep", "skipped": True}
+    if not _smart_sync_enabled():
+        return {"status": "disabled", "skipped": True}
+
+    started_at = datetime.now(timezone.utc)
+    state: dict[str, Any] = {
+        "started_at": started_at.isoformat(),
+        "status": "running",
+    }
+
+    try:
+        state.update(asyncio.run(_run_smart_sync_cycle()))
+    except Exception as exc:
+        logger.exception("smart_sync cycle failed: %s", exc)
+        state["status"] = "error"
+        state["error"] = str(exc)[:300]
+
+    state["finished_at"] = datetime.now(timezone.utc).isoformat()
+    state["duration_seconds"] = round(
+        (datetime.now(timezone.utc) - started_at).total_seconds(), 2,
+    )
+    _write_smart_sync_state(state)
+    return state
+
+
+async def _run_smart_sync_cycle() -> dict[str, Any]:
+    """Single Samsung session — runs gap healer + V1 backfill in one lock."""
+    import asyncpg
+    from app.services.samsung_session_lock import samsung_session_lock
+    db_url = (
+        str(settings.DATABASE_URL)
+        .replace("+asyncpg", "")
+        .replace("postgresql+asyncpg", "postgresql")
+    )
+    pool = await asyncpg.create_pool(db_url, min_size=1, max_size=3)
+    out: dict[str, Any] = {"healer": {}, "v1_backfill": {}}
+    try:
+        # Quick gap count first — skip lock acquisition entirely if no work
+        async with pool.acquire() as conn:
+            gap_total = await conn.fetchval(
+                """
+                SELECT COUNT(*) FROM bqms_vendor_portal_staging
+                 WHERE module = 'bidding' AND status = 'pending_review'
+                   AND (raw_json->'_detail' IS NULL
+                        OR jsonb_array_length(COALESCE(raw_json->'_detail'->'items','[]'::jsonb)) = 0)
+                """,
+            )
+        if (gap_total or 0) == 0:
+            return {"status": "idle", "gaps": 0}
+
+        out["gaps_before"] = int(gap_total or 0)
+
+        try:
+            async with samsung_session_lock(pool, who="smart_sync", timeout_seconds=60):
+                # Unified gap healer (drills items, classifies, renames orphans, etc.)
+                # TH2 policy: KHÔNG backfill V1 từ portal. User báo giá mới trong ERP.
+                from app.services.bqms_gap_healer import run_cycle
+                out["healer"] = await run_cycle(pool, budget_seconds=200)
+        except RuntimeError as exc:
+            logger.info("smart_sync skip cycle (Samsung lock busy): %s", exc)
+            out["status"] = "skipped_lock_busy"
+            # Auto-skip expired vẫn chạy được dù Samsung lock busy
+            # (chỉ touch DB, không call Samsung)
+
+        # Auto-close expired + stale RFQs (Thang 2026-05-19) — DB-only.
+        # Set result='closed' để UI hiện trong tab Closed + D-N column = "Closed".
+        try:
+            from app.services.bqms_auto_skip_expired import auto_close_expired_and_stale
+            out["auto_close"] = await auto_close_expired_and_stale(pool, max_rows=50)
+            if out["auto_close"].get("closed"):
+                logger.info("smart_sync auto-closed %d RFQs (expired=%d stale=%d)",
+                            out["auto_close"]["closed"],
+                            out["auto_close"]["expired"],
+                            out["auto_close"]["stale"])
+        except Exception as exc:
+            logger.warning("auto_close failed: %s", exc)
+            out.setdefault("errors", []).append(f"auto_close: {str(exc)[:200]}")
+
+        if out.get("status") != "skipped_lock_busy":
+            out["status"] = "done"
+    finally:
+        await pool.close()
+    return out
+
+
+# ───────────────────────────────────────────────────────────────────
+# Batch 2C — QT V-round / D-N state-machine TICK (Thang 2026-06-17)
+#
+# Drives bqms_state_machine.run_state_tick on a schedule: re-invite pass
+# FIRST, then expire/recompute. Idempotent + safe to re-run (only writes
+# when a state actually changes). DB-only — no Samsung scrape, no session
+# lock contention.
+#
+# SAFETY — two layers, both OFF/dry by default so the first deploy is inert:
+#   1. ENABLED gate. Master on/off. Resolution order:
+#        app_config 'bqms_state_tick_enabled'  (runtime toggle, if present)
+#        else settings.BQMS_STATE_TICK_ENABLED (env, default FALSE)
+#      → when OFF the task no-ops immediately.
+#   2. DRY_RUN gate. When TRUE the engine LOGS the transitions it WOULD make
+#      but writes NOTHING. Resolution order:
+#        app_config 'bqms_state_tick_dryrun'   (runtime override, if present)
+#        else settings.BQMS_STATE_TICK_DRYRUN  (env, default TRUE)
+#      → the very first enabled cycle is a dry-run; inspect the summary dict
+#        (returned + logged) before flipping dryrun off.
+#
+# Schedule: every 20 min (cron '*/20 * * * *'). Cadence 15-30 min per plan.
+# ───────────────────────────────────────────────────────────────────
+
+
+def _app_config_bool(key: str) -> bool | None:
+    """Read a boolean app_config flag. Returns None when the key is absent so
+    the caller can fall back to the env/settings default."""
+    try:
+        with psycopg2.connect(SYNC_DSN) as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT value FROM app_config WHERE key = %s", (key,))
+                row = cur.fetchone()
+                if not row:
+                    return None
+                v = row[0]
+                if isinstance(v, bool):
+                    return v
+                if isinstance(v, str):
+                    return v.lower() in ("true", "1", "yes")
+                return bool(v)
+    except Exception as exc:
+        logger.warning("_app_config_bool(%s) failed: %s", key, exc)
+        return None
+
+
+def _state_tick_enabled() -> bool:
+    """Master on/off for the state tick. app_config override → env default OFF."""
+    override = _app_config_bool("bqms_state_tick_enabled")
+    if override is not None:
+        return override
+    return bool(getattr(settings, "BQMS_STATE_TICK_ENABLED", False))
+
+
+def _state_tick_dryrun() -> bool:
+    """Dry-run resolution. app_config override → env default TRUE (safe)."""
+    override = _app_config_bool("bqms_state_tick_dryrun")
+    if override is not None:
+        return override
+    return bool(getattr(settings, "BQMS_STATE_TICK_DRYRUN", True))
+
+
+@app.periodic(cron="*/20 * * * *")  # every 20 min (15-30 min cadence per plan)
+@app.task(name="bqms_state_tick", queue="bqms")
+def bqms_state_tick(timestamp: int = 0) -> dict[str, Any]:
+    """Periodic QT state-machine tick — re-invite then expire/recompute.
+
+    OFF by default (BQMS_STATE_TICK_ENABLED / app_config bqms_state_tick_enabled).
+    When first enabled it runs in DRY-RUN (BQMS_STATE_TICK_DRYRUN /
+    app_config bqms_state_tick_dryrun, default TRUE): it logs what it WOULD
+    change and writes nothing. Returns the run_state_tick summary dict.
+    """
+    if not _state_tick_enabled():
+        logger.info("bqms_state_tick: DISABLED (enable via env/app_config)")
+        return {"status": "disabled", "skipped": True}
+
+    dry_run = _state_tick_dryrun()
+    started_at = datetime.now(timezone.utc)
+    logger.info(
+        "bqms_state_tick: starting (dry_run=%s, utc=%s)",
+        dry_run, started_at.isoformat(),
+    )
+
+    out: dict[str, Any] = {"status": "running", "dry_run": dry_run, "errors": []}
+    t0 = time.monotonic()
+    try:
+        summary = asyncio.run(_run_state_tick(dry_run=dry_run))
+        out.update(summary)
+        out["status"] = "done"
+    except Exception as exc:
+        logger.exception("bqms_state_tick failed: %s", exc)
+        out["status"] = "error"
+        out["errors"].append(str(exc)[:300])
+
+    out["dry_run"] = dry_run  # ensure not clobbered by summary
+    out["started_at"] = started_at.isoformat()
+    out["duration_seconds"] = round(time.monotonic() - t0, 2)
+    logger.info(
+        "bqms_state_tick done in %.1fs (dry_run=%s checked=%s reinvited=%s "
+        "transitioned=%s expired=%s)",
+        out["duration_seconds"], dry_run, out.get("checked"),
+        out.get("reinvited"), out.get("transitioned"), out.get("expired"),
+    )
+    return out
+
+
+async def _run_state_tick(dry_run: bool) -> dict[str, Any]:
+    """Async wrapper — create pool, delegate to bqms_state_machine.run_state_tick.
+
+    Pure DB ops (no Samsung session) so no samsung_session_lock needed.
+    """
+    import asyncpg
+    from app.services.bqms_state_machine import run_state_tick
+
+    db_url = (
+        str(settings.DATABASE_URL)
+        .replace("+asyncpg", "")
+        .replace("postgresql+asyncpg", "postgresql")
+    )
+    pool = await asyncpg.create_pool(db_url, min_size=1, max_size=2)
+    try:
+        async with pool.acquire() as conn:
+            return await run_state_tick(conn, dry_run=dry_run)
     finally:
         await pool.close()

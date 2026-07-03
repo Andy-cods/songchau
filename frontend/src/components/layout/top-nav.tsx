@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { ChevronDown, LogOut, Menu, Settings as SettingsIcon, X } from 'lucide-react';
+import { ChevronDown, LogOut, Menu, Settings as SettingsIcon, X, Sparkles, Eye } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/providers/auth-provider';
 import { getSidebarConfig, type SidebarSection, ROLE_LABELS } from '@/lib/constants';
@@ -71,23 +71,39 @@ export function TopNav() {
     closeTimer.current = setTimeout(() => setOpenSection(null), 120);
   };
 
+  const isViewer = user.role === 'viewer';
+
   return (
     <header className="sticky top-0 z-40 bg-white/85 backdrop-blur-md border-b border-slate-200/70">
-      <div className="h-14 px-3 lg:px-5 flex items-center gap-3">
-        {/* ─── Brand ───────────────────────────────────────── */}
-        <Link href="/dashboard" className="flex items-center gap-2.5 flex-shrink-0 group">
-          <div className="h-9 w-9 rounded-xl bg-gradient-to-br from-sky-500 via-indigo-500 to-violet-600 shadow-sm shadow-indigo-500/25 flex items-center justify-center transition-transform group-hover:scale-105">
+      {/* Viewer banner — clear visual cue that this session is read-only */}
+      {isViewer && (
+        <div className="bg-brand-600 text-white text-center py-1.5 px-4 text-xs font-medium tracking-wide flex items-center justify-center gap-2">
+          <Eye className="h-3.5 w-3.5" />
+          <span>
+            Tài khoản <strong>Khách (Xem)</strong> — chỉ xem được dữ liệu, không thực hiện được thao tác sửa / xoá / tạo
+          </span>
+        </div>
+      )}
+      <div className="h-14 px-3 lg:px-5 flex items-center gap-4">
+        {/* ─── Brand — viewer click logo → /reports/daily (Thang 2026-05-25) ─── */}
+        <Link href={isViewer ? '/reports/daily' : '/dashboard'} className="flex items-center gap-2.5 flex-shrink-0 group">
+          <div className="h-9 w-9 rounded-xl bg-brand-600 shadow-sm flex items-center justify-center transition-transform group-hover:scale-105">
             <span className="text-white font-bold text-sm tracking-tight">SC</span>
           </div>
           <div className="hidden sm:block leading-tight">
             <div className="text-[15px] font-bold text-slate-900">Song Châu</div>
-            <div className="text-[9px] uppercase tracking-[0.14em] text-slate-400 font-semibold">ERP</div>
+            <div className="text-[11px] uppercase tracking-[0.14em] text-slate-400 font-semibold">ERP</div>
           </div>
         </Link>
 
-        <div className="hidden lg:block w-px h-7 bg-slate-200" />
+        <div className="hidden lg:block w-px h-7 bg-slate-200 flex-shrink-0" />
 
-        {/* ─── Section dropdowns (desktop) ─────────────────── */}
+        {/* ─── Section dropdowns (desktop) ──────────────────
+            Thang 2026-05-23: KHÔNG dùng `overflow-x-auto` vì nó clip dropdown
+            panels (absolute top-full). Dropdown panels phải escape khỏi nav
+            box → để overflow visible. Overlap với search bar được giải quyết
+            qua `flex-shrink-0` trên buttons + divider + smaller search width
+            + gap-4 (thay gap-3) trên parent flex. */}
         <nav className="hidden lg:flex items-center gap-0.5 flex-1 min-w-0">
           {sections.map((section, idx) => {
             const open = openSection === idx;
@@ -95,7 +111,7 @@ export function TopNav() {
             return (
               <div
                 key={section.title || idx}
-                className="relative"
+                className="relative flex-shrink-0"
                 onMouseEnter={() => onSectionEnter(idx)}
                 onMouseLeave={onSectionLeave}
               >
@@ -140,7 +156,7 @@ export function TopNav() {
                           className={cn(
                             'flex items-center gap-2.5 px-3 py-2 text-[13px] transition-colors mx-1 rounded-lg',
                             itemActive
-                              ? 'bg-slate-900 text-white font-medium'
+                              ? 'bg-brand-600 text-white font-medium'
                               : 'text-slate-700 hover:bg-slate-50',
                           )}
                         >
@@ -162,8 +178,11 @@ export function TopNav() {
           })}
         </nav>
 
+        {/* Vertical divider between nav and right cluster (Thang 2026-05-23) */}
+        <div className="hidden lg:block w-px h-7 bg-slate-200 flex-shrink-0" />
+
         {/* ─── Right cluster ───────────────────────────────── */}
-        <div className="ml-auto flex items-center gap-1.5 flex-shrink-0">
+        <div className="flex items-center gap-1.5 flex-shrink-0">
           <div className="hidden md:block">
             <CommandSearch />
           </div>
@@ -177,12 +196,12 @@ export function TopNav() {
               aria-haspopup="menu"
               aria-expanded={userMenu}
             >
-              <div className="h-8 w-8 rounded-full bg-gradient-to-br from-slate-700 to-slate-900 text-white flex items-center justify-center text-xs font-bold ring-2 ring-white shadow-sm">
+              <div className="h-8 w-8 rounded-full bg-slate-800 text-white flex items-center justify-center text-xs font-bold ring-2 ring-white shadow-sm">
                 {initials}
               </div>
               <div className="hidden xl:block text-left leading-tight max-w-[140px]">
                 <div className="text-[12px] font-semibold text-slate-900 truncate">{displayName}</div>
-                <div className="text-[10px] uppercase tracking-wide text-slate-500 font-medium truncate">
+                <div className="text-[11px] uppercase tracking-wide text-slate-500 font-medium truncate">
                   {roleLabel}
                 </div>
               </div>
@@ -201,6 +220,15 @@ export function TopNav() {
                     <div className="text-[13px] font-semibold text-slate-900 truncate">{displayName}</div>
                     <div className="text-[11px] text-slate-500 truncate">{user.email}</div>
                   </div>
+                  {/* Phase 6 (Thang 2026-05-12): pet system entry */}
+                  <Link
+                    href="/profile"
+                    onClick={() => setUserMenu(false)}
+                    className="flex items-center gap-2.5 px-3 py-2 text-[13px] text-slate-700 hover:bg-amber-50 mx-1 rounded-lg"
+                  >
+                    <Sparkles className="h-4 w-4 text-amber-500" />
+                    <span>Hồ sơ + Pet của tôi</span>
+                  </Link>
                   <Link
                     href="/settings"
                     onClick={() => setUserMenu(false)}
@@ -257,7 +285,7 @@ export function TopNav() {
             <nav className="flex-1 overflow-y-auto px-2 py-3 space-y-4">
               {sections.map((section, sIdx) => (
                 <div key={sIdx}>
-                  <div className="px-3 mb-1 text-[10px] font-bold uppercase tracking-[0.1em] text-slate-400">
+                  <div className="px-3 mb-1 text-[11px] font-bold uppercase tracking-[0.1em] text-slate-400">
                     {section.title}
                   </div>
                   <div className="space-y-0.5">

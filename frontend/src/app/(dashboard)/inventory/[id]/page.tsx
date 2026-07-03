@@ -11,7 +11,6 @@ import {
   RotateCw,
   AlertTriangle,
   SlidersHorizontal,
-  X,
   Loader2,
 } from 'lucide-react';
 import Link from 'next/link';
@@ -21,6 +20,23 @@ import { cn, formatDate } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Badge } from '@/components/ui/badge';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import { PageHeader } from '@/components/shared/page-header';
+import { Card } from '@/components/shared/card';
+import {
+  Table,
+  TableHeader,
+  TableBody,
+  TableRow,
+  TableHead,
+  TableCell,
+} from '@/components/shared/table';
+import { EmptyState } from '@/components/shared/empty-state';
 import type { InventoryItem } from '@/types/models';
 
 // ─── Types ────────────────────────────────────────────────────
@@ -94,10 +110,10 @@ function StockLevelBar({
           className={cn(
             'h-full rounded-full transition-all duration-500',
             isBelowMin
-              ? 'bg-gradient-to-r from-red-500 to-red-400'
+              ? 'bg-rose-500'
               : percentage > 80
-              ? 'bg-gradient-to-r from-emerald-500 to-emerald-400'
-              : 'bg-gradient-to-r from-brand-500 to-brand-400'
+              ? 'bg-emerald-500'
+              : 'bg-brand-500'
           )}
           style={{ width: `${percentage}%` }}
         />
@@ -168,19 +184,11 @@ function AdjustmentModal({
   const newStock = currentStock + (parseFloat(adjustQty) || 0);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-      <div className="bg-white rounded-xl shadow-xl w-full max-w-md">
-        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
-          <h3 className="text-base font-semibold text-slate-900">
-            Điều chỉnh tồn kho
-          </h3>
-          <button
-            onClick={onClose}
-            className="text-slate-400 hover:text-slate-600 transition-colors"
-          >
-            <X className="h-5 w-5" />
-          </button>
-        </div>
+    <Dialog open onOpenChange={(open) => { if (!open) onClose(); }}>
+      <DialogContent className="max-w-md p-0">
+        <DialogHeader className="px-6 py-4 border-b border-slate-100">
+          <DialogTitle className="text-base">Điều chỉnh tồn kho</DialogTitle>
+        </DialogHeader>
 
         <form onSubmit={handleSubmit} className="px-6 py-4 space-y-4">
           <div className="p-3 bg-slate-50 rounded-lg">
@@ -253,8 +261,8 @@ function AdjustmentModal({
             </button>
           </div>
         </form>
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -285,10 +293,9 @@ export default function InventoryDetailPage() {
 
   if (!item) {
     return (
-      <div className="flex flex-col items-center justify-center py-24 text-slate-400">
-        <Package className="h-12 w-12 mb-3" />
-        <p className="text-sm font-medium">Không tìm thấy hàng hóa</p>
-        <Link href="/inventory" className="mt-4">
+      <div className="flex flex-col items-center justify-center">
+        <EmptyState icon={Package} heading="Không tìm thấy hàng hóa" />
+        <Link href="/inventory" className="-mt-8">
           <Button variant="outline" size="sm">
             Quay lại kho hàng
           </Button>
@@ -313,44 +320,45 @@ export default function InventoryDetailPage() {
       )}
 
       {/* Header */}
-      <div className="flex items-center gap-3 mb-6">
+      <div className="flex items-start gap-3 mb-6">
         <Link
           href="/inventory"
-          className="p-2 rounded-md hover:bg-slate-100 text-slate-500 hover:text-slate-700 transition-colors"
+          className="mt-1 p-2 rounded-md hover:bg-slate-100 text-slate-500 hover:text-slate-700 transition-colors"
         >
           <ArrowLeft className="h-4 w-4" />
         </Link>
-        <div className="flex-1">
-          <div className="flex items-center gap-3">
-            <h2 className="text-xl font-display font-bold text-slate-900">
+        <PageHeader
+          className="flex-1"
+          title={
+            <span className="flex items-center gap-3">
               {item.product_name}
-            </h2>
-            {isBelowMin && (
-              <Badge variant="danger" className="gap-1">
-                <AlertTriangle className="h-3 w-3" />
-                Dưới mức tối thiểu
-              </Badge>
-            )}
-          </div>
-          <p className="text-sm text-slate-500 mt-0.5 font-mono">
-            {item.product_code}
-          </p>
-        </div>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => setShowAdjustModal(true)}
-          className="gap-2"
-        >
-          <SlidersHorizontal className="h-4 w-4" />
-          Điều chỉnh tồn kho
-        </Button>
+              {isBelowMin && (
+                <Badge variant="danger" className="gap-1">
+                  <AlertTriangle className="h-3 w-3" />
+                  Dưới mức tối thiểu
+                </Badge>
+              )}
+            </span>
+          }
+          subtitle={<span className="font-mono">{item.product_code}</span>}
+          actions={
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setShowAdjustModal(true)}
+              className="gap-2"
+            >
+              <SlidersHorizontal className="h-4 w-4" />
+              Điều chỉnh tồn kho
+            </Button>
+          }
+        />
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Product Info Card */}
         <div className="lg:col-span-1 space-y-6">
-          <div className="bg-white rounded-lg shadow-sm border border-slate-200 p-5">
+          <Card>
             <h3 className="text-sm font-semibold text-slate-700 mb-4">
               Thông tin sản phẩm
             </h3>
@@ -378,10 +386,10 @@ export default function InventoryDetailPage() {
                 Cập nhật: {formatDate(item.updated_at)}
               </p>
             </div>
-          </div>
+          </Card>
 
           {/* Stock Numbers Card */}
-          <div className="bg-white rounded-lg shadow-sm border border-slate-200 p-5">
+          <Card>
             <h3 className="text-sm font-semibold text-slate-700 mb-4">
               Số lượng tồn
             </h3>
@@ -432,14 +440,14 @@ export default function InventoryDetailPage() {
                 max={item.max_stock ?? undefined}
               />
             </div>
-          </div>
+          </Card>
         </div>
 
         {/* Movements History */}
         <div className="lg:col-span-2">
-          <div className="bg-white rounded-lg shadow-sm border border-slate-200">
+          <Card padded={false}>
             <div className="flex items-center gap-2 p-4 border-b border-slate-100">
-              <RotateCw className="h-4 w-4 text-indigo-500" />
+              <RotateCw className="h-4 w-4 text-brand-500" />
               <h3 className="text-sm font-semibold text-slate-700">
                 Lịch sử xuất nhập
               </h3>
@@ -449,105 +457,90 @@ export default function InventoryDetailPage() {
               <div className="p-4 space-y-3">
                 {Array.from({ length: 5 }).map((_, i) => (
                   <div key={i} className="flex gap-4 items-center">
-                    <div className="h-4 w-20 bg-slate-200 rounded animate-pulse" />
-                    <div className="h-5 w-16 bg-slate-200 rounded-full animate-pulse" />
-                    <div className="h-4 w-12 bg-slate-200 rounded animate-pulse" />
-                    <div className="h-4 w-16 bg-slate-200 rounded animate-pulse" />
-                    <div className="h-4 w-16 bg-slate-200 rounded animate-pulse" />
-                    <div className="h-4 w-32 bg-slate-200 rounded animate-pulse ml-auto" />
+                    <Skeleton className="h-4 w-20" />
+                    <Skeleton className="h-5 w-16 rounded-full" />
+                    <Skeleton className="h-4 w-12" />
+                    <Skeleton className="h-4 w-16" />
+                    <Skeleton className="h-4 w-16" />
+                    <Skeleton className="h-4 w-32 ml-auto" />
                   </div>
                 ))}
               </div>
             ) : !movements || movements.length === 0 ? (
-              <div className="flex flex-col items-center justify-center py-14 text-slate-300">
-                <RotateCw className="h-10 w-10 mb-3" />
-                <p className="text-sm text-slate-400">
-                  Chưa có lịch sử xuất nhập
-                </p>
-              </div>
+              <EmptyState icon={RotateCw} heading="Chưa có lịch sử xuất nhập" />
             ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full">
-                  <thead>
-                    <tr className="border-b border-slate-100 bg-slate-50/50">
-                      {[
-                        'Ngày',
-                        'Loại',
-                        'SL',
-                        'Trước',
-                        'Sau',
-                        'Tham chiếu',
-                        'Ghi chú',
-                      ].map((h) => (
-                        <th
-                          key={h}
-                          className="px-4 py-3 text-left text-xs font-mono uppercase tracking-wider text-slate-400"
-                        >
-                          {h}
-                        </th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100">
-                    {movements.map((mv) => {
-                      const typeCfg = MOVEMENT_TYPE_CONFIG[mv.type] ??
-                        MOVEMENT_TYPE_CONFIG.adjustment;
-                      const TypeIcon = typeCfg.icon;
-                      return (
-                        <tr
-                          key={mv.id}
-                          className="hover:bg-slate-50/50 transition-colors"
-                        >
-                          <td className="px-4 py-3 text-sm text-slate-500">
-                            {formatDate(mv.created_at)}
-                          </td>
-                          <td className="px-4 py-3">
-                            <span
-                              className={cn(
-                                'inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full',
-                                typeCfg.bg,
-                                typeCfg.color
-                              )}
-                            >
-                              <TypeIcon className="h-3 w-3" />
-                              {typeCfg.label}
-                            </span>
-                          </td>
-                          <td className="px-4 py-3">
-                            <span
-                              className={cn(
-                                'text-sm font-mono font-medium',
-                                mv.type === 'in'
-                                  ? 'text-emerald-600'
-                                  : mv.type === 'out'
-                                  ? 'text-red-600'
-                                  : 'text-amber-600'
-                              )}
-                            >
-                              {mv.type === 'in' ? '+' : mv.type === 'out' ? '-' : ''}
-                              {(mv.quantity ?? 0).toLocaleString('vi-VN')}
-                            </span>
-                          </td>
-                          <td className="px-4 py-3 text-sm font-mono text-slate-500">
-                            {(mv.stock_before ?? 0).toLocaleString('vi-VN')}
-                          </td>
-                          <td className="px-4 py-3 text-sm font-mono text-slate-700 font-medium">
-                            {(mv.stock_after ?? 0).toLocaleString('vi-VN')}
-                          </td>
-                          <td className="px-4 py-3 text-sm text-slate-500 font-mono">
-                            {mv.reference ?? '—'}
-                          </td>
-                          <td className="px-4 py-3 text-sm text-slate-500 max-w-[180px] truncate">
-                            {mv.notes ?? '—'}
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    {[
+                      'Ngày',
+                      'Loại',
+                      'SL',
+                      'Trước',
+                      'Sau',
+                      'Tham chiếu',
+                      'Ghi chú',
+                    ].map((h) => (
+                      <TableHead key={h}>{h}</TableHead>
+                    ))}
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {movements.map((mv) => {
+                    const typeCfg = MOVEMENT_TYPE_CONFIG[mv.type] ??
+                      MOVEMENT_TYPE_CONFIG.adjustment;
+                    const TypeIcon = typeCfg.icon;
+                    return (
+                      <TableRow key={mv.id}>
+                        <TableCell className="text-sm text-slate-500">
+                          {formatDate(mv.created_at)}
+                        </TableCell>
+                        <TableCell>
+                          <span
+                            className={cn(
+                              'inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full',
+                              typeCfg.bg,
+                              typeCfg.color
+                            )}
+                          >
+                            <TypeIcon className="h-3 w-3" />
+                            {typeCfg.label}
+                          </span>
+                        </TableCell>
+                        <TableCell>
+                          <span
+                            className={cn(
+                              'text-sm font-mono font-medium',
+                              mv.type === 'in'
+                                ? 'text-emerald-600'
+                                : mv.type === 'out'
+                                ? 'text-red-600'
+                                : 'text-amber-600'
+                            )}
+                          >
+                            {mv.type === 'in' ? '+' : mv.type === 'out' ? '-' : ''}
+                            {(mv.quantity ?? 0).toLocaleString('vi-VN')}
+                          </span>
+                        </TableCell>
+                        <TableCell className="text-sm font-mono text-slate-500">
+                          {(mv.stock_before ?? 0).toLocaleString('vi-VN')}
+                        </TableCell>
+                        <TableCell className="text-sm font-mono text-slate-700 font-medium">
+                          {(mv.stock_after ?? 0).toLocaleString('vi-VN')}
+                        </TableCell>
+                        <TableCell className="text-sm text-slate-500 font-mono">
+                          {mv.reference ?? '—'}
+                        </TableCell>
+                        <TableCell className="text-sm text-slate-500 max-w-[180px] truncate">
+                          {mv.notes ?? '—'}
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
             )}
-          </div>
+          </Card>
         </div>
       </div>
     </div>

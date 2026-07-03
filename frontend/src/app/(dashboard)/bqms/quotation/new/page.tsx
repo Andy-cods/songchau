@@ -1,8 +1,9 @@
 'use client';
 
 import { useState } from 'react';
-import { useMutation } from '@tanstack/react-query';
+import { useMutation, useQuery } from '@tanstack/react-query';
 import { api } from '@/lib/api';
+import { withToken } from '@/lib/utils';
 import {
   Upload,
   FileSpreadsheet,
@@ -57,6 +58,19 @@ interface GenerateResult {
   };
 }
 
+interface QuoteTemplate {
+  id: number;
+  name: string;
+  template_type: string; // cam_ket | commercial | combined
+  is_default: boolean;
+}
+
+const TEMPLATE_TYPE_LABEL: Record<string, string> = {
+  cam_ket: 'Cam kết',
+  commercial: 'Thương mại',
+  combined: 'Gộp',
+};
+
 const STEP_LABELS = ['Nhập RFQ', 'Xem đơn hàng', 'Kiểm tra giá', 'Xuất file'];
 
 export default function QuotationNewPage() {
@@ -66,6 +80,15 @@ export default function QuotationNewPage() {
   const [items, setItems] = useState<ParsedItem[]>([]);
   const [selectedItems, setSelectedItems] = useState<Set<string>>(new Set());
   const [generateResult, setGenerateResult] = useState<GenerateResult['data'] | null>(null);
+  const [selectedTemplateId, setSelectedTemplateId] = useState<number | null>(null);
+
+  // Templates for the "Mẫu báo giá" picker (Thang 2026-06-15). Backend
+  // /generate accepts template_id and overrides the matching default template.
+  const { data: templatesResp, isPending: templatesLoading } = useQuery({
+    queryKey: ['quotation-templates'],
+    queryFn: () => api.get<{ data: QuoteTemplate[] }>('/api/v1/quotations/templates'),
+  });
+  const templates = templatesResp?.data ?? [];
 
   // Lookup by RFQ code
   const lookupMutation = useMutation({
@@ -91,11 +114,12 @@ export default function QuotationNewPage() {
 
   // Generate quotation mutation
   const generateMutation = useMutation({
-    mutationFn: (payload: { rfq_no: string; items: ParsedItem[] }) =>
+    mutationFn: (payload: { rfq_no: string; items: ParsedItem[]; template_id: number | null }) =>
       api.post<GenerateResult>('/api/v1/quotations/generate', {
         rfq_no: payload.rfq_no,
         source_type: inputMode === 'rfq_code' ? 'rfq_code' : 'excel',
         items: payload.items,
+        template_id: payload.template_id,
       }),
     onSuccess: (data) => {
       setGenerateResult(data.data);
@@ -124,6 +148,7 @@ export default function QuotationNewPage() {
     generateMutation.mutate({
       rfq_no: filteredItems[0]?.don_hang || rfqCode || 'RFQ',
       items: filteredItems,
+      template_id: selectedTemplateId,
     });
   };
 
@@ -291,6 +316,7 @@ export default function QuotationNewPage() {
                   <th className="w-10 px-4 py-3"><input type="checkbox" checked={selectedItems.size === items.length} onChange={() => selectedItems.size === items.length ? setSelectedItems(new Set()) : setSelectedItems(new Set(items.map(i => i.id)))} /></th>
                   <th className="text-left text-xs font-mono uppercase tracking-wider text-slate-400 px-4 py-3">Đơn hàng</th>
                   <th className="text-left text-xs font-mono uppercase tracking-wider text-slate-400 px-4 py-3">BQMS</th>
+                  <th className="text-center text-xs font-mono uppercase tracking-wider text-slate-400 px-4 py-3 w-16">Ảnh</th>
                   <th className="text-left text-xs font-mono uppercase tracking-wider text-slate-400 px-4 py-3">Spec</th>
                   <th className="text-left text-xs font-mono uppercase tracking-wider text-slate-400 px-4 py-3">Maker</th>
                   <th className="text-left text-xs font-mono uppercase tracking-wider text-slate-400 px-4 py-3">SL</th>
@@ -302,6 +328,9 @@ export default function QuotationNewPage() {
                     <td className="px-4 py-3"><input type="checkbox" checked={selectedItems.has(item.id)} onChange={() => toggleItem(item.id)} /></td>
                     <td className="px-4 py-3 text-sm font-medium text-slate-700">{item.don_hang}</td>
                     <td className="px-4 py-3 text-sm font-mono text-slate-600">{item.bqms}</td>
+                    <td className="px-4 py-3 text-center">
+                      <QuotationItemImage bqmsCode={item.bqms} />
+                    </td>
                     <td className="px-4 py-3 text-sm text-slate-600 max-w-[250px] truncate">{item.spec}</td>
                     <td className="px-4 py-3 text-sm text-slate-600">{item.maker}</td>
                     <td className="px-4 py-3 text-sm text-slate-600">{item.so_luong}</td>
@@ -336,6 +365,29 @@ export default function QuotationNewPage() {
                 )}
               </button>
             </div>
+          </div>
+          {/* Mẫu báo giá picker — choose which Excel template fills the quote
+              (Thang 2026-06-15). Empty = backend uses the default templates. */}
+          <div className="px-4 py-2.5 border-b border-slate-100 bg-brand-50/40 flex items-center gap-2 flex-wrap">
+            <FileSpreadsheet className="h-4 w-4 text-brand-600 shrink-0" />
+            <span className="text-xs font-medium text-slate-600">Mẫu báo giá:</span>
+            <select
+              value={selectedTemplateId ?? ''}
+              onChange={(e) => setSelectedTemplateId(e.target.value ? Number(e.target.value) : null)}
+              className="min-w-[240px] rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-xs text-slate-800 focus:border-brand-400 focus:outline-none focus:ring-2 focus:ring-brand-100"
+            >
+              <option value="">— Mặc định (mẫu chuẩn) —</option>
+              {templates.map((t) => (
+                <option key={t.id} value={t.id}>
+                  {t.name} · {TEMPLATE_TYPE_LABEL[t.template_type] ?? t.template_type}
+                  {t.is_default ? ' (mặc định)' : ''}
+                </option>
+              ))}
+            </select>
+            {templatesLoading && <Loader2 className="h-3.5 w-3.5 animate-spin text-slate-400" />}
+            {!templatesLoading && templates.length === 0 && (
+              <span className="text-[11px] text-slate-400">Chưa có mẫu — thêm ở trang Mẫu báo giá</span>
+            )}
           </div>
           <div className="overflow-x-auto">
             <table className="w-full">
@@ -412,6 +464,24 @@ export default function QuotationNewPage() {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+// ─── Per-item image thumbnail (extracted from RFQ_*.xlsx scrape) ────
+function QuotationItemImage({ bqmsCode }: { bqmsCode: string }) {
+  const [errored, setErrored] = useState(false);
+  if (!bqmsCode || errored) return <span className="text-slate-300 text-xs">—</span>;
+  const src = withToken(`/api/v1/bqms/rfq/image?bqms_code=${encodeURIComponent(bqmsCode)}`);
+  return (
+    <div className="inline-block w-10 h-10 rounded border border-slate-200 bg-slate-50 overflow-hidden">
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src={src}
+        alt={bqmsCode}
+        className="w-full h-full object-contain"
+        onError={() => setErrored(true)}
+      />
     </div>
   );
 }

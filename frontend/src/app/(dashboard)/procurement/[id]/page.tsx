@@ -55,7 +55,7 @@ interface BatchDetail {
   batch_code: string;
   title: string;
   description: string | null;
-  status: 'draft' | 'published' | 'awarded' | 'cancelled';
+  status: 'draft' | 'published' | 'evaluating' | 'awarded' | 'closed' | 'cancelled' | string;
   award_mode: 'per_item' | 'per_batch';
   notes_internal: string | null;
   item_count: number;
@@ -91,12 +91,17 @@ const EMPTY_ITEM_FORM: AddItemForm = {
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
-function getBatchStatusConfig(status: BatchDetail['status']): { label: string; variant: StatusVariant } {
+// Thang 2026-06-22: cùng fix crash như trang list — thêm đủ trạng thái v2 +
+// default an toàn để KHÔNG bao giờ trả undefined (status='evaluating'/'closed').
+function getBatchStatusConfig(status: string): { label: string; variant: StatusVariant } {
   switch (status) {
-    case 'draft':     return { label: 'Nháp',        variant: 'neutral' };
-    case 'published': return { label: 'Đang mở',     variant: 'info'    };
-    case 'awarded':   return { label: 'Đã chọn NCC', variant: 'success' };
-    case 'cancelled': return { label: 'Đã hủy',      variant: 'danger'  };
+    case 'draft':      return { label: 'Nháp',          variant: 'neutral' };
+    case 'published':  return { label: 'Đang mở',       variant: 'info'    };
+    case 'evaluating': return { label: 'Đang chấm thầu', variant: 'warning' };
+    case 'awarded':    return { label: 'Đã chọn NCC',   variant: 'success' };
+    case 'closed':     return { label: 'Đã đóng',       variant: 'neutral' };
+    case 'cancelled':  return { label: 'Đã hủy',        variant: 'danger'  };
+    default:           return { label: status || '—',   variant: 'neutral' };
   }
 }
 
@@ -210,14 +215,14 @@ function AddItemsModal({ batchId, open, onClose, onSuccess }: AddItemsModalProps
                   value={item.specification}
                   onChange={(e) => updateRow(index, 'specification', e.target.value)}
                   placeholder="Mô tả hạng mục..."
-                  className="px-2.5 py-1.5 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent placeholder:text-slate-300"
+                  className="px-2.5 py-1.5 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent placeholder:text-slate-400"
                 />
                 <input
                   type="text"
                   value={item.bqms_code}
                   onChange={(e) => updateRow(index, 'bqms_code', e.target.value)}
                   placeholder="Mã BQMS"
-                  className="px-2.5 py-1.5 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent placeholder:text-slate-300 font-mono"
+                  className="px-2.5 py-1.5 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent placeholder:text-slate-400 font-mono"
                 />
                 <input
                   type="number"
@@ -225,21 +230,21 @@ function AddItemsModal({ batchId, open, onClose, onSuccess }: AddItemsModalProps
                   onChange={(e) => updateRow(index, 'quantity', e.target.value)}
                   placeholder="0"
                   min="0"
-                  className="px-2.5 py-1.5 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent placeholder:text-slate-300 font-mono text-right"
+                  className="px-2.5 py-1.5 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent placeholder:text-slate-400 font-mono text-right"
                 />
                 <input
                   type="text"
                   value={item.unit}
                   onChange={(e) => updateRow(index, 'unit', e.target.value)}
                   placeholder="cái"
-                  className="px-2.5 py-1.5 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent placeholder:text-slate-300"
+                  className="px-2.5 py-1.5 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent placeholder:text-slate-400"
                 />
                 <input
                   type="text"
                   value={item.required_material}
                   onChange={(e) => updateRow(index, 'required_material', e.target.value)}
                   placeholder="SS316..."
-                  className="px-2.5 py-1.5 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent placeholder:text-slate-300"
+                  className="px-2.5 py-1.5 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent placeholder:text-slate-400"
                 />
                 <input
                   type="number"
@@ -247,7 +252,7 @@ function AddItemsModal({ batchId, open, onClose, onSuccess }: AddItemsModalProps
                   onChange={(e) => updateRow(index, 'target_price', e.target.value)}
                   placeholder="0"
                   min="0"
-                  className="px-2.5 py-1.5 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent placeholder:text-slate-300 font-mono text-right"
+                  className="px-2.5 py-1.5 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent placeholder:text-slate-400 font-mono text-right"
                 />
                 <button
                   type="button"
@@ -490,7 +495,9 @@ function ComparisonTable({ batch, onAwardItem }: ComparisonTableProps) {
   function getRowStats(itemId: number): { min: number | null; max: number | null } {
     const row = priceMap.get(itemId);
     if (!row) return { min: null, max: null };
-    const prices = Array.from(row.values()).map((v) => v.price);
+    // Chỉ tính giá THẬT (>0). FOC + dòng "không làm được" được backend ép giá 0
+    // nên bị loại ở đây — không bao giờ bị coi là min/max (tránh tô "rẻ nhất" sai).
+    const prices = Array.from(row.values()).map((v) => v.price).filter((p) => p > 0);
     if (prices.length === 0) return { min: null, max: null };
     return { min: Math.min(...prices), max: Math.max(...prices) };
   }
@@ -581,7 +588,7 @@ function ComparisonTable({ batch, onAwardItem }: ComparisonTableProps) {
                       {isCheapest && batch.award_mode === 'per_item' && batch.status === 'published' && (
                         <button
                           onClick={() => onAwardItem(item.id, v.id, cell.price, cell.currency, v.name)}
-                          className="mt-1 px-2 py-0.5 rounded text-[10px] font-semibold bg-emerald-600 text-white hover:bg-emerald-700 transition-colors whitespace-nowrap"
+                          className="mt-1 px-2 py-0.5 rounded text-[11px] font-semibold bg-emerald-600 text-white hover:bg-emerald-700 transition-colors whitespace-nowrap"
                         >
                           Chọn NCC
                         </button>
@@ -649,7 +656,8 @@ export default function BatchDetailPage() {
     const priceMap = new Map<number, { vendor_id: number; vendor_name: string; price: number; currency: string }>();
     batch.quotes.forEach((q) => {
       const cur = priceMap.get(q.item_id);
-      if (!cur || q.unit_price < cur.price) {
+      // Chỉ giá thật (>0) mới ứng cử "rẻ nhất" — FOC/"không làm" có giá 0, loại.
+      if (q.unit_price > 0 && (!cur || q.unit_price < cur.price)) {
         priceMap.set(q.item_id, {
           vendor_id: q.vendor_id,
           vendor_name: q.vendor_name,
@@ -751,7 +759,7 @@ export default function BatchDetailPage() {
                 <button
                   onClick={() => publishBatch()}
                   disabled={isPublishing || batch.item_count === 0}
-                  className="flex items-center gap-1.5 px-3 py-2 text-sm font-medium text-white bg-cyan-600 rounded-lg hover:bg-cyan-700 disabled:opacity-60 disabled:cursor-not-allowed transition-colors"
+                  className="flex items-center gap-1.5 px-3 py-2 text-sm font-medium text-white bg-brand-600 rounded-lg hover:bg-brand-700 disabled:opacity-60 disabled:cursor-not-allowed transition-colors"
                 >
                   {isPublishing ? (
                     <Loader2 className="h-4 w-4 animate-spin" />

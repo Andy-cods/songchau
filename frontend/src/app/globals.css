@@ -20,6 +20,61 @@
   ::-webkit-scrollbar-thumb:hover {
     background: #94a3b8;
   }
+  /* Dark mode scrollbar */
+  .dark ::-webkit-scrollbar-thumb {
+    background: #475569;
+  }
+  .dark ::-webkit-scrollbar-thumb:hover {
+    background: #64748b;
+  }
+
+  /* Smooth color transitions when toggling theme — applied at root only.
+     Skip this on form controls and interactive elements that have their
+     own focus/hover transitions to avoid weird in-flight color shifts. */
+  html {
+    color-scheme: light;
+    /* FIX (Thang 2026-06-21): safety-net background. `body { zoom: 0.8 }` khiến
+       `min-h-screen` under-reach ~20% viewport, lộ html canvas. iOS Safari rubber-band
+       scroll cũng expose html canvas, không phải body. Set explicit trắng để không có
+       vạch đen đáy/đỉnh khi container ngắn hơn viewport. */
+    background-color: #ffffff;
+  }
+  html.dark {
+    color-scheme: dark;
+  }
+
+  /* Default zoom 80% — Thang preference 2026-06-15:
+     ERP designed for 1920x1080 at 100% feels too tight; zoom out 20% gives
+     more breathing room. Users can override per-tab with Ctrl+0 (resets to 100%). */
+  body {
+    zoom: 0.8;
+  }
+
+  /* Force white bg + dark text on browser-autofilled inputs. Chrome otherwise
+     paints its own lavender bg + light text → looked "chữ trắng nền xám" on
+     the login form. The 9999s transition defers Chrome's repaint indefinitely. */
+  input:-webkit-autofill,
+  input:-webkit-autofill:hover,
+  input:-webkit-autofill:focus,
+  input:-webkit-autofill:active {
+    -webkit-text-fill-color: #0f172a;
+    -webkit-box-shadow: 0 0 0 1000px #ffffff inset;
+    box-shadow: 0 0 0 1000px #ffffff inset;
+    caret-color: #0f172a;
+    transition: background-color 9999s ease-in-out 0s;
+  }
+}
+
+@media print {
+  /* Force light mode when printing — quotation PDFs etc. should always
+     render with light background regardless of user preference. */
+  html.dark {
+    color-scheme: light;
+  }
+  /* Disable zoom for print so PDFs render at 100%. */
+  body {
+    zoom: 1 !important;
+  }
 }
 
 @layer utilities {

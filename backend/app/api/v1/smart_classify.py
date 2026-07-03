@@ -109,7 +109,7 @@ async def _rule_based_classify(conn: asyncpg.Connection, item: dict) -> dict | N
 @router.post("/batch")
 async def classify_batch(
     body: ClassifyBatchRequest,
-    token_data: TokenData = Depends(require_role("admin", "manager", "staff", "sales")),
+    token_data: TokenData = Depends(require_role("admin", "manager", "staff", "sales", "procurement", "warehouse", "accountant")),
     conn: asyncpg.Connection = Depends(get_db),
 ):
     """Classify a batch of RFQ items using rules + Gemini AI.
@@ -208,7 +208,7 @@ async def list_results(
     classification: str | None = None,
     page: int = Query(1, ge=1),
     limit: int = Query(20, ge=1, le=100),
-    token_data: TokenData = Depends(require_role("admin", "manager", "staff", "sales")),
+    token_data: TokenData = Depends(require_role("admin", "manager", "staff", "sales", "procurement", "warehouse", "accountant")),
     conn: asyncpg.Connection = Depends(get_db),
 ):
     """List AI classification results."""

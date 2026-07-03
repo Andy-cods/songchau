@@ -17,6 +17,8 @@ import { useParams } from 'next/navigation';
 import { toast } from 'sonner';
 import { api } from '@/lib/api';
 import { formatDate } from '@/lib/utils';
+import { StatusBadge } from '@/components/shared/status-badge';
+import type { StatusVariant } from '@/lib/constants';
 
 // ─── Types ──────────────────────────────────────────────────────────
 
@@ -51,21 +53,21 @@ interface SupplierQuote {
 
 // ─── Status Config ──────────────────────────────────────────────────
 
-const STATUS_CONFIG: Record<SupplierQuoteStatus, { label: string; className: string }> = {
-  draft:     { label: 'Nháp',             className: 'bg-slate-100 text-slate-600' },
-  requested: { label: 'Đã gửi yêu cầu',  className: 'bg-blue-100 text-blue-700' },
-  received:  { label: 'Đã nhận báo giá', className: 'bg-amber-100 text-amber-700' },
-  accepted:  { label: 'Chấp nhận',        className: 'bg-green-100 text-green-700' },
-  rejected:  { label: 'Từ chối',          className: 'bg-red-100 text-red-700' },
+const STATUS_CONFIG: Record<SupplierQuoteStatus, { label: string; variant: StatusVariant }> = {
+  draft:     { label: 'Nháp',           variant: 'neutral' },
+  requested: { label: 'Đã gửi yêu cầu', variant: 'info' },
+  received:  { label: 'Đã nhận báo giá', variant: 'warning' },
+  accepted:  { label: 'Chấp nhận',      variant: 'success' },
+  rejected:  { label: 'Từ chối',        variant: 'danger' },
 };
 
 // ─── Margin Badge ───────────────────────────────────────────────────
 
 function MarginBadge({ pct }: { pct: number }) {
   const cls =
-    pct >= 15 ? 'text-green-700 bg-green-100' :
+    pct >= 15 ? 'text-emerald-700 bg-emerald-100' :
     pct >= 5  ? 'text-amber-700 bg-amber-100' :
-                'text-red-700 bg-red-100';
+                'text-rose-700 bg-rose-100';
   return (
     <span className={`px-2 py-0.5 rounded text-xs font-mono font-medium ${cls}`}>
       {Number(pct ?? 0).toFixed(1)}%
@@ -176,17 +178,17 @@ function EnterPricesDialog({ items, onClose, onSubmit, isPending }: EnterPricesD
 function MarginSummaryCard({ quote }: { quote: SupplierQuote }) {
   const pct = quote.avg_margin_percent ?? 0;
   const color =
-    pct >= 15 ? 'border-green-200 bg-green-50' :
+    pct >= 15 ? 'border-emerald-200 bg-emerald-50' :
     pct >= 5  ? 'border-amber-200 bg-amber-50' :
-                'border-red-200 bg-red-50';
+                'border-rose-200 bg-rose-50';
   const textColor =
-    pct >= 15 ? 'text-green-700' :
+    pct >= 15 ? 'text-emerald-700' :
     pct >= 5  ? 'text-amber-700' :
-                'text-red-700';
+                'text-rose-700';
 
   return (
     <div className={`rounded-lg border p-4 flex items-center gap-4 ${color}`}>
-      <div className={`p-2 rounded-full ${pct >= 15 ? 'bg-green-100' : pct >= 5 ? 'bg-amber-100' : 'bg-red-100'}`}>
+      <div className={`p-2 rounded-full ${pct >= 15 ? 'bg-emerald-100' : pct >= 5 ? 'bg-amber-100' : 'bg-rose-100'}`}>
         {pct >= 5 ? (
           <TrendingUp className={`h-5 w-5 ${textColor}`} />
         ) : (
@@ -272,7 +274,7 @@ export default function SupplierQuoteDetailPage() {
         <div className="flex-1">
           <div className="flex items-center gap-3 flex-wrap">
             <h2 className="text-xl font-display font-bold text-slate-900">{quote.quote_number}</h2>
-            <span className={`px-2 py-0.5 rounded text-xs font-medium ${sc.className}`}>{sc.label}</span>
+            <StatusBadge variant={sc.variant} label={sc.label} />
             {quote.rfq_number && (
               <span className="text-xs font-mono text-slate-500 bg-slate-100 px-2 py-0.5 rounded">RFQ: {quote.rfq_number}</span>
             )}
@@ -288,7 +290,7 @@ export default function SupplierQuoteDetailPage() {
             <button
               onClick={() => updateStatusMutation.mutate('requested')}
               disabled={updateStatusMutation.isPending}
-              className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg transition-colors disabled:opacity-60"
+              className="flex items-center gap-2 px-4 py-2 bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium rounded-lg transition-colors disabled:opacity-60"
             >
               {updateStatusMutation.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
               <Send className="h-4 w-4" />
@@ -308,7 +310,7 @@ export default function SupplierQuoteDetailPage() {
               <button
                 onClick={() => updateStatusMutation.mutate('rejected')}
                 disabled={updateStatusMutation.isPending}
-                className="flex items-center gap-2 px-4 py-2 bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 text-sm font-medium rounded-lg transition-colors disabled:opacity-60"
+                className="flex items-center gap-2 px-4 py-2 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-sm font-medium rounded-lg transition-colors disabled:opacity-60"
               >
                 <XCircle className="h-4 w-4" />
                 Từ chối
@@ -316,7 +318,7 @@ export default function SupplierQuoteDetailPage() {
               <button
                 onClick={() => updateStatusMutation.mutate('accepted')}
                 disabled={updateStatusMutation.isPending}
-                className="flex items-center gap-2 px-4 py-2 bg-green-600 hover:bg-green-700 text-white text-sm font-medium rounded-lg transition-colors disabled:opacity-60"
+                className="flex items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-medium rounded-lg transition-colors disabled:opacity-60"
               >
                 {updateStatusMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
                 Chấp nhận

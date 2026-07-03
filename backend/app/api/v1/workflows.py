@@ -35,6 +35,11 @@ class WorkflowActionRequest(BaseModel):
     comment: str | None = None
 
 
+class WorkflowCommentRequest(BaseModel):
+    """Payload for the thin approve/reject/escalate aliases (comment only)."""
+    comment: str | None = None
+
+
 # ---------------------------------------------------------------------------
 # Endpoints
 # ---------------------------------------------------------------------------
@@ -118,6 +123,55 @@ async def action_endpoint(
     return {"data": updated}
 
 
+# --- Thin action aliases (FE calls /approve /reject /escalate directly) --------
+async def _run_action(
+    workflow_id: str, action: str, comment: str | None,
+    token_data: TokenData, conn: asyncpg.Connection,
+):
+    try:
+        updated = await execute_action(
+            conn,
+            workflow_id=workflow_id,
+            action=action,
+            acted_by=token_data.user_id,
+            role=token_data.role,
+            comment=comment,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return {"data": updated}
+
+
+@router.post("/{workflow_id}/approve")
+async def approve_endpoint(
+    workflow_id: str,
+    body: WorkflowCommentRequest,
+    token_data: TokenData = Depends(require_role("staff", "manager", "admin")),
+    conn: asyncpg.Connection = Depends(get_db),
+):
+    return await _run_action(workflow_id, "approve", body.comment, token_data, conn)
+
+
+@router.post("/{workflow_id}/reject")
+async def reject_endpoint(
+    workflow_id: str,
+    body: WorkflowCommentRequest,
+    token_data: TokenData = Depends(require_role("staff", "manager", "admin")),
+    conn: asyncpg.Connection = Depends(get_db),
+):
+    return await _run_action(workflow_id, "reject", body.comment, token_data, conn)
+
+
+@router.post("/{workflow_id}/escalate")
+async def escalate_endpoint(
+    workflow_id: str,
+    body: WorkflowCommentRequest,
+    token_data: TokenData = Depends(require_role("staff", "manager", "admin")),
+    conn: asyncpg.Connection = Depends(get_db),
+):
+    return await _run_action(workflow_id, "escalate", body.comment, token_data, conn)
+
+
 @router.get("/approval-log")
 async def approval_log_endpoint(
     entity_type: str | None = Query(None, description="Lọc theo loại thực thể, e.g. purchase_order"),
@@ -137,7 +191,7 @@ async def approval_log_endpoint(
     idx = 1
 
     if entity_type:
-        conditions.append(f"wi.entity_type = ${idx}")
+        conditions.append(f"wi.ref_type = ${idx}")
         params.append(entity_type)
         idx += 1
 
@@ -147,7 +201,7 @@ async def approval_log_endpoint(
         idx += 1
 
     if actor_id:
-        conditions.append(f"wh.acted_by = ${idx}::uuid")
+        conditions.append(f"wh.actor_id = ${idx}::uuid")
         params.append(actor_id)
         idx += 1
 
@@ -163,7 +217,7 @@ async def approval_log_endpoint(
         f"""
         SELECT COUNT(*)
         FROM workflow_history wh
-        JOIN workflow_instances wi ON wi.id = wh.workflow_id
+        JOIN workflow_instances wi ON wi.id = wh.instance_id
         WHERE {where}
         """,
         *params,
@@ -174,23 +228,23 @@ async def approval_log_endpoint(
         f"""
         SELECT
             wh.id,
-            wh.workflow_id,
-            wh.from_state,
-            wh.to_state,
+            wh.instance_id,
+            wh.from_status,
+            wh.to_status,
             wh.action,
             wh.comment,
             wh.created_at           AS acted_at,
             u.id                    AS actor_id,
             u.full_name             AS actor_name,
             u.role                  AS actor_role,
-            wi.entity_type,
-            wi.entity_id,
+            wi.ref_type,
+            wi.ref_id,
             wi.title                AS workflow_title,
             wi.amount,
             creator.full_name       AS creator_name
         FROM workflow_history wh
-        JOIN workflow_instances wi ON wi.id = wh.workflow_id
-        LEFT JOIN users u   ON u.id::text = wh.acted_by
+        JOIN workflow_instances wi ON wi.id = wh.instance_id
+        LEFT JOIN users u   ON u.id = wh.actor_id
         LEFT JOIN users creator ON creator.id = wi.created_by
         WHERE {where}
         ORDER BY wh.created_at DESC

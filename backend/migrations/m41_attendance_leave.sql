@@ -47,9 +47,10 @@ CREATE TABLE IF NOT EXISTS leave_policy (
     updated_at               TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- UNIQUE accepts NULL multiple times in PG, so we enforce it via partial indexes.
+-- PG16 NULLS NOT DISTINCT: unique coi NULL=NULL (global default role/dept NULL là 1).
+-- Tránh COALESCE(role::text,'') vì enum::text trong index expr bị "must be marked IMMUTABLE".
 CREATE UNIQUE INDEX IF NOT EXISTS uq_leave_policy_role_dept
-    ON leave_policy (COALESCE(role::text, ''), COALESCE(department, ''));
+    ON leave_policy (role, department) NULLS NOT DISTINCT;
 
 DROP TRIGGER IF EXISTS trg_lp_updated_at ON leave_policy;
 CREATE TRIGGER trg_lp_updated_at

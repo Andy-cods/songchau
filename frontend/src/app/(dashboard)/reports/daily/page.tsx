@@ -14,6 +14,9 @@ import {
   AlertCircle, Eye, Zap,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { useIsReadOnly } from '@/hooks/use-permissions';
+import { toast } from 'sonner';
+import { CHART } from '@/lib/chart-colors';
 
 // ─── Types ────────────────────────────────────────────────────
 
@@ -90,6 +93,8 @@ const fmtDate = (s: string) => {
 // ─── Page ──────────────────────────────────────────────────────
 
 export default function DailyReportPage() {
+  // Viewer role (guest read-only) hides interactive action cards.
+  const isReadOnly = useIsReadOnly();
   const today = new Date().toISOString().slice(0, 10);
   const [reportDate, setReportDate] = useState(today);
   const [morning, setMorning] = useState<MorningReport | null>(null);
@@ -163,7 +168,7 @@ export default function DailyReportPage() {
     : '—';
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-slate-50 to-blue-50/30 -m-6 p-6 print:bg-white print:p-0">
+    <div className="min-h-screen bg-white -m-6 p-6 print:bg-white print:p-0">
       {/* ─── STICKY HEADER ─────────────────────────────────────── */}
       <motion.div
         initial={{ y: -20, opacity: 0 }}
@@ -172,18 +177,18 @@ export default function DailyReportPage() {
       >
         <div className="flex items-center justify-between gap-4 max-w-[1600px] mx-auto">
           <div className="flex items-center gap-3 min-w-0">
-            <div className="h-10 w-10 rounded-xl bg-gradient-to-br from-sky-500 to-indigo-600 shadow-lg shadow-sky-500/30 flex items-center justify-center flex-shrink-0">
-              <BarChart3 className="h-5 w-5 text-white" />
+            <div className="h-11 w-11 rounded-xl bg-brand-50 flex items-center justify-center flex-shrink-0">
+              <BarChart3 className="h-5 w-5 text-brand-600" strokeWidth={2.2} />
             </div>
             <div className="min-w-0">
-              <h1 className="text-lg font-bold text-slate-900 leading-tight">Báo cáo doanh thu hàng ngày</h1>
-              <div className="flex items-center gap-2 text-xs text-slate-500 mt-0.5">
+              <h1 className="text-lg font-bold tracking-tight text-slate-900 leading-tight">Báo cáo doanh thu hàng ngày</h1>
+              <div className="flex items-center gap-2 text-[11px] text-slate-500 mt-0.5 font-medium">
                 <Clock className="h-3 w-3" />
-                <span>Cập nhật {updatedTimeStr}</span>
+                <span>Cập nhật <span className="font-bold text-slate-700">{updatedTimeStr}</span></span>
                 <span className="text-slate-300">·</span>
-                <span>Cutoff {revenue?.cutoff || '—'}</span>
+                <span>Cutoff <span className="font-bold text-slate-700">{revenue?.cutoff || '—'}</span></span>
                 {refreshing && (
-                  <span className="inline-flex items-center gap-1 text-sky-600">
+                  <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-sky-50 text-sky-700 ring-1 ring-sky-200 font-bold">
                     <span className="h-1.5 w-1.5 bg-sky-500 rounded-full animate-pulse" />
                     đang đồng bộ
                   </span>
@@ -220,6 +225,9 @@ export default function DailyReportPage() {
       <div className="max-w-[1600px] mx-auto space-y-6 print:max-w-none">
         {/* ─── HERO KPI STRIP — tạm ẩn theo yêu cầu ─────────────── */}
 
+        {/* Import status banner — Thang 2026-06-01 */}
+        <ImportStatusBanner readOnly={isReadOnly} />
+
         {/* ─── MAIN GRID ────────────────────────────────────────── */}
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
           {/* Morning report card — left */}
@@ -229,22 +237,26 @@ export default function DailyReportPage() {
             transition={{ delay: 0.2 }}
             className="lg:col-span-4 print:col-span-12"
           >
-            <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden h-full">
-              <div className="px-5 py-4 bg-gradient-to-r from-slate-900 to-slate-800 text-white">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <FileText className="h-4 w-4 opacity-80" />
-                    <h2 className="text-sm font-semibold uppercase tracking-wider">Báo cáo buổi sáng</h2>
+            <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden h-full">
+              <div className="px-5 py-4 bg-slate-900 text-white">
+                <div className="relative">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <div className="h-7 w-7 rounded-lg bg-white/10 backdrop-blur-sm ring-1 ring-white/20 flex items-center justify-center">
+                        <FileText className="h-3.5 w-3.5" />
+                      </div>
+                      <h2 className="text-sm font-bold uppercase tracking-wider">Báo cáo buổi sáng</h2>
+                    </div>
+                    <button
+                      onClick={handleCopy}
+                      className="text-xs font-semibold flex items-center gap-1.5 bg-white/10 hover:bg-white/20 backdrop-blur-sm px-2.5 py-1 rounded-md transition ring-1 ring-white/20 print:hidden"
+                    >
+                      {copied ? <Check className="h-3 w-3 text-emerald-300" /> : <Copy className="h-3 w-3" />}
+                      {copied ? 'Đã copy' : 'Copy'}
+                    </button>
                   </div>
-                  <button
-                    onClick={handleCopy}
-                    className="text-xs flex items-center gap-1.5 bg-white/10 hover:bg-white/20 px-2.5 py-1 rounded-md transition print:hidden"
-                  >
-                    {copied ? <Check className="h-3 w-3 text-emerald-300" /> : <Copy className="h-3 w-3" />}
-                    {copied ? 'Đã copy' : 'Copy'}
-                  </button>
+                  <p className="text-[11px] text-slate-300/90 mt-1.5 font-medium">Format chuẩn để paste Zalo group sáng</p>
                 </div>
-                <p className="text-xs text-slate-300 mt-1">Format chuẩn để paste Zalo group sáng</p>
               </div>
 
               <div className="p-5 space-y-4">
@@ -319,7 +331,7 @@ export default function DailyReportPage() {
                           <span className="text-[11px] font-semibold uppercase tracking-wide text-amber-700">
                             Báo cáo gốc trong Excel
                           </span>
-                          <span className="text-[10px] text-amber-600/70">(do nhân viên ghi)</span>
+                          <span className="text-[11px] text-amber-600/70">(do nhân viên ghi)</span>
                         </div>
                         <pre className="whitespace-pre-wrap text-xs text-slate-700 font-mono leading-relaxed">
                           {morning.historical_text}
@@ -332,47 +344,49 @@ export default function DailyReportPage() {
             </div>
           </motion.section>
 
-          {/* Trend chart — right (8 cols) */}
+          {/* Trend chart — right (8 cols). Viewer cũng xem được (Thang 2026-05-25): thống kê quá khứ read-only */}
           <motion.section
             initial={{ opacity: 0, x: 20 }}
             animate={{ opacity: 1, x: 0 }}
             transition={{ delay: 0.25 }}
             className="lg:col-span-8 print:col-span-12 print:hidden"
           >
-            <div className="bg-white rounded-2xl border border-slate-200 shadow-sm h-full flex flex-col overflow-hidden">
-              <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between flex-wrap gap-3">
+            <div className="relative bg-white rounded-xl border border-slate-200 shadow-sm h-full flex flex-col overflow-hidden">
+              <div className="relative px-5 py-4 border-b border-slate-200 flex items-center justify-between flex-wrap gap-3">
                 <div>
                   <div className="flex items-center gap-2">
-                    <TrendingUp className="h-4 w-4 text-slate-400" />
-                    <h2 className="font-semibold text-slate-900">Xu hướng số mã yêu cầu</h2>
-                    <span className="text-xs px-2 py-0.5 rounded-full bg-sky-50 text-sky-700 font-medium">Theo báo cáo</span>
+                    <div className="h-7 w-7 rounded-lg bg-brand-50 flex items-center justify-center">
+                      <TrendingUp className="h-3.5 w-3.5 text-brand-600" strokeWidth={2.2} />
+                    </div>
+                    <h2 className="font-bold tracking-tight text-slate-900">Xu hướng số mã yêu cầu</h2>
+                    <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 ring-1 ring-slate-200 uppercase tracking-wider">Theo báo cáo</span>
                   </div>
-                  <p className="text-xs text-slate-500 mt-0.5">
-                    {trendPeriod === 'day' ? '30 ngày' : trendPeriod === 'week' ? '12 tuần' : '13 tháng'} · trích từ "Tổng số yêu cầu" trong báo cáo Excel
-                    <span className="ml-1.5 text-sky-600 font-medium">· bấm cột để xem báo cáo ngày đó</span>
+                  <p className="text-xs text-slate-500 mt-1 font-medium">
+                    <span className="font-bold text-slate-700">{trendPeriod === 'day' ? '30 ngày' : trendPeriod === 'week' ? '12 tuần' : '13 tháng'}</span> · trích từ "Tổng số yêu cầu" trong báo cáo Excel
+                    <span className="ml-1.5 text-sky-600 font-bold">· bấm cột để xem báo cáo ngày đó</span>
                   </p>
                 </div>
                 <div className="flex items-center gap-3 flex-wrap">
-                  <div className="flex items-center gap-3 text-[11px] text-slate-500">
+                  <div className="flex items-center gap-3 text-[11px] text-slate-600 font-semibold">
                     <span className="inline-flex items-center gap-1.5">
-                      <span className="h-2.5 w-2.5 rounded-sm bg-gradient-to-b from-sky-500 to-indigo-500" />
+                      <span className="h-2.5 w-2.5 rounded-sm bg-brand-500" />
                       Tổng yêu cầu
                     </span>
                     <span className="inline-flex items-center gap-1.5">
-                      <span className="h-[2px] w-4 rounded bg-emerald-500" />
+                      <span className="h-[3px] w-5 rounded-full bg-emerald-500" />
                       Đã báo giá
                     </span>
                   </div>
-                  <div className="inline-flex rounded-lg bg-slate-100 p-1 text-xs font-medium">
+                  <div className="inline-flex rounded-xl bg-slate-100/70 ring-1 ring-slate-200/60 p-1 text-xs font-bold">
                     {(['day', 'week', 'month'] as const).map((p) => (
                       <button
                         key={p}
                         onClick={() => setTrendPeriod(p)}
                         className={cn(
-                          'px-3 py-1.5 rounded-md transition-all',
+                          'px-3 py-1.5 rounded-lg transition-all',
                           trendPeriod === p
-                            ? 'bg-white text-slate-900 shadow-sm'
-                            : 'text-slate-500 hover:text-slate-700',
+                            ? 'bg-white text-brand-700 shadow-sm ring-1 ring-slate-200/60'
+                            : 'text-slate-500 hover:text-slate-800 hover:bg-white/60',
                         )}
                       >
                         {p === 'day' ? 'Ngày' : p === 'week' ? 'Tuần' : 'Tháng'}
@@ -383,7 +397,7 @@ export default function DailyReportPage() {
               </div>
               <div className="flex-1 p-4 min-h-[340px]">
                 {loading ? (
-                  <div className="h-full bg-gradient-to-br from-slate-50 to-slate-100 rounded-xl animate-pulse" />
+                  <div className="h-full bg-slate-100 rounded-xl animate-pulse" />
                 ) : trend.length === 0 ? (
                   <EmptyState icon={<BarChart3 />} text="Chưa có dữ liệu cho khoảng thời gian này" />
                 ) : (
@@ -391,8 +405,8 @@ export default function DailyReportPage() {
                     <ComposedChart data={trend} margin={{ top: 10, right: 16, left: 0, bottom: 0 }}>
                       <defs>
                         <linearGradient id="trendBar" x1="0" x2="0" y1="0" y2="1">
-                          <stop offset="0%" stopColor="#0ea5e9" stopOpacity={0.95} />
-                          <stop offset="100%" stopColor="#6366f1" stopOpacity={0.6} />
+                          <stop offset="0%" stopColor={CHART.brand} stopOpacity={0.95} />
+                          <stop offset="100%" stopColor={CHART.brand} stopOpacity={0.45} />
                         </linearGradient>
                       </defs>
                       <CartesianGrid stroke="#e2e8f0" strokeDasharray="3 3" vertical={false} />
@@ -430,17 +444,17 @@ export default function DailyReportPage() {
                         type="monotone"
                         dataKey="po_count"
                         name="Đã báo giá"
-                        stroke="#10b981"
+                        stroke={CHART.success}
                         strokeWidth={2.5}
-                        dot={{ r: 3, fill: '#10b981', stroke: '#fff', strokeWidth: 2 }}
-                        activeDot={{ r: 5, fill: '#10b981', stroke: '#fff', strokeWidth: 2 }}
+                        dot={{ r: 3, fill: CHART.success, stroke: '#fff', strokeWidth: 2 }}
+                        activeDot={{ r: 5, fill: CHART.success, stroke: '#fff', strokeWidth: 2 }}
                         isAnimationActive={false}
                       />
                     </ComposedChart>
                   </ResponsiveContainer>
                 )}
               </div>
-              <div className="px-5 py-3 border-t border-slate-100 bg-slate-50/50 grid grid-cols-3 gap-4 text-xs">
+              <div className="px-5 py-3 border-t border-slate-100 bg-slate-50 grid grid-cols-3 gap-4 text-xs">
                 <TrendStat
                   label="Tổng số mã trong kỳ"
                   value={`${trend.reduce((s, t) => s + (Number(t.amount) || 0), 0)} mã`}
@@ -458,34 +472,38 @@ export default function DailyReportPage() {
           </motion.section>
         </div>
 
-        {/* ─── HEATMAP ──────────────────────────────────────────── */}
+        {/* ─── HEATMAP — viewer cũng xem được (Thang 2026-05-25) ──── */}
         <motion.section
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.3 }}
-          className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden print:hidden"
+          className="relative bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden print:hidden"
         >
-          <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
+          <div className="relative px-5 py-4 border-b border-slate-200 flex items-center justify-between">
             <div>
               <div className="flex items-center gap-2">
-                <Zap className="h-4 w-4 text-slate-400" />
-                <h2 className="font-semibold text-slate-900">Top mã linh kiện × 21 ngày</h2>
+                <div className="h-7 w-7 rounded-lg bg-brand-50 flex items-center justify-center">
+                  <Zap className="h-3.5 w-3.5 text-brand-600" strokeWidth={2.2} />
+                </div>
+                <h2 className="font-bold tracking-tight text-slate-900">Top mã linh kiện × 21 ngày</h2>
               </div>
-              <p className="text-xs text-slate-500 mt-0.5">
+              <p className="text-xs text-slate-500 mt-1 font-medium">
                 Doanh thu theo mã từng ngày — màu càng đậm, doanh thu càng cao
               </p>
             </div>
             {topCodes && topCodes.matrix.length > 0 && (
-              <div className="text-xs text-slate-500 flex items-center gap-3">
-                <span>Top {topCodes.matrix.length} mã</span>
-                <div className="flex items-center gap-1">
-                  <span>Thấp</span>
-                  <div className="flex">
+              <div className="text-xs text-slate-600 flex items-center gap-3 font-semibold">
+                <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-0.5 ring-1 ring-slate-200/60 tabular-nums">
+                  Top <span className="font-bold text-slate-800">{topCodes.matrix.length}</span> mã
+                </span>
+                <div className="flex items-center gap-1.5">
+                  <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Thấp</span>
+                  <div className="flex rounded overflow-hidden ring-1 ring-slate-200/60">
                     {[0.15, 0.3, 0.5, 0.7, 0.9].map((a, i) => (
                       <div key={i} className="h-3 w-3" style={{ background: `rgba(14, 165, 233, ${a})` }} />
                     ))}
                   </div>
-                  <span>Cao</span>
+                  <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Cao</span>
                 </div>
               </div>
             )}
@@ -502,41 +520,65 @@ export default function DailyReportPage() {
         </motion.section>
 
         {/* ─── QUICK ACTIONS + ACTIVITY (placeholder) ───────────── */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 print:hidden">
-          <motion.section
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.35 }}
-            className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5"
-          >
-            <div className="flex items-center gap-2 mb-4">
-              <Sparkles className="h-4 w-4 text-slate-400" />
-              <h2 className="font-semibold text-slate-900">Hành động nhanh</h2>
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <QuickAction icon={<Sparkles />} label="Tạo báo giá mới" href="/bqms/quotation/new" color="sky" />
-              <QuickAction icon={<Eye />} label="Tra giá Ctrl+K" href="#" color="emerald" hint="Mở thanh tìm kiếm trên cùng" />
-              <QuickAction icon={<RefreshCw />} label="Đồng bộ BQMS" href="/bqms" color="amber" />
-              <QuickAction icon={<Truck />} label="Quản lý giao hàng" href="/bqms/deliveries" color="violet" />
-            </div>
-          </motion.section>
+        <div className={cn(
+          'grid grid-cols-1 gap-6 print:hidden',
+          // Viewer chỉ thấy "Hoạt động gần đây" → full width.
+          // Other roles: 2-column layout với "Hành động nhanh" bên trái.
+          isReadOnly ? '' : 'lg:grid-cols-2',
+        )}>
+          {!isReadOnly && (
+            <motion.section
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.35 }}
+              className="relative overflow-hidden bg-white rounded-xl border border-slate-200 shadow-sm"
+            >
+              <div className="p-5">
+                <div className="flex items-center gap-2.5 mb-4">
+                  <div className="h-9 w-9 rounded-xl bg-brand-50 flex items-center justify-center">
+                    <Sparkles className="h-4 w-4 text-brand-600" />
+                  </div>
+                  <div>
+                    <h2 className="text-base font-bold text-slate-900 tracking-tight">Hành động nhanh</h2>
+                    <div className="text-[11px] text-slate-500 font-medium">Truy cập nhanh các tính năng thường dùng</div>
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <QuickAction icon={<Sparkles />} label="Tạo báo giá mới" href="/bqms/quotation/new" />
+                  <QuickAction icon={<Eye />} label="Tra giá Ctrl+K" href="#" hint="Mở thanh tìm kiếm trên cùng" />
+                  <QuickAction icon={<RefreshCw />} label="Đồng bộ BQMS" href="/bqms" />
+                  <QuickAction icon={<Truck />} label="Quản lý giao hàng" href="/bqms/deliveries" />
+                </div>
+              </div>
+            </motion.section>
+          )}
 
           <motion.section
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.4 }}
-            className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5"
+            className="relative overflow-hidden bg-white rounded-xl border border-slate-200 shadow-sm"
           >
-            <div className="flex items-center justify-between mb-4">
-              <div className="flex items-center gap-2">
-                <Bell className="h-4 w-4 text-slate-400" />
-                <h2 className="font-semibold text-slate-900">Hoạt động gần đây</h2>
+            <div className="p-5">
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-2.5">
+                  <div className="h-9 w-9 rounded-xl bg-brand-50 flex items-center justify-center">
+                    <Bell className="h-4 w-4 text-brand-600" />
+                  </div>
+                  <div>
+                    <h2 className="text-base font-bold text-slate-900 tracking-tight">Hoạt động gần đây</h2>
+                    <div className="text-[11px] text-slate-500 font-medium">Cập nhật theo thời gian thực</div>
+                  </div>
+                </div>
+                <a
+                  href="/notifications"
+                  className="text-xs font-semibold text-brand-700 hover:text-brand-900 flex items-center gap-0.5 px-2.5 py-1.5 rounded-lg hover:bg-brand-50 transition-all"
+                >
+                  Xem tất cả <ChevronRight className="h-3 w-3" />
+                </a>
               </div>
-              <a href="/notifications" className="text-xs text-sky-700 hover:text-sky-900 flex items-center gap-0.5">
-                Xem tất cả <ChevronRight className="h-3 w-3" />
-              </a>
+              <ActivityFeed />
             </div>
-            <ActivityFeed />
           </motion.section>
         </div>
 
@@ -550,6 +592,111 @@ export default function DailyReportPage() {
 }
 
 // ─── Sub Components ───────────────────────────────────────────
+
+// Thang 2026-06-01: banner cho biết Excel "Thong ke giao hang" được import lần
+// cuối lúc nào + nút "Import lại ngay" để chạy cron thủ công khi user vừa edit
+// file trên OneDrive.
+function ImportStatusBanner({ readOnly }: { readOnly: boolean }) {
+  type Status = {
+    enabled: boolean;
+    last_status: string | null;
+    last_completed_at: string | null;
+    last_started_at: string | null;
+    last_rows_inserted: number | null;
+    last_error: string | null;
+    max_delivery_date: string | null;
+  };
+  const [s, setS] = useState<Status | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const fetchStatus = useCallback(async () => {
+    try {
+      const r = await api.get<{ data: Status }>('/api/v1/daily-report/import-status');
+      setS(r.data);
+    } catch {/* silent */}
+  }, []);
+
+  useEffect(() => {
+    fetchStatus();
+    const t = setInterval(fetchStatus, 60_000);
+    return () => clearInterval(t);
+  }, [fetchStatus]);
+
+  const handleForce = async () => {
+    if (busy || readOnly) return;
+    setBusy(true);
+    try {
+      await api.post('/api/v1/daily-report/force-import', {});
+      toast.success('Đã yêu cầu import lại — kiểm tra trong ~10 giây');
+      setTimeout(fetchStatus, 8_000);
+    } catch (e: any) {
+      toast.error(e?.detail || 'Không thực hiện được');
+    } finally { setBusy(false); }
+  };
+
+  if (!s) return null;
+
+  const completedAt = s.last_completed_at ? new Date(s.last_completed_at) : null;
+  const lastStr = completedAt
+    ? completedAt.toLocaleString('vi-VN', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
+    : '—';
+  const maxDate = s.max_delivery_date ? new Date(s.max_delivery_date) : null;
+  const daysOld = maxDate ? Math.floor((Date.now() - maxDate.getTime()) / 86400_000) : 999;
+  const stale = !s.enabled || daysOld > 2;
+  const tone = !s.enabled || s.last_status === 'error'
+    ? { bg: 'bg-rose-50', ring: 'ring-rose-200', dot: 'bg-rose-500', text: 'text-rose-700', icon: 'text-rose-600' }
+    : stale
+    ? { bg: 'bg-amber-50', ring: 'ring-amber-200', dot: 'bg-amber-500', text: 'text-amber-700', icon: 'text-amber-600' }
+    : { bg: 'bg-emerald-50', ring: 'ring-emerald-200', dot: 'bg-emerald-500', text: 'text-emerald-700', icon: 'text-emerald-600' };
+
+  return (
+    <div className={cn(
+      'rounded-xl border border-slate-200/80 ring-1 p-3 print:hidden',
+      tone.bg, tone.ring,
+    )}>
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <div className="flex items-center gap-3 min-w-0">
+          <span className={cn('h-2.5 w-2.5 rounded-full ring-2 ring-white/60', tone.dot, !stale && 'animate-pulse')} />
+          <div className="text-sm min-w-0">
+            {!s.enabled ? (
+              <span className={cn('font-bold', tone.text)}>
+                Auto-import đang TẮT — bật lại trong /admin để dữ liệu cập nhật tự động
+              </span>
+            ) : (
+              <>
+                <span className="font-semibold text-slate-700">Cập nhật lần cuối</span>{' '}
+                <span className={cn('font-bold', tone.text)}>{lastStr}</span>
+                <span className="text-slate-400 mx-2">·</span>
+                <span className="font-semibold text-slate-700">Dữ liệu tới</span>{' '}
+                <span className={cn('font-bold', tone.text)}>
+                  {maxDate ? maxDate.toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit' }) : '—'}
+                </span>
+                {stale && (
+                  <span className="ml-2 inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-amber-100 text-amber-800 text-[11px] font-bold ring-1 ring-amber-200">
+                    <AlertCircle className="h-3 w-3" /> Trễ {daysOld} ngày
+                  </span>
+                )}
+              </>
+            )}
+          </div>
+        </div>
+        {!readOnly && (
+          <button
+            onClick={handleForce}
+            disabled={busy}
+            className={cn(
+              'inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex-shrink-0',
+              'bg-white text-slate-700 ring-1 ring-slate-200 hover:ring-brand-300 hover:bg-brand-50 hover:text-brand-700 disabled:opacity-50 shadow-sm',
+            )}
+          >
+            <RefreshCw className={cn('h-3.5 w-3.5', busy && 'animate-spin')} />
+            Import lại ngay
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
 
 function ToolButton({
   children,
@@ -572,7 +719,7 @@ function ToolButton({
       className={cn(
         'inline-flex items-center justify-center h-9 px-3 rounded-lg border text-sm font-medium transition disabled:opacity-50',
         variant === 'primary'
-          ? 'bg-slate-900 text-white border-slate-900 hover:bg-slate-800 shadow-sm'
+          ? 'bg-brand-600 text-white border-brand-600 hover:bg-brand-700 shadow-sm'
           : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50 hover:text-slate-900',
       )}
     >
@@ -589,7 +736,7 @@ function KpiCard({
   badge?: string;
   delta?: number | null;
   deltaLabel?: string;
-  accent: 'sky' | 'emerald' | 'amber' | 'violet';
+  accent: 'sky' | 'emerald' | 'amber' | 'brand';
   loading?: boolean;
 }) {
   const positive = typeof delta === 'number' && delta > 0;
@@ -597,7 +744,7 @@ function KpiCard({
     sky: 'bg-sky-500',
     emerald: 'bg-emerald-500',
     amber: 'bg-amber-500',
-    violet: 'bg-violet-500',
+    brand: 'bg-brand-500',
   }[accent];
 
   return (
@@ -615,7 +762,7 @@ function KpiCard({
         <div className="flex items-start justify-between">
           <div className="text-[11px] uppercase tracking-[0.08em] text-slate-500 font-semibold">{label}</div>
           {badge && (
-            <span className="text-[10px] font-medium px-2 py-0.5 rounded-md bg-slate-100 text-slate-600 tabular-nums">
+            <span className="text-[11px] font-medium px-2 py-0.5 rounded-md bg-slate-100 text-slate-600 tabular-nums">
               {badge}
             </span>
           )}
@@ -664,13 +811,13 @@ function ReportLine({ label, value, suffix, highlight }: { label: string; value:
 
 function TypeTag({ tm, gc, round, typeTag }: { tm: number; gc: number; round: number; typeTag?: string }) {
   if (round === 1) {
-    if (tm > 0 && gc > 0) return <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-100 text-slate-600 font-mono">{tm}TM-{gc}GC</span>;
-    if (tm > 0) return <span className="text-[10px] px-1.5 py-0.5 rounded bg-sky-50 text-sky-700 font-mono">TM</span>;
-    return <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-50 text-amber-700 font-mono">GC</span>;
+    if (tm > 0 && gc > 0) return <span className="text-[11px] px-1.5 py-0.5 rounded bg-slate-100 text-slate-600 font-mono">{tm}TM-{gc}GC</span>;
+    if (tm > 0) return <span className="text-[11px] px-1.5 py-0.5 rounded bg-sky-50 text-sky-700 font-mono">TM</span>;
+    return <span className="text-[11px] px-1.5 py-0.5 rounded bg-amber-50 text-amber-700 font-mono">GC</span>;
   }
   const tag = typeTag || (gc > 0 ? 'GC' : 'TM');
   const isGC = tag === 'GC' || tag.includes('GC');
-  return <span className={cn('text-[10px] px-1.5 py-0.5 rounded font-mono', isGC ? 'bg-amber-50 text-amber-700' : 'bg-sky-50 text-sky-700')}>{tag}</span>;
+  return <span className={cn('text-[11px] px-1.5 py-0.5 rounded font-mono', isGC ? 'bg-amber-50 text-amber-700' : 'bg-sky-50 text-sky-700')}>{tag}</span>;
 }
 
 function TrendTooltip({ active, payload, label }: any) {
@@ -683,7 +830,7 @@ function TrendTooltip({ active, payload, label }: any) {
       <div className="font-semibold text-slate-200 mb-1.5">{fmtDate(label)}</div>
       <div className="space-y-1">
         <div className="flex items-center justify-between gap-3">
-          <span className="text-sky-300">● Năm nay</span>
+          <span className="text-brand-300">● Năm nay</span>
           <span className="font-mono tabular-nums">{fmtVNDShort(cur)}</span>
         </div>
         <div className="flex items-center justify-between gap-3">
@@ -709,7 +856,7 @@ function TrendTooltipCount({ active, payload, label }: any) {
       <div className="font-semibold text-slate-200 mb-1.5">{fmtDate(label)}</div>
       <div className="space-y-1">
         <div className="flex items-center justify-between gap-3">
-          <span className="text-sky-300">● Tổng yêu cầu</span>
+          <span className="text-brand-300">● Tổng yêu cầu</span>
           <span className="font-mono tabular-nums">{total} mã</span>
         </div>
         <div className="flex items-center justify-between gap-3">
@@ -717,7 +864,7 @@ function TrendTooltipCount({ active, payload, label }: any) {
           <span className="font-mono tabular-nums">{quoted} mã</span>
         </div>
       </div>
-      <div className="mt-2 pt-1.5 border-t border-slate-700 text-[10px] text-slate-400 text-center">
+      <div className="mt-2 pt-1.5 border-t border-slate-700 text-[11px] text-slate-400 text-center">
         Bấm để chốt ngày này
       </div>
     </div>
@@ -727,7 +874,7 @@ function TrendTooltipCount({ active, payload, label }: any) {
 function TrendStat({ label, value, positive }: { label: string; value: string; positive?: boolean }) {
   return (
     <div>
-      <div className="text-slate-500 text-[10px] uppercase tracking-wider">{label}</div>
+      <div className="text-slate-500 text-[11px] uppercase tracking-wider">{label}</div>
       <div className={cn('font-bold tabular-nums mt-0.5 text-sm', positive && value.startsWith('+') ? 'text-emerald-700' : positive && value.startsWith('-') ? 'text-rose-700' : 'text-slate-900')}>
         {value}
       </div>
@@ -749,14 +896,14 @@ function Heatmap({ data, max }: { data: TopCodesPayload; max: number }) {
           return (
             <div key={c.date} className="text-center">
               {showLabel && (
-                <div className={cn('text-[9px] font-mono', dow === 0 || dow === 6 ? 'text-slate-300' : 'text-slate-400')}>
+                <div className={cn('text-[11px] font-mono', dow === 0 || dow === 6 ? 'text-slate-300' : 'text-slate-400')}>
                   {d.getDate()}
                 </div>
               )}
             </div>
           );
         })}
-        <div className="text-right text-[10px] uppercase tracking-wider text-slate-400 font-semibold">Tổng</div>
+        <div className="text-right text-[11px] uppercase tracking-wider text-slate-400 font-semibold">Tổng</div>
       </div>
       {/* Rows */}
       <div className="space-y-1">
@@ -798,36 +945,28 @@ function Heatmap({ data, max }: { data: TopCodesPayload; max: number }) {
 }
 
 function QuickAction({
-  icon, label, href, color, hint,
+  icon, label, href, hint,
 }: {
   icon: React.ReactNode;
   label: string;
   href: string;
-  color: 'sky' | 'emerald' | 'amber' | 'violet';
   hint?: string;
 }) {
-  const colorMap = {
-    sky: 'from-sky-50 to-sky-100/50 hover:from-sky-100 hover:to-sky-200/60 text-sky-700 border-sky-100',
-    emerald: 'from-emerald-50 to-emerald-100/50 hover:from-emerald-100 hover:to-emerald-200/60 text-emerald-700 border-emerald-100',
-    amber: 'from-amber-50 to-amber-100/50 hover:from-amber-100 hover:to-amber-200/60 text-amber-700 border-amber-100',
-    violet: 'from-violet-50 to-violet-100/50 hover:from-violet-100 hover:to-violet-200/60 text-violet-700 border-violet-100',
-  };
   return (
     <a
       href={href}
-      className={cn(
-        'group bg-gradient-to-br rounded-xl p-4 border transition-all hover:shadow-md',
-        colorMap[color],
-      )}
+      className="group/qa relative overflow-hidden rounded-xl p-4 border border-slate-200 bg-white shadow-sm transition-colors hover:bg-slate-50"
     >
-      <div className="flex items-start justify-between">
-        <div className="h-9 w-9 rounded-lg bg-white shadow-sm flex items-center justify-center">
-          {icon}
+      <div className="relative">
+        <div className="flex items-start justify-between">
+          <div className="h-10 w-10 rounded-xl bg-brand-50 flex items-center justify-center text-brand-600">
+            {icon}
+          </div>
+          <ArrowRight className="h-4 w-4 text-slate-300 transition-all group-hover/qa:text-brand-600 group-hover/qa:translate-x-1" />
         </div>
-        <ArrowRight className="h-4 w-4 opacity-0 group-hover:opacity-100 group-hover:translate-x-1 transition-all" />
+        <div className="text-sm font-bold mt-3 text-slate-900">{label}</div>
+        {hint && <div className="text-[11px] text-slate-500 mt-0.5 font-medium">{hint}</div>}
       </div>
-      <div className="text-sm font-semibold mt-3">{label}</div>
-      {hint && <div className="text-[11px] opacity-70 mt-0.5">{hint}</div>}
     </a>
   );
 }
@@ -856,36 +995,46 @@ function ActivityFeed() {
 
   if (items.length === 0) {
     return (
-      <div className="py-8 text-center">
-        <Bell className="h-6 w-6 text-slate-300 mx-auto mb-2" />
-        <p className="text-sm text-slate-400">Chưa có hoạt động gần đây</p>
+      <div className="py-10 text-center">
+        <div className="h-12 w-12 mx-auto mb-3 rounded-xl bg-slate-100 flex items-center justify-center">
+          <Bell className="h-6 w-6 text-slate-300" />
+        </div>
+        <p className="text-sm font-medium text-slate-400">Chưa có hoạt động gần đây</p>
       </div>
     );
   }
 
+  const typeMap: Record<string, { tile: string; icon: React.ReactNode }> = {
+    po_received: { tile: 'bg-sky-50 text-sky-600', icon: <Package className="h-4 w-4" /> },
+    stock_alert: { tile: 'bg-rose-50 text-rose-600', icon: <AlertCircle className="h-4 w-4" /> },
+    default: { tile: 'bg-slate-100 text-slate-500', icon: <Bell className="h-4 w-4" /> },
+  };
+
   return (
-    <div className="space-y-1">
-      {items.map((item) => (
-        <div key={item.id} className="flex items-start gap-3 p-2.5 rounded-lg hover:bg-slate-50 transition group cursor-pointer">
-          <div className={cn(
-            'h-8 w-8 rounded-lg flex items-center justify-center flex-shrink-0 mt-0.5',
-            item.type === 'po_received' ? 'bg-sky-50 text-sky-600' :
-            item.type === 'stock_alert' ? 'bg-rose-50 text-rose-600' :
-            'bg-slate-100 text-slate-500',
-          )}>
-            {item.type === 'po_received' ? <Package className="h-4 w-4" /> :
-             item.type === 'stock_alert' ? <AlertCircle className="h-4 w-4" /> :
-             <Bell className="h-4 w-4" />}
+    <div className="space-y-1.5">
+      {items.map((item) => {
+        const t = typeMap[item.type] || typeMap.default;
+        return (
+          <div
+            key={item.id}
+            className="group/act relative flex items-start gap-3 p-3 rounded-xl border border-transparent transition-colors cursor-pointer hover:bg-slate-50 hover:border-slate-200"
+          >
+            <div className={cn(
+              'h-9 w-9 rounded-xl flex items-center justify-center flex-shrink-0',
+              t.tile,
+            )}>
+              {t.icon}
+            </div>
+            <div className="min-w-0 flex-1">
+              <div className="text-sm font-semibold text-slate-900 truncate group-hover/act:text-brand-700 transition-colors">{item.title}</div>
+              <div className="text-xs text-slate-500 truncate mt-0.5">{item.body?.split('\n')[0]}</div>
+            </div>
+            <div className="text-[11px] font-semibold text-slate-400 tabular-nums flex-shrink-0 mt-1 px-1.5 py-0.5 rounded-md bg-slate-100/60 group-hover/act:bg-white group-hover/act:ring-1 group-hover/act:ring-slate-200/60 transition-all">
+              {timeAgo(item.created_at)}
+            </div>
           </div>
-          <div className="min-w-0 flex-1">
-            <div className="text-sm font-medium text-slate-900 truncate">{item.title}</div>
-            <div className="text-xs text-slate-500 truncate">{item.body?.split('\n')[0]}</div>
-          </div>
-          <div className="text-[10px] text-slate-400 flex-shrink-0 mt-1">
-            {timeAgo(item.created_at)}
-          </div>
-        </div>
-      ))}
+        );
+      })}
     </div>
   );
 }

@@ -51,7 +51,7 @@ class QuotationUpdate(BaseModel):
 @router.get("/templates")
 async def list_templates(
     template_type: str | None = None,
-    token_data: TokenData = Depends(require_role("admin", "manager", "staff", "sales")),
+    token_data: TokenData = Depends(require_role("admin", "manager", "staff", "sales", "procurement", "warehouse", "accountant")),
     conn: asyncpg.Connection = Depends(get_db),
 ):
     """List all quotation templates."""
@@ -134,7 +134,7 @@ async def lookup_rfq(
     rfq_code: str = Query(..., min_length=2, description="Mã RFQ (VD: QT23033303)"),
     year: int | None = Query(None, description="Lọc theo năm (VD: 2026)"),
     month: int | None = Query(None, description="Lọc theo tháng (1-12)"),
-    token_data: TokenData = Depends(require_role("admin", "manager", "staff", "sales")),
+    token_data: TokenData = Depends(require_role("admin", "manager", "staff", "sales", "procurement", "warehouse", "accountant")),
     conn: asyncpg.Connection = Depends(get_db),
 ):
     """Lookup RFQ items from DB by RFQ number → return items with price history.
@@ -239,7 +239,7 @@ async def lookup_rfq(
 @router.post("/parse")
 async def parse_bc_bqms(
     file: UploadFile = File(...),
-    token_data: TokenData = Depends(require_role("admin", "manager", "staff", "sales")),
+    token_data: TokenData = Depends(require_role("admin", "manager", "staff", "sales", "procurement", "warehouse", "accountant")),
     conn: asyncpg.Connection = Depends(get_db),
 ):
     """Parse an uploaded BC BQMS Excel file → list of order items with price lookup."""
@@ -277,7 +277,7 @@ async def parse_bc_bqms(
 @router.post("/generate")
 async def generate_quotation(
     body: QuotationCreate,
-    token_data: TokenData = Depends(require_role("admin", "manager", "staff", "sales")),
+    token_data: TokenData = Depends(require_role("admin", "manager", "staff", "sales", "procurement", "warehouse", "accountant")),
     conn: asyncpg.Connection = Depends(get_db),
 ):
     """Create a quotation record and start auto-fill background job."""
@@ -299,11 +299,14 @@ async def generate_quotation(
             else:
                 commercial_tpl = tpl["file_path"]
 
-    # Create quotation record
+    # Create quotation record. Persist flow_type so the history endpoint
+    # can correctly distinguish TM vs GC files in the same L1 subfolder.
+    # Per Thang 2026-05-11: TM was getting GC files in history list because
+    # flow_type was NULL → defaulted to 'tm' → probe sibling matched both.
     row = await conn.fetchrow(
         """
-        INSERT INTO quotations (rfq_no, source_type, template_id, items, total_items, created_by, status)
-        VALUES ($1, $2, $3, $4::jsonb, $5, $6::uuid, 'processing')
+        INSERT INTO quotations (rfq_no, source_type, template_id, items, total_items, created_by, status, flow_type)
+        VALUES ($1, $2, $3, $4::jsonb, $5, $6::uuid, 'processing', $7)
         RETURNING id, rfq_no, status, created_at
         """,
         body.rfq_no,
@@ -312,6 +315,7 @@ async def generate_quotation(
         json.dumps(body.items, default=str, ensure_ascii=False),
         len(body.items),
         token_data.user_id,
+        body.flow_type or "tm",
     )
 
     # Run auto-fill (inline for now; can move to Procrastinate for large batches)
@@ -325,6 +329,61 @@ async def generate_quotation(
         commercial_template=commercial_tpl,
         flow_type=body.flow_type,
     )
+
+    # Phase C (Thang 2026-05-12 audit): wire TM quote flow để cân bằng với GC.
+    # 1) Auto-tracklog assigned_to + 2) bqms_quote_log insert + 3) pet EXP +1.
+    # Best-effort: failures logged không break quote success.
+    try:
+        flow = (body.flow_type or "tm").lower()
+        round_n = 1  # /quotations/generate luôn là round 1; round 2+ qua wizard
+        if flow in ("tm", "gc"):
+            import logging as _lg
+            _logger = _lg.getLogger(__name__)
+            from app.services.pet_service import award_exp as _award_pet_exp
+            for it in body.items:
+                bqms_code = (it.get("bqms_code") or it.get("bqms") or "").strip() if isinstance(it, dict) else None
+                if not bqms_code:
+                    continue
+                try:
+                    rfq_row = await conn.fetchrow(
+                        "SELECT id FROM bqms_rfq WHERE rfq_number = $1 AND bqms_code = $2 LIMIT 1",
+                        body.rfq_no, bqms_code,
+                    )
+                    if rfq_row:
+                        # Thang 2026-05-15: assigned_to GHI ĐÈ về user vừa nhấn
+                        # báo giá (trước đây COALESCE giữ user đầu tiên).
+                        await conn.execute(
+                            "UPDATE bqms_rfq SET assigned_to = $1::uuid, "
+                            "updated_at = NOW() WHERE id = $2",
+                            token_data.user_id, rfq_row["id"],
+                        )
+                        # quote_log
+                        await conn.execute(
+                            """
+                            INSERT INTO bqms_quote_log
+                              (rfq_id, round, quoted_price, quoted_currency, item_type, quoted_by, notes)
+                            VALUES ($1, $2, $3, 'VND', $4, $5::uuid, $6)
+                            """,
+                            rfq_row["id"], round_n,
+                            float(it.get("suggested_price") or 0),
+                            flow.upper(),
+                            token_data.user_id,
+                            f"{flow.upper()} finalize quotation_id={row['id']}",
+                        )
+                except Exception as _exc:
+                    _logger.warning("TM/GC wire failed for %s/%s: %s", body.rfq_no, bqms_code, _exc)
+                # Pet EXP — 1 exp per item submitted (best-effort)
+                try:
+                    await _award_pet_exp(
+                        conn, str(token_data.user_id),
+                        "quote_submitted", delta=1,
+                        source_ref=f"{body.rfq_no}:{bqms_code}",
+                    )
+                except Exception:
+                    pass
+    except Exception as _exc:
+        import logging as _lg2
+        _lg2.getLogger(__name__).warning("TM/GC quote tracklog wire failed: %s", _exc)
 
     # Build download/preview URLs for files
     files_with_urls = []
@@ -362,7 +421,7 @@ async def list_quotations(
     date_from: str | None = Query(None, description="ISO date"),
     date_to: str | None = Query(None, description="ISO date"),
     include_deleted: bool = Query(False, description="Admin-only: hiển thị cả báo giá đã xóa"),
-    token_data: TokenData = Depends(require_role("admin", "manager", "staff", "sales")),
+    token_data: TokenData = Depends(require_role("admin", "manager", "staff", "sales", "procurement", "warehouse", "accountant")),
     conn: asyncpg.Connection = Depends(get_db),
 ):
     """List generated quotations with pagination and filters."""
@@ -408,9 +467,20 @@ async def list_quotations(
         *params,
     )
 
+    # Per Thang 2026-05-10: Frontend renders `h.files[]` array (with type +
+    # preview_url + download_url + filename + size). The DB row only has
+    # output_xlsx + output_pdf as flat strings, so we synthesize the array
+    # here. Without this, refreshing the history page shows zero files
+    # and the user believes the báo giá was lost.
+    items = []
+    for r in rows:
+        d = dict(r)
+        files = _build_files_array_from_row(d)
+        d["files"] = files
+        items.append(d)
     return {
         "data": {
-            "items": [dict(r) for r in rows],
+            "items": items,
             "total": total,
             "page": page,
             "limit": limit,
@@ -418,10 +488,109 @@ async def list_quotations(
     }
 
 
+def _build_files_array_from_row(row: dict) -> list[dict]:
+    """Synthesize the [{type, path, filename, size, preview_url, download_url}, ...]
+    list that the frontend expects, from the persisted output_xlsx + output_pdf paths.
+
+    Probes the same directory for sibling files (CAM_KET + QUOTATION variants)
+    so a single quotation row exposes all 4 expected files (xlsx + pdf for each).
+    """
+    import os as _os
+    files: list[dict] = []
+    qid = row.get("id")
+    seen_paths: set[str] = set()
+
+    def _add(path: str | None, ftype: str) -> None:
+        if not path or path in seen_paths:
+            return
+        seen_paths.add(path)
+        size = 0
+        try:
+            if _os.path.exists(path):
+                size = _os.path.getsize(path)
+        except OSError:
+            pass
+        files.append({
+            "type": ftype,
+            "path": path,
+            "filename": _os.path.basename(path),
+            "size": size,
+            "preview_url": (
+                f"/api/v1/quotations/preview/{qid}/{ftype}"
+                if "pdf" in ftype else None
+            ),
+            "download_url": f"/api/v1/quotations/download/{qid}/{ftype}",
+        })
+
+    # Always include the persisted xlsx + pdf (whichever flow_type).
+    output_xlsx = row.get("output_xlsx")
+    output_pdf = row.get("output_pdf")
+    flow = row.get("flow_type") or "tm"
+
+    if flow == "gc":
+        _add(output_xlsx, "gc_quotation_xlsx")
+        _add(output_pdf, "gc_quotation_pdf")
+    else:
+        # TM produces 4 files (cam_ket xlsx+pdf, quotation xlsx+pdf).
+        # output_xlsx/output_pdf each only points at ONE — we probe the
+        # sibling directory to find the rest.
+        if output_xlsx:
+            primary_is_camket = "cam_ket" in _os.path.basename(output_xlsx).lower()
+            _add(output_xlsx, "cam_ket_xlsx" if primary_is_camket else "quotation_xlsx")
+        if output_pdf:
+            primary_is_camket = "cam_ket" in _os.path.basename(output_pdf).lower()
+            _add(output_pdf, "cam_ket_pdf" if primary_is_camket else "quotation_pdf")
+
+        # Probe sibling files
+        ref_dir = None
+        for p in (output_xlsx, output_pdf):
+            if p and _os.path.isdir(_os.path.dirname(p)):
+                ref_dir = _os.path.dirname(p)
+                break
+        if ref_dir:
+            # Thang 2026-06-04: TM main quotation XLSX/PDF was renamed from
+            # `QUOTATION_{rfq}.{ext}` to `{folder_name}.{ext}` (e.g.
+            # `QT26071059_AMABACNINH_L1.xlsx`). The discriminator is now
+            # "filename stem == folder name", with backward-compat to the
+            # legacy "quotation" substring so old folders still resolve.
+            folder_stem = _os.path.basename(ref_dir).lower()
+            try:
+                for fname in _os.listdir(ref_dir):
+                    full = _os.path.join(ref_dir, fname)
+                    if full in seen_paths:
+                        continue
+                    fl = fname.lower()
+                    # CRITICAL — skip GC files when probing TM siblings.
+                    # Per Thang 2026-05-11: TM and GC files coexist in
+                    # the same L1 subfolder when both flow types were
+                    # generated for the same RFQ. Without this guard,
+                    # a TM quotation history entry would list the GC
+                    # variant as quotation_xlsx → user opens it expecting
+                    # TM layout, sees GC multi-sheet workbook, complains.
+                    if fl.startswith("quotation_gc_"):
+                        continue
+                    if "cam_ket" in fl and fl.endswith(".pdf"):
+                        _add(full, "cam_ket_pdf")
+                    elif "cam_ket" in fl and fl.endswith(".xlsx"):
+                        _add(full, "cam_ket_xlsx")
+                    elif fl == f"{folder_stem}.pdf":
+                        _add(full, "quotation_pdf")
+                    elif fl == f"{folder_stem}.xlsx":
+                        _add(full, "quotation_xlsx")
+                    elif "quotation" in fl and fl.endswith(".pdf"):
+                        # Legacy `QUOTATION_{rfq}.pdf` fallback (pre-2026-06-04).
+                        _add(full, "quotation_pdf")
+                    elif "quotation" in fl and fl.endswith(".xlsx"):
+                        _add(full, "quotation_xlsx")
+            except OSError:
+                pass
+    return files
+
+
 @router.get("/history/{quotation_id}")
 async def get_quotation(
     quotation_id: int,
-    token_data: TokenData = Depends(require_role("admin", "manager", "staff", "sales")),
+    token_data: TokenData = Depends(require_role("admin", "manager", "staff", "sales", "procurement", "warehouse", "accountant")),
     conn: asyncpg.Connection = Depends(get_db),
 ):
     """Get a single quotation detail."""
@@ -437,7 +606,9 @@ async def get_quotation(
     )
     if not row:
         raise HTTPException(404, "Báo giá không tồn tại")
-    return {"data": dict(row)}
+    d = dict(row)
+    d["files"] = _build_files_array_from_row(d)
+    return {"data": d}
 
 
 # ─── Edit + Regenerate ───────────────────────────────────────
@@ -456,7 +627,7 @@ class QuotationPatch(BaseModel):
 async def patch_quotation(
     quotation_id: int,
     body: QuotationPatch,
-    token_data: TokenData = Depends(require_role("admin", "manager", "staff", "sales")),
+    token_data: TokenData = Depends(require_role("admin", "manager", "staff", "sales", "procurement", "warehouse", "accountant")),
     conn: asyncpg.Connection = Depends(get_db),
 ):
     """Edit a quotation. If items changed, regenerate Excel + PDF files."""
@@ -494,8 +665,11 @@ async def patch_quotation(
         quotation_id,
     )
 
-    # If items changed (or caller forced regenerate=true), rebuild files.
-    must_regen = body.regenerate and (body.items is not None or body.rfq_no is not None or body.template_id is not None)
+    # Per Thang 2026-05-10: explicit regenerate=true forces a rebuild
+    # even when no other fields change — used to apply layout fixes
+    # (row heights, image anchors, signature fixup) without creating a
+    # new quotation row.
+    must_regen = bool(body.regenerate)
     if must_regen:
         cam_ket_tpl = await conn.fetchval(
             "SELECT file_path FROM quotation_templates WHERE template_type = 'cam_ket' AND is_default = true LIMIT 1"
@@ -542,7 +716,7 @@ async def patch_quotation(
 async def delete_quotation(
     quotation_id: int,
     hard: bool = Query(False, description="Admin-only: xóa hẳn record + file"),
-    token_data: TokenData = Depends(require_role("admin", "manager", "staff", "sales")),
+    token_data: TokenData = Depends(require_role("admin", "manager", "staff", "sales", "procurement", "warehouse", "accountant")),
     conn: asyncpg.Connection = Depends(get_db),
 ):
     """Soft-delete (default) hoặc hard-delete (admin) báo giá.
@@ -593,7 +767,7 @@ async def delete_quotation(
 @router.post("/history/{quotation_id}/sync-onedrive")
 async def sync_quotation_onedrive(
     quotation_id: int,
-    token_data: TokenData = Depends(require_role("admin", "manager", "staff", "sales")),
+    token_data: TokenData = Depends(require_role("admin", "manager", "staff", "sales", "procurement", "warehouse", "accountant")),
     conn: asyncpg.Connection = Depends(get_db),
 ):
     """Re-upload quotation files to OneDrive (manual sync).
@@ -622,6 +796,11 @@ async def sync_quotation_onedrive(
     if not os.path.isdir(out_dir):
         raise HTTPException(404, f"Thư mục file local không tồn tại: {out_dir}")
 
+    # Thang 2026-06-04: TM main quotation XLSX/PDF was renamed from
+    # `QUOTATION_{rfq}.{ext}` to `{folder_name}.{ext}`. Match folder-name
+    # first; the legacy "quotation" substring still classifies pre-rename
+    # files correctly.
+    folder_stem = os.path.basename(out_dir).lower()
     local_files: list[dict[str, str]] = []
     for fname in os.listdir(out_dir):
         full = os.path.join(out_dir, fname)
@@ -629,10 +808,15 @@ async def sync_quotation_onedrive(
             continue
         ftype = "unknown"
         low = fname.lower()
+        stem, _, ext_only = low.rpartition(".")
         if "cam_ket" in low and low.endswith(".pdf"):
             ftype = "cam_ket_pdf"
         elif "cam_ket" in low and low.endswith((".xlsx", ".xlsm")):
             ftype = "cam_ket_xlsx"
+        elif stem == folder_stem and low.endswith(".pdf"):
+            ftype = "quotation_pdf"
+        elif stem == folder_stem and low.endswith((".xlsx", ".xlsm")):
+            ftype = "quotation_xlsx"
         elif "quotation" in low and low.endswith(".pdf"):
             ftype = "quotation_pdf"
         elif "quotation" in low and low.endswith((".xlsx", ".xlsm")):
@@ -703,7 +887,7 @@ async def sync_quotation_onedrive(
 @router.get("/history/{quotation_id}/onedrive-link")
 async def get_quotation_onedrive_link(
     quotation_id: int,
-    token_data: TokenData = Depends(require_role("admin", "manager", "staff", "sales")),
+    token_data: TokenData = Depends(require_role("admin", "manager", "staff", "sales", "procurement", "warehouse", "accountant")),
     conn: asyncpg.Connection = Depends(get_db),
 ):
     """Return cached OneDrive web URL + share URL for a quotation.
@@ -739,7 +923,7 @@ async def create_quotation_share_link(
     quotation_id: int,
     scope: str = Query("anonymous", description="anonymous | organization"),
     link_type: str = Query("view", description="view | edit"),
-    token_data: TokenData = Depends(require_role("admin", "manager", "staff", "sales")),
+    token_data: TokenData = Depends(require_role("admin", "manager", "staff", "sales", "procurement", "warehouse", "accountant")),
     conn: asyncpg.Connection = Depends(get_db),
 ):
     """Create / replace the M365 share link for the QUOTATION PDF.
@@ -895,7 +1079,16 @@ async def internal_file_serve(
 
 
 def _find_quotation_file(output_pdf: str | None, file_type: str) -> str | None:
-    """Find the specific file in the quotation output directory."""
+    """Find the specific file in the quotation output directory.
+
+    Per Thang 2026-05-11 — when both TM (`QUOTATION_*.xlsx`) and GC
+    (`QUOTATION_GC_*.xlsx`) files coexist in the same L1 subfolder
+    (because user generated both flow types for the same RFQ), this
+    function MUST distinguish them. Previously a TM `quotation_pdf`
+    request could match a `QUOTATION_GC_*.pdf` (because both start
+    with "quotation") and serve the wrong file → user saw GC layout
+    when expecting TM.
+    """
     import os
     if not output_pdf:
         return None
@@ -903,29 +1096,58 @@ def _find_quotation_file(output_pdf: str | None, file_type: str) -> str | None:
     if not os.path.isdir(out_dir):
         return None
 
-    # GC file types: gc_pdf_{bqms_code}, gc_xlsx
+    # GC file types
+    if file_type in ("gc_quotation_pdf", "gc_quotation_xlsx"):
+        ext = ".pdf" if "pdf" in file_type else ".xlsx"
+        for fname in os.listdir(out_dir):
+            fl = fname.lower()
+            if fl.startswith("quotation_gc_") and fl.endswith(ext):
+                return os.path.join(out_dir, fname)
+        return None
+
+    # Legacy GC variants
     if file_type.startswith("gc_pdf_"):
         code = file_type.replace("gc_pdf_", "")
         for fname in os.listdir(out_dir):
             if code in fname and fname.lower().endswith(".pdf"):
                 return os.path.join(out_dir, fname)
         return None
-    elif file_type == "gc_xlsx":
+    if file_type == "gc_xlsx":
         for fname in os.listdir(out_dir):
-            if fname.lower().endswith((".xlsx", ".xlsm")) and not fname.startswith("~$") and not fname.startswith("_temp_"):
+            fl = fname.lower()
+            if (fl.startswith("quotation_gc_") and fl.endswith(".xlsx")):
                 return os.path.join(out_dir, fname)
         return None
 
     # TM file types: cam_ket_pdf, cam_ket_xlsx, quotation_pdf, quotation_xlsx
     is_cam_ket = "cam_ket" in file_type
     is_pdf = "pdf" in file_type
-    prefix = "cam_ket" if is_cam_ket else "quotation"
     ext = ".pdf" if is_pdf else ".xlsx"
 
+    if is_cam_ket:
+        # CAM_KET filenames unchanged: `CAM_KET_{rfq}.{ext}`.
+        for fname in os.listdir(out_dir):
+            fl = fname.lower()
+            if fl.startswith("cam_ket") and fl.endswith(ext):
+                return os.path.join(out_dir, fname)
+        return None
+
+    # Thang 2026-06-04: TM main quotation XLSX/PDF was renamed from
+    # `QUOTATION_{rfq}.{ext}` to `{folder_name}.{ext}` (e.g.
+    # `QT26071059_AMABACNINH_L1.xlsx`). Match folder-name first; legacy
+    # `QUOTATION_*` is kept as backward-compat fallback.
+    folder_stem = os.path.basename(out_dir).lower()
+    legacy_match: str | None = None
     for fname in os.listdir(out_dir):
-        if fname.lower().startswith(prefix) and fname.lower().endswith(ext):
+        fl = fname.lower()
+        # CRITICAL: skip GC files when looking for TM files.
+        if fl.startswith("quotation_gc_"):
+            continue
+        if fl == f"{folder_stem}{ext}":
             return os.path.join(out_dir, fname)
-    return None
+        if fl.startswith("quotation_") and fl.endswith(ext) and legacy_match is None:
+            legacy_match = os.path.join(out_dir, fname)
+    return legacy_match
 
 
 @router.get("/download/{quotation_id}/{file_type}")
@@ -933,7 +1155,7 @@ async def download_quotation_file(
     quotation_id: int,
     file_type: str,
     token: str | None = Query(None, description="JWT token (for browser direct links)"),
-    token_data: TokenData | None = Depends(require_role("admin", "manager", "staff", "sales")),
+    token_data: TokenData | None = Depends(require_role("admin", "manager", "staff", "sales", "procurement", "warehouse", "accountant")),
     conn: asyncpg.Connection = Depends(get_db),
 ):
     """Download a generated quotation file. Supports token via header or query param."""
@@ -961,7 +1183,7 @@ async def preview_quotation_pdf(
     quotation_id: int,
     file_type: str,
     token: str | None = Query(None, description="JWT token (for iframe/browser)"),
-    token_data: TokenData | None = Depends(require_role("admin", "manager", "staff", "sales")),
+    token_data: TokenData | None = Depends(require_role("admin", "manager", "staff", "sales", "procurement", "warehouse", "accountant")),
     conn: asyncpg.Connection = Depends(get_db),
 ):
     """Preview a generated quotation PDF inline in browser."""
@@ -986,7 +1208,7 @@ async def preview_quotation_pdf(
 async def get_share_link(
     quotation_id: int,
     file_type: str,
-    token_data: TokenData = Depends(require_role("admin", "manager", "staff", "sales")),
+    token_data: TokenData = Depends(require_role("admin", "manager", "staff", "sales", "procurement", "warehouse", "accountant")),
     conn: asyncpg.Connection = Depends(get_db),
 ):
     """Generate a temporary public share link for a quotation file (1 hour)."""
@@ -1063,7 +1285,7 @@ class GCGenerateRequest(BaseModel):
 @router.post("/gc/detect-files")
 async def gc_detect_files(
     body: GCDetectRequest,
-    token_data: TokenData = Depends(require_role("admin", "manager", "staff", "sales")),
+    token_data: TokenData = Depends(require_role("admin", "manager", "staff", "sales", "procurement", "warehouse", "accountant")),
 ) -> dict:
     """Phát hiện file Excel GC trên OneDrive staging."""
     from app.services.tools.gc_autofill_service import detect_gc_files
@@ -1077,7 +1299,7 @@ async def gc_detect_files(
 @router.post("/gc/scan-markers")
 async def gc_scan_markers(
     body: GCScanRequest,
-    token_data: TokenData = Depends(require_role("admin", "manager", "staff", "sales")),
+    token_data: TokenData = Depends(require_role("admin", "manager", "staff", "sales", "procurement", "warehouse", "accountant")),
     conn: asyncpg.Connection = Depends(get_db),
 ) -> dict:
     """Scan Excel sheets cho GC markers và match giá từ DB."""
@@ -1144,7 +1366,7 @@ async def gc_scan_markers(
 @router.post("/gc/generate")
 async def gc_generate(
     body: GCGenerateRequest,
-    token_data: TokenData = Depends(require_role("admin", "manager", "staff", "sales")),
+    token_data: TokenData = Depends(require_role("admin", "manager", "staff", "sales", "procurement", "warehouse", "accountant")),
     conn: asyncpg.Connection = Depends(get_db),
 ) -> dict:
     """Clone folder, apply GC edits, convert to PDF."""

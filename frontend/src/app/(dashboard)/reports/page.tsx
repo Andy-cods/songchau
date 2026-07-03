@@ -9,11 +9,13 @@ import {
   Inbox,
 } from 'lucide-react';
 import { api } from '@/lib/api';
-import { cn, formatCurrency } from '@/lib/utils';
+import { formatCurrency } from '@/lib/utils';
+import { PageHeader } from '@/components/shared/page-header';
 import { KPICard } from '@/components/shared/kpi-card';
 import { LineAreaChart } from '@/components/charts/line-area-chart';
 import { HorizontalBarChart } from '@/components/charts/horizontal-bar-chart';
 import { DonutChart } from '@/components/charts/donut-chart';
+import { CHART } from '@/lib/chart-colors';
 
 // ─── Page Component ────────────────────────────────────────────
 
@@ -72,20 +74,18 @@ export default function ReportsPage() {
   return (
     <div>
       {/* Header */}
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <h2 className="text-xl font-display font-bold text-slate-900">
-            Báo cáo
-          </h2>
-          <p className="text-sm text-slate-500 mt-0.5">
-            Thống kê và phân tích dữ liệu hệ thống
-          </p>
-        </div>
-        <div className="flex items-center gap-2 text-xs text-slate-500 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2">
-          <BarChart3 className="h-4 w-4 text-indigo-400" />
-          <span>3 loại báo cáo</span>
-        </div>
-      </div>
+      <PageHeader
+        title="Báo cáo"
+        subtitle="Thống kê và phân tích dữ liệu hệ thống"
+        icon={BarChart3}
+        className="mb-6"
+        actions={
+          <div className="flex items-center gap-2 text-xs text-slate-500 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2">
+            <BarChart3 className="h-4 w-4 text-brand-400" />
+            <span>3 loại báo cáo</span>
+          </div>
+        }
+      />
 
       {/* KPI Summary */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
@@ -104,7 +104,7 @@ export default function ReportsPage() {
         <KPICard
           label="Tỷ lệ thắng BQMS"
           value={`${overallWinRate}%`}
-          accentColor="border-cyan-500"
+          accentColor="border-brand-500"
           loading={isLoading}
           trend={
             totalBids > 0
@@ -115,7 +115,7 @@ export default function ReportsPage() {
         <KPICard
           label="Top NCC"
           value={topSupplier}
-          accentColor="border-amber-500"
+          accentColor="border-brand-500"
           loading={isLoading}
         />
       </div>
@@ -142,7 +142,7 @@ export default function ReportsPage() {
             data={revenueData}
             xKey="month"
             yKeys={['revenue']}
-            colors={['#10b981']}
+            colors={[CHART.success]}
             height={320}
           />
         ) : (
@@ -155,8 +155,8 @@ export default function ReportsPage() {
         {/* BQMS Win Rate */}
         <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
           <div className="flex items-center gap-2 mb-4">
-            <div className="p-2 bg-violet-50 rounded-lg">
-              <ClipboardCheck className="h-5 w-5 text-violet-600" />
+            <div className="p-2 bg-brand-50 rounded-lg">
+              <ClipboardCheck className="h-5 w-5 text-brand-600" />
             </div>
             <div>
               <h3 className="text-sm font-semibold text-slate-800">
@@ -174,7 +174,7 @@ export default function ReportsPage() {
               data={winRateData}
               xKey="month"
               yKeys={['total', 'won']}
-              colors={['#8b5cf6', '#06b6d4']}
+              colors={[CHART.brand, CHART.success]}
               height={300}
             />
           ) : (
@@ -185,8 +185,8 @@ export default function ReportsPage() {
         {/* Supplier Performance */}
         <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
           <div className="flex items-center gap-2 mb-4">
-            <div className="p-2 bg-indigo-50 rounded-lg">
-              <Building2 className="h-5 w-5 text-indigo-600" />
+            <div className="p-2 bg-brand-50 rounded-lg">
+              <Building2 className="h-5 w-5 text-brand-600" />
             </div>
             <div>
               <h3 className="text-sm font-semibold text-slate-800">
@@ -204,7 +204,7 @@ export default function ReportsPage() {
               data={supplierData.slice(0, 10)}
               nameKey="name"
               valueKey="value"
-              color="#6366f1"
+              color={CHART.brand}
             />
           ) : (
             <NoChartData />
@@ -226,7 +226,7 @@ export default function ReportsPage() {
               ]}
               nameKey="name"
               valueKey="value"
-              colors={['#10b981', '#ef4444']}
+              colors={[CHART.success, CHART.danger]}
               height={280}
             />
           </div>

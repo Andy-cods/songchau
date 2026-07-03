@@ -57,10 +57,10 @@ interface Invoice {
 
 const STATUS_CONFIG: Record<InvoiceStatus, { label: string; className: string }> = {
   draft:     { label: 'Nháp',                   className: 'bg-slate-100 text-slate-600' },
-  sent:      { label: 'Đã gửi',                 className: 'bg-blue-100 text-blue-700' },
+  sent:      { label: 'Đã gửi',                 className: 'bg-sky-100 text-sky-700' },
   partial:   { label: 'Thanh toán một phần',    className: 'bg-amber-100 text-amber-700' },
-  paid:      { label: 'Đã thanh toán',           className: 'bg-green-100 text-green-700' },
-  overdue:   { label: 'Quá hạn',               className: 'bg-red-100 text-red-700' },
+  paid:      { label: 'Đã thanh toán',           className: 'bg-emerald-100 text-emerald-700' },
+  overdue:   { label: 'Quá hạn',               className: 'bg-rose-100 text-rose-700' },
   cancelled: { label: 'Đã hủy',                className: 'bg-slate-100 text-slate-400' },
 };
 
@@ -94,7 +94,7 @@ function PaymentForm({ onClose, onSubmit, isPending, remainingAmount }: PaymentF
         </div>
         <div className="px-6 py-4 space-y-4">
           <div>
-            <label className="block text-xs font-medium text-slate-500 mb-1.5">Số tiền (VNĐ) <span className="text-red-500">*</span></label>
+            <label className="block text-xs font-medium text-slate-500 mb-1.5">Số tiền (VNĐ) <span className="text-rose-500">*</span></label>
             <input
               type="number"
               min={1}
@@ -105,7 +105,7 @@ function PaymentForm({ onClose, onSubmit, isPending, remainingAmount }: PaymentF
             />
           </div>
           <div>
-            <label className="block text-xs font-medium text-slate-500 mb-1.5">Ngày thanh toán <span className="text-red-500">*</span></label>
+            <label className="block text-xs font-medium text-slate-500 mb-1.5">Ngày thanh toán <span className="text-rose-500">*</span></label>
             <input
               type="date"
               value={paymentDate}
@@ -145,7 +145,7 @@ function PaymentForm({ onClose, onSubmit, isPending, remainingAmount }: PaymentF
             type="button"
             onClick={() => onSubmit({ amount_vnd: amount, payment_date: paymentDate, bank_ref: bankRef, note })}
             disabled={isPending || amount <= 0}
-            className="flex items-center gap-2 px-4 py-2 bg-green-600 hover:bg-green-700 text-white text-sm font-medium rounded-lg transition-colors disabled:opacity-60"
+            className="flex items-center gap-2 px-4 py-2 bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium rounded-lg transition-colors disabled:opacity-60"
           >
             {isPending && <Loader2 className="h-4 w-4 animate-spin" />}
             <CreditCard className="h-4 w-4" />
@@ -201,7 +201,7 @@ export default function InvoiceDetailPage() {
     return (
       <div className="flex flex-col items-center justify-center py-24 text-slate-400">
         <p className="text-sm">Không tìm thấy hóa đơn hoặc có lỗi xảy ra.</p>
-        <Link href="/invoices" className="text-sm text-brand-600 mt-2 hover:underline">Quay lại danh sách</Link>
+        <Link href="/finance/invoices" className="text-sm text-brand-600 mt-2 hover:underline">Quay lại danh sách</Link>
       </div>
     );
   }
@@ -216,7 +216,7 @@ export default function InvoiceDetailPage() {
     <div>
       {/* Header */}
       <div className="flex items-start gap-3 mb-6">
-        <Link href="/invoices" className="p-2 rounded-lg hover:bg-slate-100 transition-colors text-slate-500 mt-0.5">
+        <Link href="/finance/invoices" className="p-2 rounded-lg hover:bg-slate-100 transition-colors text-slate-500 mt-0.5">
           <ChevronLeft className="h-5 w-5" />
         </Link>
         <div className="flex-1">
@@ -240,7 +240,7 @@ export default function InvoiceDetailPage() {
           {invoice.status !== 'paid' && invoice.status !== 'cancelled' && (
             <button
               onClick={() => setShowPaymentForm(true)}
-              className="flex items-center gap-2 px-4 py-2 bg-green-600 hover:bg-green-700 text-white text-sm font-medium rounded-lg transition-colors"
+              className="flex items-center gap-2 px-4 py-2 bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium rounded-lg transition-colors"
             >
               <CreditCard className="h-4 w-4" />
               Ghi nhận thanh toán
@@ -341,7 +341,7 @@ export default function InvoiceDetailPage() {
           <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
             <div
               className={`h-full rounded-full transition-all ${
-                paidPercent >= 100 ? 'bg-green-500' : paidPercent > 0 ? 'bg-amber-500' : 'bg-slate-300'
+                paidPercent >= 100 ? 'bg-emerald-500' : paidPercent > 0 ? 'bg-amber-500' : 'bg-slate-300'
               }`}
               style={{ width: `${paidPercent}%` }}
             />
@@ -373,7 +373,7 @@ export default function InvoiceDetailPage() {
                 {invoice.payments.map((payment) => (
                   <tr key={payment.id} className="hover:bg-slate-50/50">
                     <td className="px-4 py-3 text-sm text-slate-600">{formatDate(payment.payment_date)}</td>
-                    <td className="px-4 py-3 text-right text-sm font-mono font-medium text-green-600">
+                    <td className="px-4 py-3 text-right text-sm font-mono font-medium text-emerald-600">
                       +{formatVND(payment.amount_vnd)}
                     </td>
                     <td className="px-4 py-3 text-sm font-mono text-slate-500">{payment.bank_ref || '—'}</td>

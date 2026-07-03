@@ -19,8 +19,18 @@ import {
   AlertCircle,
 } from 'lucide-react';
 import { api } from '@/lib/api';
+import { useAuth } from '@/providers/auth-provider';
 import { cn, formatDate } from '@/lib/utils';
 import { StatusBadge } from '@/components/shared/status-badge';
+import { PageHeader } from '@/components/shared/page-header';
+import {
+  Table,
+  TableHeader,
+  TableBody,
+  TableRow,
+  TableHead,
+  TableCell,
+} from '@/components/shared/table';
 import type { StatusVariant } from '@/lib/constants';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -41,7 +51,7 @@ interface Batch {
   batch_code: string;
   title: string;
   description: string | null;
-  status: 'draft' | 'published' | 'awarded' | 'cancelled';
+  status: 'draft' | 'published' | 'evaluating' | 'awarded' | 'closed' | 'cancelled' | string;
   award_mode: 'per_item' | 'per_batch';
   item_count: number;
   quote_count: number;
@@ -67,12 +77,19 @@ interface CreateBatchForm {
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
-function getBatchStatusConfig(status: Batch['status']): { label: string; variant: StatusVariant } {
+// Thang 2026-06-22 (fix crash "Có lỗi xảy ra" khi vào Mua hàng): switch cũ chỉ
+// có 4 case + KHÔNG default → đợt thầu status='evaluating'/'closed' (procurement
+// v2) trả undefined → `const { label } = undefined` vỡ cả trang trong .map().
+// Thêm đủ trạng thái v2 + default an toàn — KHÔNG bao giờ trả undefined nữa.
+function getBatchStatusConfig(status: string): { label: string; variant: StatusVariant } {
   switch (status) {
-    case 'draft':     return { label: 'Nháp',       variant: 'neutral' };
-    case 'published': return { label: 'Đang mở',    variant: 'info'    };
-    case 'awarded':   return { label: 'Đã chọn NCC', variant: 'success' };
-    case 'cancelled': return { label: 'Đã hủy',     variant: 'danger'  };
+    case 'draft':      return { label: 'Nháp',          variant: 'neutral' };
+    case 'published':  return { label: 'Đang mở',       variant: 'info'    };
+    case 'evaluating': return { label: 'Đang chấm thầu', variant: 'warning' };
+    case 'awarded':    return { label: 'Đã chọn NCC',   variant: 'success' };
+    case 'closed':     return { label: 'Đã đóng',       variant: 'neutral' };
+    case 'cancelled':  return { label: 'Đã hủy',        variant: 'danger'  };
+    default:           return { label: status || '—',   variant: 'neutral' };
   }
 }
 
@@ -163,7 +180,7 @@ function CreateBatchModal({ open, onClose, onSuccess }: CreateBatchModalProps) {
               value={form.title}
               onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))}
               placeholder="VD: Đợt báo giá vật tư tháng 4/2026"
-              className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent placeholder:text-slate-300"
+              className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent placeholder:text-slate-400"
             />
           </div>
 
@@ -174,7 +191,7 @@ function CreateBatchModal({ open, onClose, onSuccess }: CreateBatchModalProps) {
               onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
               rows={2}
               placeholder="Mô tả ngắn về đợt báo giá..."
-              className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent placeholder:text-slate-300 resize-none"
+              className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent placeholder:text-slate-400 resize-none"
             />
           </div>
 
@@ -209,7 +226,7 @@ function CreateBatchModal({ open, onClose, onSuccess }: CreateBatchModalProps) {
               onChange={(e) => setForm((f) => ({ ...f, notes_internal: e.target.value }))}
               rows={2}
               placeholder="Ghi chú chỉ dành cho nội bộ..."
-              className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent placeholder:text-slate-300 resize-none"
+              className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent placeholder:text-slate-400 resize-none"
             />
           </div>
 
@@ -309,6 +326,8 @@ function VendorActions({ vendor, onAction, isPending }: VendorActionsProps) {
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
 export default function ProcurementPage() {
+  const { user } = useAuth();
+  const isAdmin = (user?.role ?? '') === 'admin';
   const [activeTab, setActiveTab] = useState<'batches' | 'vendors'>('batches');
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [vendorStatusFilter, setVendorStatusFilter] = useState<'all' | 'pending' | 'approved'>('all');
@@ -354,32 +373,31 @@ export default function ProcurementPage() {
   return (
     <div className="p-6 space-y-6">
       {/* Page Header */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <div className="h-9 w-9 rounded-lg bg-brand-50 flex items-center justify-center">
-            <ShoppingCart className="h-5 w-5 text-brand-600" />
-          </div>
-          <div>
-            <h1 className="text-xl font-bold text-slate-900">Mua hàng</h1>
-            <p className="text-xs text-slate-400 mt-0.5">Quản lý đợt báo giá & nhà cung cấp</p>
-          </div>
-        </div>
-        <div className="flex items-center gap-2">
-          <button
-            onClick={() => { refetchBatches(); refetchVendors(); }}
-            className="h-8 w-8 flex items-center justify-center rounded-lg border border-slate-200 text-slate-400 hover:text-slate-600 hover:bg-slate-50 transition-colors"
-          >
-            <RefreshCw className="h-3.5 w-3.5" />
-          </button>
-          <button
-            onClick={() => setShowCreateModal(true)}
-            className="flex items-center gap-1.5 px-3 py-2 text-sm font-medium text-white bg-brand-600 rounded-lg hover:bg-brand-700 transition-colors"
-          >
-            <Plus className="h-4 w-4" />
-            Tạo đợt mới
-          </button>
-        </div>
-      </div>
+      <PageHeader
+        title="Mua hàng"
+        subtitle="Quản lý đợt báo giá & nhà cung cấp"
+        icon={ShoppingCart}
+        actions={
+          <>
+            <button
+              onClick={() => { refetchBatches(); refetchVendors(); }}
+              className="h-8 w-8 flex items-center justify-center rounded-lg border border-slate-200 text-slate-400 hover:text-slate-600 hover:bg-slate-50 transition-colors"
+            >
+              <RefreshCw className="h-3.5 w-3.5" />
+            </button>
+            {/* create_batch is admin-only on the backend (P7) — hide for others. */}
+            {isAdmin && (
+              <button
+                onClick={() => setShowCreateModal(true)}
+                className="flex items-center gap-1.5 px-3 py-2 text-sm font-medium text-white bg-brand-600 rounded-lg hover:bg-brand-700 transition-colors"
+              >
+                <Plus className="h-4 w-4" />
+                Tạo đợt mới
+              </button>
+            )}
+          </>
+        }
+      />
 
       {/* KPI Cards */}
       <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
@@ -394,21 +412,21 @@ export default function ProcurementPage() {
           label="NCC chờ duyệt"
           value={kpiPendingVendors}
           icon={AlertCircle}
-          accentColor="border-amber-400"
+          accentColor="border-brand-500"
           loading={isLoading}
         />
         <KPICard
           label="Đợt đang mở"
           value={kpiOpenBatches}
           icon={ClipboardList}
-          accentColor="border-cyan-400"
+          accentColor="border-brand-500"
           loading={isLoading}
         />
         <KPICard
           label="Đợt đã chọn NCC"
           value={kpiAwardedBatches}
           icon={Trophy}
-          accentColor="border-emerald-500"
+          accentColor="border-brand-500"
           loading={isLoading}
         />
       </div>
@@ -459,82 +477,80 @@ export default function ProcurementPage() {
             </div>
 
             {/* Table */}
-            <div className="overflow-x-auto">
-              <table className="w-full text-xs">
-                <thead>
-                  <tr className="border-b border-slate-100 bg-slate-50">
-                    <th className="text-left px-4 py-2.5 font-medium text-slate-500 whitespace-nowrap">Mã đợt</th>
-                    <th className="text-left px-4 py-2.5 font-medium text-slate-500">Tên đợt</th>
-                    <th className="text-left px-4 py-2.5 font-medium text-slate-500 whitespace-nowrap">Trạng thái</th>
-                    <th className="text-left px-4 py-2.5 font-medium text-slate-500 whitespace-nowrap">Phương thức</th>
-                    <th className="text-right px-4 py-2.5 font-medium text-slate-500 whitespace-nowrap">HM</th>
-                    <th className="text-right px-4 py-2.5 font-medium text-slate-500 whitespace-nowrap">Báo giá</th>
-                    <th className="text-left px-4 py-2.5 font-medium text-slate-500 whitespace-nowrap">Ngày tạo</th>
-                    <th className="px-4 py-2.5" />
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {batchesLoading ? (
-                    Array.from({ length: 5 }).map((_, i) => (
-                      <tr key={i}>
-                        {Array.from({ length: 8 }).map((_, j) => (
-                          <td key={j} className="px-4 py-3">
-                            <div className="h-3 bg-slate-100 rounded animate-pulse" />
-                          </td>
-                        ))}
-                      </tr>
-                    ))
-                  ) : batches.length === 0 ? (
-                    <tr>
-                      <td colSpan={8} className="px-4 py-12 text-center text-sm text-slate-400">
-                        Chưa có đợt báo giá nào
-                      </td>
-                    </tr>
-                  ) : (
-                    batches.map((batch) => {
-                      const { label, variant } = getBatchStatusConfig(batch.status);
-                      return (
-                        <tr key={batch.id} className="hover:bg-slate-50 transition-colors">
-                          <td className="px-4 py-3 font-mono text-slate-500 whitespace-nowrap">
-                            {batch.batch_code}
-                          </td>
-                          <td className="px-4 py-3 max-w-[220px]">
-                            <span className="font-medium text-slate-800 truncate block">{batch.title}</span>
-                            {batch.description && (
-                              <span className="text-slate-400 truncate block mt-0.5">{batch.description}</span>
-                            )}
-                          </td>
-                          <td className="px-4 py-3 whitespace-nowrap">
-                            <StatusBadge
-                              label={label}
-                              variant={variant}
-                              pulse={batch.status === 'published'}
-                            />
-                          </td>
-                          <td className="px-4 py-3 text-slate-500 whitespace-nowrap">
-                            {getAwardModeLabel(batch.award_mode)}
-                          </td>
-                          <td className="px-4 py-3 text-right font-mono text-slate-700">{batch.item_count}</td>
-                          <td className="px-4 py-3 text-right font-mono text-slate-700">{batch.quote_count}</td>
-                          <td className="px-4 py-3 text-slate-500 whitespace-nowrap font-mono">
-                            {formatDate(batch.created_at)}
-                          </td>
-                          <td className="px-4 py-3 text-right">
-                            <Link
-                              href={`/procurement/${batch.id}`}
-                              className="inline-flex items-center gap-1 text-brand-600 hover:text-brand-700 font-medium whitespace-nowrap"
-                            >
-                              Chi tiết
-                              <ChevronRight className="h-3.5 w-3.5" />
-                            </Link>
-                          </td>
-                        </tr>
-                      );
-                    })
-                  )}
-                </tbody>
-              </table>
-            </div>
+            <Table className="text-xs">
+              <TableHeader>
+                <TableRow>
+                  <TableHead className="whitespace-nowrap">Mã đợt</TableHead>
+                  <TableHead>Tên đợt</TableHead>
+                  <TableHead className="whitespace-nowrap">Trạng thái</TableHead>
+                  <TableHead className="whitespace-nowrap">Phương thức</TableHead>
+                  <TableHead className="text-right whitespace-nowrap">HM</TableHead>
+                  <TableHead className="text-right whitespace-nowrap">Báo giá</TableHead>
+                  <TableHead className="whitespace-nowrap">Ngày tạo</TableHead>
+                  <TableHead />
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {batchesLoading ? (
+                  Array.from({ length: 5 }).map((_, i) => (
+                    <TableRow key={i}>
+                      {Array.from({ length: 8 }).map((_, j) => (
+                        <TableCell key={j}>
+                          <div className="h-3 bg-slate-100 rounded animate-pulse" />
+                        </TableCell>
+                      ))}
+                    </TableRow>
+                  ))
+                ) : batches.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={8} className="px-4 py-12 text-center text-sm text-slate-400">
+                      Chưa có đợt báo giá nào
+                    </TableCell>
+                  </TableRow>
+                ) : (
+                  batches.map((batch) => {
+                    const { label, variant } = getBatchStatusConfig(batch.status);
+                    return (
+                      <TableRow key={batch.id}>
+                        <TableCell className="font-mono text-slate-500 whitespace-nowrap">
+                          {batch.batch_code}
+                        </TableCell>
+                        <TableCell className="max-w-[220px]">
+                          <span className="font-medium text-slate-800 truncate block">{batch.title}</span>
+                          {batch.description && (
+                            <span className="text-slate-400 truncate block mt-0.5">{batch.description}</span>
+                          )}
+                        </TableCell>
+                        <TableCell className="whitespace-nowrap">
+                          <StatusBadge
+                            label={label}
+                            variant={variant}
+                            pulse={batch.status === 'published'}
+                          />
+                        </TableCell>
+                        <TableCell className="text-slate-500 whitespace-nowrap">
+                          {getAwardModeLabel(batch.award_mode)}
+                        </TableCell>
+                        <TableCell className="text-right font-mono text-slate-700">{batch.item_count}</TableCell>
+                        <TableCell className="text-right font-mono text-slate-700">{batch.quote_count}</TableCell>
+                        <TableCell className="text-slate-500 whitespace-nowrap font-mono">
+                          {formatDate(batch.created_at)}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <Link
+                            href={`/procurement/${batch.id}`}
+                            className="inline-flex items-center gap-1 text-brand-600 hover:text-brand-700 font-medium whitespace-nowrap"
+                          >
+                            Chi tiết
+                            <ChevronRight className="h-3.5 w-3.5" />
+                          </Link>
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })
+                )}
+              </TableBody>
+            </Table>
           </div>
         )}
 
@@ -564,69 +580,67 @@ export default function ProcurementPage() {
             </div>
 
             {/* Table */}
-            <div className="overflow-x-auto">
-              <table className="w-full text-xs">
-                <thead>
-                  <tr className="border-b border-slate-100 bg-slate-50">
-                    <th className="text-left px-4 py-2.5 font-medium text-slate-500">Công ty</th>
-                    <th className="text-left px-4 py-2.5 font-medium text-slate-500 whitespace-nowrap">Liên hệ</th>
-                    <th className="text-left px-4 py-2.5 font-medium text-slate-500">Email</th>
-                    <th className="text-left px-4 py-2.5 font-medium text-slate-500 whitespace-nowrap">Điện thoại</th>
-                    <th className="text-right px-4 py-2.5 font-medium text-slate-500 whitespace-nowrap">Lần BG</th>
-                    <th className="text-left px-4 py-2.5 font-medium text-slate-500 whitespace-nowrap">Ngày đăng ký</th>
-                    <th className="text-left px-4 py-2.5 font-medium text-slate-500 whitespace-nowrap">Thao tác</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {vendorsLoading ? (
-                    Array.from({ length: 5 }).map((_, i) => (
-                      <tr key={i}>
-                        {Array.from({ length: 7 }).map((_, j) => (
-                          <td key={j} className="px-4 py-3">
-                            <div className="h-3 bg-slate-100 rounded animate-pulse" />
-                          </td>
-                        ))}
-                      </tr>
-                    ))
-                  ) : vendors.length === 0 ? (
-                    <tr>
-                      <td colSpan={7} className="px-4 py-12 text-center text-sm text-slate-400">
-                        Không có nhà cung cấp nào
-                      </td>
-                    </tr>
-                  ) : (
-                    vendors.map((vendor) => {
-                      const isActing =
-                        isVendorActionPending &&
-                        (vendorActionVars as { id: number } | undefined)?.id === vendor.id;
-                      return (
-                        <tr key={vendor.id} className="hover:bg-slate-50 transition-colors">
-                          <td className="px-4 py-3">
-                            <span className="font-medium text-slate-800 block max-w-[180px] truncate">
-                              {vendor.company_name}
-                            </span>
-                          </td>
-                          <td className="px-4 py-3 text-slate-600 whitespace-nowrap">{vendor.contact_name}</td>
-                          <td className="px-4 py-3 text-slate-500 max-w-[160px] truncate">{vendor.email}</td>
-                          <td className="px-4 py-3 text-slate-500 font-mono whitespace-nowrap">{vendor.phone}</td>
-                          <td className="px-4 py-3 text-right font-mono text-slate-700">{vendor.quote_count}</td>
-                          <td className="px-4 py-3 text-slate-500 font-mono whitespace-nowrap">
-                            {formatDate(vendor.created_at)}
-                          </td>
-                          <td className="px-4 py-3">
-                            <VendorActions
-                              vendor={vendor}
-                              onAction={(id, action) => vendorAction({ id, action })}
-                              isPending={isActing}
-                            />
-                          </td>
-                        </tr>
-                      );
-                    })
-                  )}
-                </tbody>
-              </table>
-            </div>
+            <Table className="text-xs">
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Công ty</TableHead>
+                  <TableHead className="whitespace-nowrap">Liên hệ</TableHead>
+                  <TableHead>Email</TableHead>
+                  <TableHead className="whitespace-nowrap">Điện thoại</TableHead>
+                  <TableHead className="text-right whitespace-nowrap">Lần BG</TableHead>
+                  <TableHead className="whitespace-nowrap">Ngày đăng ký</TableHead>
+                  <TableHead className="whitespace-nowrap">Thao tác</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {vendorsLoading ? (
+                  Array.from({ length: 5 }).map((_, i) => (
+                    <TableRow key={i}>
+                      {Array.from({ length: 7 }).map((_, j) => (
+                        <TableCell key={j}>
+                          <div className="h-3 bg-slate-100 rounded animate-pulse" />
+                        </TableCell>
+                      ))}
+                    </TableRow>
+                  ))
+                ) : vendors.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={7} className="px-4 py-12 text-center text-sm text-slate-400">
+                      Không có nhà cung cấp nào
+                    </TableCell>
+                  </TableRow>
+                ) : (
+                  vendors.map((vendor) => {
+                    const isActing =
+                      isVendorActionPending &&
+                      (vendorActionVars as { id: number } | undefined)?.id === vendor.id;
+                    return (
+                      <TableRow key={vendor.id}>
+                        <TableCell>
+                          <span className="font-medium text-slate-800 block max-w-[180px] truncate">
+                            {vendor.company_name}
+                          </span>
+                        </TableCell>
+                        <TableCell className="text-slate-600 whitespace-nowrap">{vendor.contact_name}</TableCell>
+                        <TableCell className="text-slate-500 max-w-[160px] truncate">{vendor.email}</TableCell>
+                        <TableCell className="text-slate-500 font-mono whitespace-nowrap">{vendor.phone}</TableCell>
+                        <TableCell className="text-right font-mono text-slate-700">{vendor.quote_count}</TableCell>
+                        <TableCell className="text-slate-500 font-mono whitespace-nowrap">
+                          {formatDate(vendor.created_at)}
+                        </TableCell>
+                        <TableCell>
+                          <VendorActions
+                            vendor={vendor}
+                            onAction={(id, action) => vendorAction({ id, action })}
+                            isPending={isActing}
+                          />
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })
+                )}
+              </TableBody>
+            </Table>
           </div>
         )}
       </div>

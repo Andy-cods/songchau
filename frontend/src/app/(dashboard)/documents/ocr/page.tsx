@@ -14,6 +14,18 @@ import {
 } from 'lucide-react';
 import { api } from '@/lib/api';
 import { cn } from '@/lib/utils';
+import { PageHeader } from '@/components/shared/page-header';
+import { Card } from '@/components/shared/card';
+import { EmptyState } from '@/components/shared/empty-state';
+import { Skeleton } from '@/components/ui/skeleton';
+import {
+  Table,
+  TableHeader,
+  TableBody,
+  TableRow,
+  TableHead,
+  TableCell,
+} from '@/components/shared/table';
 
 // ─── Types ─────────────────────────────────────────────────────
 
@@ -102,21 +114,16 @@ export default function OcrPage() {
   return (
     <div>
       {/* Header */}
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <h2 className="text-xl font-display font-bold text-slate-900">
-            <Scan className="h-5 w-5 inline mr-2 text-brand-600" />
-            OCR - Trích xuất tài liệu
-          </h2>
-          <p className="text-sm text-slate-500 mt-0.5">
-            Tải lên hình ảnh hoặc PDF để trích xuất dữ liệu tự động
-          </p>
-        </div>
-      </div>
+      <PageHeader
+        icon={Scan}
+        title="OCR - Trích xuất tài liệu"
+        subtitle="Tải lên hình ảnh hoặc PDF để trích xuất dữ liệu tự động"
+        className="mb-6"
+      />
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
         {/* Upload Area */}
-        <div className="bg-white rounded-lg shadow-sm border border-slate-200 p-6">
+        <Card padded={false} className="p-6">
           <h3 className="text-sm font-semibold text-slate-700 mb-4">Tải lên tài liệu</h3>
 
           {/* Dropzone */}
@@ -209,10 +216,10 @@ export default function OcrPage() {
               </>
             )}
           </button>
-        </div>
+        </Card>
 
         {/* Extracted Result */}
-        <div className="bg-white rounded-lg shadow-sm border border-slate-200 p-6">
+        <Card padded={false} className="p-6">
           <h3 className="text-sm font-semibold text-slate-700 mb-4">Kết quả trích xuất</h3>
 
           {extractMutation.isPending ? (
@@ -221,10 +228,11 @@ export default function OcrPage() {
               <p className="text-sm">Đang phân tích tài liệu...</p>
             </div>
           ) : !extractedResult ? (
-            <div className="flex flex-col items-center justify-center py-16 text-slate-400 gap-2">
-              <Scan className="h-10 w-10 text-slate-300" />
-              <p className="text-sm">Tải lên file và nhấn "Trích xuất"</p>
-            </div>
+            <EmptyState
+              icon={Scan}
+              heading='Tải lên file và nhấn "Trích xuất"'
+              className="py-16"
+            />
           ) : (
             <div className="space-y-4">
               {/* Confidence */}
@@ -288,11 +296,11 @@ export default function OcrPage() {
               )}
             </div>
           )}
-        </div>
+        </Card>
       </div>
 
       {/* History Table */}
-      <div className="bg-white rounded-lg shadow-sm border border-slate-200 overflow-hidden">
+      <Card padded={false} className="overflow-hidden">
         <div className="px-4 py-3 border-b border-slate-100">
           <h3 className="text-sm font-semibold text-slate-700">
             Lịch sử trích xuất
@@ -303,76 +311,67 @@ export default function OcrPage() {
           <div className="divide-y divide-slate-100">
             {Array.from({ length: 4 }).map((_, i) => (
               <div key={i} className="flex items-center gap-4 px-4 py-3">
-                <div className="h-4 w-40 bg-slate-200 rounded animate-pulse" />
-                <div className="h-5 w-16 bg-slate-200 rounded-full animate-pulse" />
-                <div className="h-4 w-20 bg-slate-200 rounded animate-pulse" />
-                <div className="h-4 w-28 bg-slate-200 rounded animate-pulse ml-auto" />
+                <Skeleton className="h-4 w-40" />
+                <Skeleton className="h-5 w-16 rounded-full" />
+                <Skeleton className="h-4 w-20" />
+                <Skeleton className="h-4 w-28 ml-auto" />
               </div>
             ))}
           </div>
         ) : history.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-12 text-slate-400">
-            <FileText className="h-8 w-8 mb-2 text-slate-300" />
-            <p className="text-sm">Chưa có lịch sử trích xuất</p>
-          </div>
+          <EmptyState
+            icon={FileText}
+            heading="Chưa có lịch sử trích xuất"
+            className="py-12"
+          />
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead>
-                <tr className="border-b border-slate-100 bg-slate-50/50">
-                  <th className="text-left text-xs font-mono uppercase tracking-wider text-slate-400 px-4 py-3">
-                    Tên file
-                  </th>
-                  <th className="text-left text-xs font-mono uppercase tracking-wider text-slate-400 px-4 py-3">
-                    Trạng thái
-                  </th>
-                  <th className="text-left text-xs font-mono uppercase tracking-wider text-slate-400 px-4 py-3">
-                    Độ tin cậy
-                  </th>
-                  <th className="text-left text-xs font-mono uppercase tracking-wider text-slate-400 px-4 py-3">
-                    Thời gian
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {history.map((item) => (
-                  <tr key={item.id} className="hover:bg-slate-50/50 transition-colors">
-                    <td className="px-4 py-3 text-sm text-slate-700 font-medium">
-                      {item.file_name}
-                    </td>
-                    <td className="px-4 py-3">
-                      <OcrStatusBadge status={item.status} />
-                    </td>
-                    <td className="px-4 py-3">
-                      <div className="flex items-center gap-2">
-                        <div className="w-16 h-1.5 bg-slate-100 rounded-full overflow-hidden">
-                          <div
-                            className={cn(
-                              'h-full rounded-full',
-                              item.confidence >= 0.8
-                                ? 'bg-emerald-500'
-                                : item.confidence >= 0.5
-                                ? 'bg-amber-500'
-                                : 'bg-red-400'
-                            )}
-                            style={{ width: `${(item.confidence * 100).toFixed(0)}%` }}
-                          />
-                        </div>
-                        <span className="text-xs text-slate-500">
-                          {(item.confidence * 100).toFixed(0)}%
-                        </span>
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Tên file</TableHead>
+                <TableHead>Trạng thái</TableHead>
+                <TableHead>Độ tin cậy</TableHead>
+                <TableHead>Thời gian</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {history.map((item) => (
+                <TableRow key={item.id}>
+                  <TableCell className="text-sm text-slate-700 font-medium">
+                    {item.file_name}
+                  </TableCell>
+                  <TableCell>
+                    <OcrStatusBadge status={item.status} />
+                  </TableCell>
+                  <TableCell>
+                    <div className="flex items-center gap-2">
+                      <div className="w-16 h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                        <div
+                          className={cn(
+                            'h-full rounded-full',
+                            item.confidence >= 0.8
+                              ? 'bg-emerald-500'
+                              : item.confidence >= 0.5
+                              ? 'bg-amber-500'
+                              : 'bg-red-400'
+                          )}
+                          style={{ width: `${(item.confidence * 100).toFixed(0)}%` }}
+                        />
                       </div>
-                    </td>
-                    <td className="px-4 py-3 text-sm text-slate-500">
-                      {new Date(item.processed_at).toLocaleString('vi-VN')}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                      <span className="text-xs text-slate-500">
+                        {(item.confidence * 100).toFixed(0)}%
+                      </span>
+                    </div>
+                  </TableCell>
+                  <TableCell className="text-sm text-slate-500">
+                    {new Date(item.processed_at).toLocaleString('vi-VN')}
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
         )}
-      </div>
+      </Card>
     </div>
   );
 }

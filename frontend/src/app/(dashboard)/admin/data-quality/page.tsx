@@ -12,6 +12,18 @@ import {
 } from 'lucide-react';
 import { api } from '@/lib/api';
 import { cn } from '@/lib/utils';
+import { PageHeader } from '@/components/shared/page-header';
+import { Card } from '@/components/shared/card';
+import { EmptyState } from '@/components/shared/empty-state';
+import { Skeleton } from '@/components/ui/skeleton';
+import {
+  Table,
+  TableHeader,
+  TableBody,
+  TableRow,
+  TableHead,
+  TableCell,
+} from '@/components/shared/table';
 
 // ─── Types ───────────────────────────────────────────────────────
 
@@ -122,24 +134,25 @@ export default function DataQualityPage() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-xl font-display font-bold text-slate-900">Chất lượng dữ liệu</h2>
-          <p className="text-sm text-slate-500 mt-0.5">Kiểm tra và báo cáo chất lượng dữ liệu hệ thống</p>
-        </div>
-        <button
-          onClick={() => runMutation.mutate()}
-          disabled={runMutation.isPending}
-          className="flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-lg text-sm font-medium hover:bg-purple-700 disabled:opacity-60 transition-colors"
-        >
-          {runMutation.isPending ? (
-            <Loader2 className="h-4 w-4 animate-spin" />
-          ) : (
-            <PlayCircle className="h-4 w-4" />
-          )}
-          Chạy kiểm tra
-        </button>
-      </div>
+      <PageHeader
+        icon={ShieldCheck}
+        title="Chất lượng dữ liệu"
+        subtitle="Kiểm tra và báo cáo chất lượng dữ liệu hệ thống"
+        actions={
+          <button
+            onClick={() => runMutation.mutate()}
+            disabled={runMutation.isPending}
+            className="flex items-center gap-2 px-4 py-2 bg-brand-600 text-white rounded-lg text-sm font-medium hover:bg-brand-700 disabled:opacity-60 transition-colors"
+          >
+            {runMutation.isPending ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <PlayCircle className="h-4 w-4" />
+            )}
+            Chạy kiểm tra
+          </button>
+        }
+      />
 
       {/* Summary Cards */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
@@ -175,7 +188,7 @@ export default function DataQualityPage() {
 
       {/* Progress Bar */}
       {!isLoading && totalChecks > 0 && (
-        <div className="bg-white rounded-lg shadow-sm border border-slate-100 p-4">
+        <Card padded={false} className="p-4">
           <div className="flex items-center justify-between mb-2">
             <span className="text-sm font-medium text-slate-700">Tỷ lệ đạt</span>
             <span className="text-sm font-bold text-slate-700">
@@ -207,78 +220,76 @@ export default function DataQualityPage() {
             <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-amber-400" /> Cảnh báo</span>
             <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-red-400" /> Không đạt</span>
           </div>
-        </div>
+        </Card>
       )}
 
       {/* Results Table */}
-      <div className="bg-white rounded-lg shadow-sm border border-slate-100 overflow-hidden">
+      <Card padded={false} className="overflow-hidden">
         <div className="flex items-center gap-2 p-4 border-b border-slate-100">
-          <Table2 className="h-4 w-4 text-purple-600" />
+          <Table2 className="h-4 w-4 text-brand-600" />
           <h3 className="text-sm font-semibold text-slate-700">Kết quả kiểm tra</h3>
           {isLoading && <Loader2 className="h-4 w-4 animate-spin text-slate-400 ml-auto" />}
         </div>
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="bg-slate-50 border-b border-slate-100">
-                <th className="text-left px-4 py-2.5 text-xs font-medium text-slate-500 uppercase tracking-wide">Bảng</th>
-                <th className="text-left px-4 py-2.5 text-xs font-medium text-slate-500 uppercase tracking-wide">Tên kiểm tra</th>
-                <th className="text-left px-4 py-2.5 text-xs font-medium text-slate-500 uppercase tracking-wide">Trạng thái</th>
-                <th className="text-right px-4 py-2.5 text-xs font-medium text-slate-500 uppercase tracking-wide">Hàng bị ảnh hưởng</th>
-                <th className="text-left px-4 py-2.5 text-xs font-medium text-slate-500 uppercase tracking-wide">Chi tiết</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-50">
-              {isLoading
-                ? Array.from({ length: 8 }).map((_, i) => (
-                    <tr key={i}>
-                      {Array.from({ length: 5 }).map((_, j) => (
-                        <td key={j} className="px-4 py-3">
-                          <div className="h-4 bg-slate-200 rounded animate-pulse" />
-                        </td>
-                      ))}
-                    </tr>
-                  ))
-                : items.map((item, idx) => (
-                    <tr
-                      key={idx}
-                      className={cn(
-                        'hover:bg-slate-50/50 transition-colors',
-                        item.status.toLowerCase() === 'fail' && 'bg-red-50/30'
-                      )}
-                    >
-                      <td className="px-4 py-2.5 font-mono text-xs text-slate-700">{item.table_name}</td>
-                      <td className="px-4 py-2.5 text-sm text-slate-600">{item.check_name}</td>
-                      <td className="px-4 py-2.5">
-                        <div className="flex items-center gap-1.5">
-                          <StatusIcon status={item.status} />
-                          <span className={cn('text-xs px-2 py-0.5 rounded border font-medium', statusBadgeClass(item.status))}>
-                            {statusLabel(item.status)}
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Bảng</TableHead>
+              <TableHead>Tên kiểm tra</TableHead>
+              <TableHead>Trạng thái</TableHead>
+              <TableHead className="text-right">Hàng bị ảnh hưởng</TableHead>
+              <TableHead>Chi tiết</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {isLoading
+              ? Array.from({ length: 8 }).map((_, i) => (
+                  <TableRow key={i}>
+                    {Array.from({ length: 5 }).map((_, j) => (
+                      <TableCell key={j}>
+                        <Skeleton className="h-4 w-full" />
+                      </TableCell>
+                    ))}
+                  </TableRow>
+                ))
+              : items.map((item, idx) => (
+                  <TableRow
+                    key={idx}
+                    className={cn(
+                      item.status.toLowerCase() === 'fail' && 'bg-red-50/30'
+                    )}
+                  >
+                    <TableCell className="py-2.5 font-mono text-xs text-slate-700">{item.table_name}</TableCell>
+                    <TableCell className="py-2.5 text-sm text-slate-600">{item.check_name}</TableCell>
+                    <TableCell className="py-2.5">
+                      <div className="flex items-center gap-1.5">
+                        <StatusIcon status={item.status} />
+                        <span className={cn('text-xs px-2 py-0.5 rounded border font-medium', statusBadgeClass(item.status))}>
+                          {statusLabel(item.status)}
+                        </span>
+                      </div>
+                    </TableCell>
+                    <TableCell className="py-2.5 text-right font-mono text-sm text-slate-700">
+                      {item.affected_rows > 0
+                        ? <span className={item.status.toLowerCase() !== 'pass' ? 'text-amber-600 font-bold' : ''}>
+                            {(item.affected_rows ?? 0).toLocaleString('vi-VN')}
                           </span>
-                        </div>
-                      </td>
-                      <td className="px-4 py-2.5 text-right font-mono text-sm text-slate-700">
-                        {item.affected_rows > 0
-                          ? <span className={item.status.toLowerCase() !== 'pass' ? 'text-amber-600 font-bold' : ''}>
-                              {(item.affected_rows ?? 0).toLocaleString('vi-VN')}
-                            </span>
-                          : <span className="text-slate-300">0</span>}
-                      </td>
-                      <td className="px-4 py-2.5 text-xs text-slate-500 max-w-xs truncate">
-                        {item.details ?? <span className="text-slate-300">—</span>}
-                      </td>
-                    </tr>
-                  ))}
-            </tbody>
-          </table>
-          {!isLoading && items.length === 0 && (
-            <div className="text-center py-12">
-              <ShieldCheck className="h-12 w-12 text-slate-300 mx-auto mb-3" />
-              <p className="text-slate-500 text-sm">Nhấn "Chạy kiểm tra" để bắt đầu</p>
-            </div>
-          )}
-        </div>
-      </div>
+                        : <span className="text-slate-300">0</span>}
+                    </TableCell>
+                    <TableCell className="py-2.5 text-xs text-slate-500 max-w-xs truncate">
+                      {item.details ?? <span className="text-slate-300">—</span>}
+                    </TableCell>
+                  </TableRow>
+                ))}
+          </TableBody>
+        </Table>
+        {!isLoading && items.length === 0 && (
+          <EmptyState
+            icon={ShieldCheck}
+            heading='Nhấn "Chạy kiểm tra" để bắt đầu'
+            className="py-12"
+          />
+        )}
+      </Card>
     </div>
   );
 }

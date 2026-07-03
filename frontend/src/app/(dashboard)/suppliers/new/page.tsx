@@ -11,6 +11,7 @@ import { toast } from 'sonner';
 import { api } from '@/lib/api';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
+import { PageHeader } from '@/components/shared/page-header';
 
 // ─── Zod Schema ───────────────────────────────────────────────
 
@@ -111,14 +112,10 @@ export default function NewSupplierPage() {
         >
           <ArrowLeft className="h-4 w-4" />
         </Link>
-        <div>
-          <h2 className="text-xl font-display font-bold text-slate-900">
-            Thêm nhà cung cấp mới
-          </h2>
-          <p className="text-sm text-slate-500 mt-0.5">
-            Nhập thông tin nhà cung cấp
-          </p>
-        </div>
+        <PageHeader
+          title="Thêm nhà cung cấp mới"
+          subtitle="Nhập thông tin nhà cung cấp"
+        />
       </div>
 
       <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
@@ -138,7 +135,7 @@ export default function NewSupplierPage() {
                 {...register('name')}
                 placeholder="Tên công ty nhà cung cấp"
                 className={cn(
-                  'w-full h-9 px-3 text-sm border rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent',
+                  'w-full h-9 px-3 text-sm border rounded-lg bg-white focus:outline-none focus:border-brand-400 focus:ring-2 focus:ring-brand-100',
                   errors.name ? 'border-red-400' : 'border-slate-200'
                 )}
               />
@@ -157,7 +154,7 @@ export default function NewSupplierPage() {
               <input
                 {...register('contact_person')}
                 placeholder="Họ tên người liên hệ"
-                className="w-full h-9 px-3 text-sm border border-slate-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                className="w-full h-9 px-3 text-sm border border-slate-200 rounded-lg bg-white focus:outline-none focus:border-brand-400 focus:ring-2 focus:ring-brand-100"
               />
             </div>
 
@@ -171,7 +168,7 @@ export default function NewSupplierPage() {
                 {...register('email')}
                 placeholder="email@supplier.com"
                 className={cn(
-                  'w-full h-9 px-3 text-sm border rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent',
+                  'w-full h-9 px-3 text-sm border rounded-lg bg-white focus:outline-none focus:border-brand-400 focus:ring-2 focus:ring-brand-100',
                   errors.email ? 'border-red-400' : 'border-slate-200'
                 )}
               />
@@ -191,7 +188,7 @@ export default function NewSupplierPage() {
                 type="tel"
                 {...register('phone')}
                 placeholder="+84 hoặc +86..."
-                className="w-full h-9 px-3 text-sm border border-slate-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                className="w-full h-9 px-3 text-sm border border-slate-200 rounded-lg bg-white focus:outline-none focus:border-brand-400 focus:ring-2 focus:ring-brand-100"
               />
             </div>
 
@@ -203,7 +200,7 @@ export default function NewSupplierPage() {
               <input
                 {...register('wechat')}
                 placeholder="WeChat ID"
-                className="w-full h-9 px-3 text-sm border border-slate-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                className="w-full h-9 px-3 text-sm border border-slate-200 rounded-lg bg-white focus:outline-none focus:border-brand-400 focus:ring-2 focus:ring-brand-100"
               />
             </div>
 
@@ -215,7 +212,7 @@ export default function NewSupplierPage() {
               <select
                 {...register('country')}
                 className={cn(
-                  'w-full h-9 px-3 text-sm border rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent',
+                  'w-full h-9 px-3 text-sm border rounded-lg bg-white focus:outline-none focus:border-brand-400 focus:ring-2 focus:ring-brand-100',
                   errors.country ? 'border-red-400' : 'border-slate-200'
                 )}
               >
@@ -241,7 +238,7 @@ export default function NewSupplierPage() {
               <input
                 {...register('address')}
                 placeholder="Địa chỉ đầy đủ"
-                className="w-full h-9 px-3 text-sm border border-slate-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                className="w-full h-9 px-3 text-sm border border-slate-200 rounded-lg bg-white focus:outline-none focus:border-brand-400 focus:ring-2 focus:ring-brand-100"
               />
             </div>
           </div>
@@ -262,7 +259,7 @@ export default function NewSupplierPage() {
               <input
                 {...register('payment_terms')}
                 placeholder="VD: Net 30, TT trước, COD..."
-                className="w-full h-9 px-3 text-sm border border-slate-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                className="w-full h-9 px-3 text-sm border border-slate-200 rounded-lg bg-white focus:outline-none focus:border-brand-400 focus:ring-2 focus:ring-brand-100"
               />
             </div>
 
@@ -274,7 +271,7 @@ export default function NewSupplierPage() {
               <input
                 {...register('lead_time')}
                 placeholder="VD: 7-14 ngày, 30 ngày..."
-                className="w-full h-9 px-3 text-sm border border-slate-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                className="w-full h-9 px-3 text-sm border border-slate-200 rounded-lg bg-white focus:outline-none focus:border-brand-400 focus:ring-2 focus:ring-brand-100"
               />
             </div>
 
@@ -287,7 +284,7 @@ export default function NewSupplierPage() {
                 {...register('notes')}
                 rows={3}
                 placeholder="Thông tin bổ sung về nhà cung cấp..."
-                className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent resize-none"
+                className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg bg-white focus:outline-none focus:border-brand-400 focus:ring-2 focus:ring-brand-100 resize-none"
               />
             </div>
           </div>

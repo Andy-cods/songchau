@@ -5,12 +5,13 @@ import { useRouter } from 'next/navigation';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { ArrowLeft, Contact, AlertTriangle } from 'lucide-react';
+import { ChevronLeft, Contact, AlertTriangle } from 'lucide-react';
 import Link from 'next/link';
 import { toast } from 'sonner';
 import { api } from '@/lib/api';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
+import { PageShellHeader, SHELL, ELEVATION, TYPE } from '@/components/cockpit';
 
 // ─── Schema ───────────────────────────────────────────────────
 
@@ -199,21 +200,26 @@ export default function NewCustomerPage() {
 
   const inputClass = (hasError?: boolean) =>
     cn(
-      'w-full h-9 px-3 text-sm border rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent',
-      hasError ? 'border-red-400' : 'border-slate-200',
+      'w-full h-9 px-3 text-sm border rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent',
+      hasError ? 'border-rose-400' : 'border-slate-200',
     );
 
   return (
-    <div className="max-w-3xl">
-      <div className="flex items-center gap-3 mb-6">
-        <Link href="/crm" className="p-2 rounded-md hover:bg-slate-100 text-slate-500 hover:text-slate-700">
-          <ArrowLeft className="h-4 w-4" />
-        </Link>
-        <div>
-          <h2 className="text-xl font-display font-bold text-slate-900">Thêm khách hàng mới</h2>
-          <p className="text-sm text-slate-500 mt-0.5">Nhập đủ thông tin để tự động tạo lead trong CRM pipeline</p>
-        </div>
-      </div>
+    <div className={cn(SHELL.page, '-m-6')}>
+      <PageShellHeader
+        title="Thêm khách hàng mới"
+        eyebrow="CRM"
+        leading={
+          <Link href="/crm" aria-label="Quay lại"
+            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-slate-500 ring-1 ring-slate-200 bg-white hover:bg-slate-50 hover:text-slate-700 transition-colors">
+            <ChevronLeft className="h-4.5 w-4.5" />
+          </Link>
+        }
+      />
+
+      <div className={cn(SHELL.content, 'pt-4')}>
+      <div className="mx-auto max-w-3xl">
+      <p className="text-[13px] text-slate-500 mb-4">Nhập đủ thông tin để tự động tạo lead trong CRM pipeline</p>
 
       <form onSubmit={handleSubmit(onSubmit)} className="space-y-5">
         {/* Duplicate warning */}
@@ -251,8 +257,8 @@ export default function NewCustomerPage() {
         )}
 
         {/* Company Info */}
-        <div className="bg-white rounded-lg shadow-sm border border-slate-200 p-6">
-          <h3 className="text-sm font-semibold text-slate-700 mb-4">Thông tin công ty</h3>
+        <div className={cn(ELEVATION.container, 'rounded-lg p-6')}>
+          <h3 className={cn(TYPE.h2, 'mb-4')}>Thông tin công ty</h3>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="md:col-span-2">
               <Label required>Tên công ty</Label>
@@ -323,8 +329,8 @@ export default function NewCustomerPage() {
         </div>
 
         {/* Contact Info */}
-        <div className="bg-white rounded-lg shadow-sm border border-slate-200 p-6">
-          <h3 className="text-sm font-semibold text-slate-700 mb-4">Người liên hệ</h3>
+        <div className={cn(ELEVATION.container, 'rounded-lg p-6')}>
+          <h3 className={cn(TYPE.h2, 'mb-4')}>Người liên hệ</h3>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
               <Label required>Họ tên</Label>
@@ -371,9 +377,9 @@ export default function NewCustomerPage() {
         </div>
 
         {/* Notes */}
-        <div className="bg-white rounded-lg shadow-sm border border-slate-200 p-6">
-          <h3 className="text-sm font-semibold text-slate-700 mb-4">Ghi chú</h3>
-          <textarea {...register('notes')} rows={3} placeholder="Context về khách hàng, yêu cầu đặc biệt..." className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent" />
+        <div className={cn(ELEVATION.container, 'rounded-lg p-6')}>
+          <h3 className={cn(TYPE.h2, 'mb-4')}>Ghi chú</h3>
+          <textarea {...register('notes')} rows={3} placeholder="Context về khách hàng, yêu cầu đặc biệt..." className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent" />
         </div>
 
         {/* Actions */}
@@ -385,6 +391,8 @@ export default function NewCustomerPage() {
           </Button>
         </div>
       </form>
+      </div>
+      </div>
     </div>
   );
 }

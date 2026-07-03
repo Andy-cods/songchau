@@ -19,7 +19,7 @@ import io
 import logging
 import re
 import uuid
-from datetime import datetime, timedelta
+from datetime import date as _date, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
 from typing import Any
@@ -28,7 +28,23 @@ import openpyxl
 from openpyxl.drawing.image import Image as XLImage
 from openpyxl.utils import column_index_from_string, get_column_letter
 
+try:
+    from zoneinfo import ZoneInfo
+except ImportError:  # py<3.9 fallback (project pins 3.11+, kept for safety)
+    ZoneInfo = None  # type: ignore[assignment]
+
 logger = logging.getLogger(__name__)
+
+# Thang 2026-06-13 (Bug fix T3): canonical VN tz so quotation dates never
+# drift when ops moves the worker process between regions.
+_VN_TZ = ZoneInfo("Asia/Ho_Chi_Minh") if ZoneInfo else None
+
+
+def _vn_now() -> datetime:
+    """Today in Asia/Ho_Chi_Minh tz, naive (no tzinfo) for openpyxl writes."""
+    if _VN_TZ is None:
+        return datetime.now()
+    return datetime.now(tz=_VN_TZ).replace(tzinfo=None)
 
 # ─── Constants ────────────────────────────────────────────────
 FILES_BASE = Path("/data/files/quotations")
@@ -350,8 +366,10 @@ def match_images_to_orders(
     if not bqms_codes:
         return images_map
 
+    unmatched_unmapped: list[str] = []
     for fname, img_bytes in uploaded_files:
         fname_upper = Path(fname).stem.upper()
+        matched = False
         for code in bqms_codes:
             if code.upper() in fname_upper:
                 # Strict full-code presence; first (longest) wins.
@@ -362,7 +380,23 @@ def match_images_to_orders(
                         "Image '%s' (%d bytes) matched to BQMS %s",
                         fname, len(img_bytes), code,
                     )
+                matched = True
                 break  # one filename → one code
+        # Defensive (Thang 2026-06-03): if a `_unmapped_*` file from the
+        # bidding scraper falls through without matching any code, that's
+        # the smoking gun for "image missing on báo giá" — call it out
+        # individually so the operator sees exactly which file needs
+        # renaming.
+        if not matched and "_unmapped_" in fname.lower():
+            unmatched_unmapped.append(fname)
+
+    if unmatched_unmapped:
+        logger.warning(
+            "match_images_to_orders: %d scraper-unmapped file(s) did not "
+            "match any bqms code via substring (candidate codes: %s). "
+            "Files: %s. Rename to '{full_bqms_code}_1.ext' to fix.",
+            len(unmatched_unmapped), bqms_codes[:10], unmatched_unmapped[:10],
+        )
 
     return images_map
 
@@ -381,6 +415,122 @@ def _safe_set_cell(ws, row: int, col: int, value: Any) -> None:
     """Set cell value, handling merged cells."""
     r, c = _get_top_left_of_merged(ws, row, col)
     ws.cell(row=r, column=c).value = value
+
+
+# ─── Defensive template fixups (Thang 2026-05-21) ────────────────────
+#
+# These run AFTER `openpyxl.load_workbook(template_path)` and BEFORE the
+# row-specific writes. They scan the entire sheet for problem patterns
+# inherited from the template binary (which the user can't easily edit):
+#   1. Stale date strings that don't get updated by per-cell writes when
+#      regenerating V2/V3 — defensively replace ANY cell matching
+#      "Ngày X Tháng Y năm Z" / "dd/mm/yyyy" with today.
+#   2. Bullet text "-Cam kết..." missing space after dash → fix to "- Cam kết".
+
+import re as _re
+
+_DATE_VN_PAT = _re.compile(
+    r"Ngày\s*\d{1,2}\s*Tháng\s*\d{1,2}\s*năm\s*\d{4}",
+    flags=_re.IGNORECASE,
+)
+_DATE_SLASH_PAT = _re.compile(r"\b\d{1,2}/\d{1,2}/\d{4}\b")
+_DATE_DMY_PAT = _re.compile(r"\b\d{1,2}-\d{1,2}-\d{4}\b")
+_DASH_BULLET_PAT = _re.compile(r"^(-)(?=[A-ZĐÀÁẢÃẠÂẦẤẨẪẬĂẰẮẲẴẶÈÉẺẼẸÊỀẾỂỄỆÌÍỈĨỊÒÓỎÕỌÔỒỐỔỖỘƠỜỚỞỠỢÙÚỦŨỤƯỪỨỬỮỰỲÝỶỸỴ])")
+
+
+def _refresh_dates_in_sheet(ws, now) -> int:
+    """Scan ALL cells; replace stale date strings with `now`'s date.
+
+    Returns count of cells updated.
+    Catches the V2/V3 bug where template had a hardcoded date that didn't
+    get overwritten by the explicit per-cell date write (e.g. there are
+    MULTIPLE date cells but code only touches one).
+    """
+    vn_today = f"Ngày {now.day} Tháng {now.month} năm {now.year}"
+    slash_today = now.strftime("%d/%m/%Y")
+    updated = 0
+    for row in ws.iter_rows():
+        for cell in row:
+            v = cell.value
+            if not isinstance(v, str) or not v:
+                continue
+            new_v = v
+            # Pattern 1: VN "Ngày X Tháng Y năm Z" — replace anywhere in cell
+            if _DATE_VN_PAT.search(new_v):
+                new_v = _DATE_VN_PAT.sub(vn_today, new_v)
+            # Pattern 2: "dd/mm/yyyy" — only replace if cell is a pure date
+            # (avoid corrupting e.g. "Order received on 12/05/2026 by ABC").
+            stripped = new_v.strip()
+            if _DATE_SLASH_PAT.fullmatch(stripped):
+                new_v = slash_today
+            if _DATE_DMY_PAT.fullmatch(stripped):
+                new_v = now.strftime("%d-%m-%Y")
+            if new_v != v:
+                try:
+                    cell.value = new_v
+                    updated += 1
+                except Exception:
+                    pass
+    return updated
+
+
+def _fix_dash_bullets_in_sheet(ws) -> int:
+    """Normalize leading dash bullets so they render cleanly in PDF.
+
+    Templates (often Word-pasted) carry inconsistent bullet patterns:
+        "-Cam kết..."     (no space)              → "- Cam kết..."
+        "-\\tCam kết..."   (dash + tab)            → "- Cam kết..."
+        "-  Cam kết..."   (dash + multi-space)   → "- Cam kết..."
+        "- Cam kết..."    (already OK)            → unchanged
+    Plus normalize `\\r\\n` / `\\r` → `\\n` so cell line breaks render
+    consistently in LibreOffice/Gotenberg.
+
+    Thang 2026-05-22: original regex skipped tab → "-\\tCam kết..." in
+    CAM_KET template was untouched and rendered as "-Cam kết" in PDF.
+    Now treats `\\t` and multi-space as separator → forces canonical
+    "- <text>" with exactly one space after the dash.
+    """
+    updated = 0
+    for row in ws.iter_rows():
+        for cell in row:
+            v = cell.value
+            if not isinstance(v, str) or "-" not in v:
+                continue
+            normalized = v.replace("\r\n", "\n").replace("\r", "\n")
+            new_v = normalized
+            lines = new_v.split("\n")
+            new_lines = []
+            line_changed = False
+            for line in lines:
+                stripped_left = line.lstrip()
+                if (stripped_left.startswith("-")
+                        and len(stripped_left) > 1
+                        and stripped_left[1] not in ("-", ">")):
+                    # Strip ALL whitespace right after the dash, then re-add
+                    # exactly one space. Handles: "-X" (no sep), "-\tX"
+                    # (tab), "-  X" (multi-space). Skip if the next char
+                    # is "-" (em-dash style) or ">" (e.g. "->", arrow).
+                    rest = stripped_left[1:].lstrip(" \t")
+                    if not rest:
+                        new_lines.append(line)
+                        continue
+                    indent = line[:len(line) - len(stripped_left)]
+                    fixed = indent + "- " + rest
+                    if fixed != line:
+                        new_lines.append(fixed)
+                        line_changed = True
+                    else:
+                        new_lines.append(line)
+                else:
+                    new_lines.append(line)
+            if line_changed or normalized != v:
+                new_v = "\n".join(new_lines)
+                try:
+                    cell.value = new_v
+                    updated += 1
+                except Exception:
+                    pass
+    return updated
 
 
 def _copy_row_style(ws, src_row: int, dst_row: int, max_col: int = 20) -> None:
@@ -419,7 +569,10 @@ def _pil_image_to_xl(img_bytes: bytes, max_w: int = 110, max_h: int = 75) -> XLI
         pil_img = PILImage.open(io.BytesIO(img_bytes))
         if pil_img.mode not in ("RGB", "RGBA"):
             pil_img = pil_img.convert("RGBA")
-        pil_img.thumbnail((max_w, max_h), PILImage.LANCZOS)
+        # Pillow 12: prefer Resampling enum; falls back to module-level
+        # alias on older Pillow installs.
+        _lanczos = getattr(PILImage, "Resampling", PILImage).LANCZOS
+        pil_img.thumbnail((max_w, max_h), _lanczos)
         w, h = pil_img.size
         buf = io.BytesIO()
         pil_img.save(buf, format="PNG")
@@ -456,34 +609,164 @@ def _cell_pixel_size(
 
 
 def fix_drawing_rels_in_xlsx(xlsx_path: str) -> int:
-    """Rewrite absolute image paths in drawing rels to relative paths.
+    """Rewrite ABSOLUTE paths in ALL .rels files to relative paths AND
+    strip openpyxl artifacts that crash OnlyOffice's spreadsheet renderer.
 
-    Per Thang 2026-05-11: openpyxl writes drawing rels with absolute paths
-    (Target="/xl/media/image1.png") which LibreOffice/Gotenberg silently
-    reject during PDF conversion. Excel + Office Online accept absolute
-    paths fine, but our PDFs end up with 0 images. Standard xlsx (and
-    Excel-saved files) use relative paths (Target="../media/image1.png").
+    OnlyOffice issues fixed here (Thang 2026-05-21):
+    A) Absolute Target paths in rels → LibreOffice/x2t drops them. Excel
+       accepts them. Fix: rewrite "/xl/X" to relative path from the rels
+       file's owner directory.
+    B) `<definedName name="_xlnm.Print_Area" localSheetId="0">'Sheet'!$A$1:
+       $K$40</definedName>` carried over from openpyxl template → when
+       OnlyOffice's sdkjs/cell parses it, the sheet reference resolution
+       hits null → "Cannot read properties of null (reading 'mb')" →
+       editor crashes with code -82. Fix: strip <definedNames> block.
+    C) Stale formula `<f>SUM(G17:G17)</f>` over a single cell carried from
+       template (`fitToPage`'d but the row contains insert_rows shifted
+       boundaries) → OnlyOffice mis-resolves → mb null. Same fix as B —
+       safer to strip these too.
 
-    Returns count of rels rewritten. Idempotent — safe to call multiple
+    Per Thang 2026-05-11/21: openpyxl writes rels with absolute Target paths
+    (`Target="/xl/worksheets/sheet1.xml"`) which:
+      - LibreOffice/Gotenberg silently drops the resource → blank PDF
+      - OnlyOffice's x2t converter rejects the file → exit code 88 →
+        Editor.bin never generated → editor shows error -4 "Tải về không
+        thành công" (the bug user has been hitting on Cam kết files).
+
+    Standard xlsx (and Excel-saved files) use RELATIVE paths
+    (`Target="../worksheets/sheet1.xml"` from a file in xl/_rels/, or
+    `Target="worksheets/sheet1.xml"` depending on the source folder).
+
+    Fix: for each `<Relationship Target="/xl/<rest>" />`, compute the proper
+    relative path from the .rels file's directory and substitute. The rels
+    file lives at e.g. `xl/_rels/workbook.xml.rels` → directory `xl/_rels/`
+    → relative to xl/ is `..`, so the target becomes `../<rest>`. For
+    `xl/drawings/_rels/drawing1.xml.rels` → directory `xl/drawings/_rels/`
+    → ../media/image1.png.
+
+    Returns count of cells rewritten. Idempotent — safe to call multiple
     times. Should be called after wb.save() but before PDF conversion.
     """
-    import zipfile, shutil
+    import zipfile, shutil, os, re
     n = 0
     src = Path(xlsx_path)
     if not src.exists():
         return 0
     tmp_path = src.with_suffix(src.suffix + ".rels-fix.tmp")
+
+    # Match ANY Target="..." attribute (not just absolute) — we'll re-resolve
+    # every target to a canonical relative path. This handles ALL the broken
+    # formats my previous code has produced over time:
+    #   Target="/xl/media/X"           (openpyxl absolute)
+    #   Target="xl/media/X"            (buggy partial fix v1, no leading /)
+    #   Target="media/X"               (buggy partial fix v2, no ../)
+    #   Target="../media/X"            (already correct)
+    target_pat = re.compile(rb'Target="([^"]+)"')
+
+    def _build_known_paths(zip_names: set[str]) -> set[str]:
+        """Return the set of all internal paths in the zip (forward-slash,
+        no leading slash). Used to validate Target resolution."""
+        return {n.replace("\\", "/").lstrip("/") for n in zip_names}
+
+    def _resolve_to_zip_path(target: str, owner_dir: str, known: set[str]) -> str | None:
+        """Turn a Target attribute (any of the broken formats) into the
+        actual file path inside the zip. Returns None if target is external
+        (http/mailto) or already a valid relative path that points outside
+        the zip and we shouldn't touch.
+
+        Strategy: try every candidate interpretation, return the first one
+        that matches a real file in the zip.
+        """
+        if target.startswith(("http://", "https://", "mailto:", "//")):
+            return None  # external — leave alone
+        cleaned = target.replace("\\", "/")
+        candidates: list[str] = []
+        # 1. Already absolute (`/xl/...` or `xl/...`)
+        candidates.append(cleaned.lstrip("/"))
+        # 2. Resolve as relative from owner_dir
+        try:
+            joined = os.path.normpath(os.path.join(owner_dir, cleaned)).replace("\\", "/")
+            candidates.append(joined.lstrip("/"))
+        except Exception:
+            pass
+        # 3. If target looks like "media/X" or "drawings/X" / "worksheets/X"
+        #    and owner_dir is inside xl/, the user PROBABLY meant xl/<target>
+        #    (which is what my buggy fix produced for drawing rels).
+        if owner_dir.startswith("xl") and not cleaned.startswith(("xl/", "../")):
+            candidates.append("xl/" + cleaned)
+        # 4. Same but for root rels file (_rels/.rels)
+        if not owner_dir:
+            candidates.append(cleaned)
+
+        for c in candidates:
+            if c in known:
+                return c
+        return None
+
+    def _rewrite_rels_data(rels_path: str, data: bytes, known: set[str]) -> tuple[bytes, int]:
+        """Rewrite Target attributes in a .rels file to canonical relative
+        paths from the rels file's owner directory."""
+        # rels_path example: "xl/drawings/_rels/drawing1.xml.rels"
+        rels_dir = os.path.dirname(rels_path)  # "xl/drawings/_rels"
+        owner_dir = rels_dir.rstrip("/").rsplit("/_rels", 1)[0]  # "xl/drawings"
+        # Special case: rels file at root level ("_rels/.rels")
+        if owner_dir == "_rels":
+            owner_dir = ""
+        local_n = 0
+
+        def _sub(m: "re.Match[bytes]") -> bytes:
+            nonlocal local_n
+            raw = m.group(1).decode("utf-8", errors="replace")
+            zip_path = _resolve_to_zip_path(raw, owner_dir, known)
+            if zip_path is None:
+                # External or unresolvable — leave alone
+                return m.group(0)
+            # Compute canonical relative path from owner_dir to zip_path
+            try:
+                rel = os.path.relpath(zip_path, owner_dir or ".").replace("\\", "/")
+            except ValueError:
+                rel = zip_path
+            # If unchanged, no need to log
+            if rel == raw:
+                return m.group(0)
+            local_n += 1
+            return f'Target="{rel}"'.encode("utf-8")
+
+        new_data = target_pat.sub(_sub, data)
+        return new_data, local_n
+
     try:
         with zipfile.ZipFile(src, "r") as zin:
+            known_paths = _build_known_paths(set(zin.namelist()))
             with zipfile.ZipFile(tmp_path, "w", zipfile.ZIP_DEFLATED) as zout:
                 for item in zin.infolist():
                     data = zin.read(item.filename)
-                    if "drawings/_rels" in item.filename and item.filename.endswith(".rels"):
-                        original = data
-                        data = data.replace(b'Target="/xl/media/', b'Target="../media/')
-                        data = data.replace(b'Target="/xl/drawings/', b'Target="../drawings/')
-                        if data != original:
-                            n += 1
+                    if item.filename.endswith(".rels") and "_rels" in item.filename:
+                        new_data, count = _rewrite_rels_data(
+                            item.filename, data, known_paths,
+                        )
+                        if count > 0:
+                            n += count
+                            logger.info("rels fix: %s — %d Target(s) rewritten",
+                                        item.filename, count)
+                        data = new_data
+                    # Strip <definedNames> from workbook.xml (OnlyOffice -82 crash)
+                    elif item.filename == "xl/workbook.xml":
+                        try:
+                            text = data.decode("utf-8")
+                            new_text = re.sub(
+                                r'<definedNames>.*?</definedNames>',
+                                '<definedNames/>',
+                                text,
+                                flags=re.DOTALL,
+                            )
+                            if new_text != text:
+                                data = new_text.encode("utf-8")
+                                n += 1
+                                logger.info("Stripped <definedNames> from %s (OO -82 fix)",
+                                            item.filename)
+                        except UnicodeDecodeError:
+                            pass
                     zout.writestr(item, data)
         shutil.move(str(tmp_path), str(src))
     except Exception as exc:
@@ -492,7 +775,8 @@ def fix_drawing_rels_in_xlsx(xlsx_path: str) -> int:
             try: tmp_path.unlink()
             except Exception: pass
     if n:
-        logger.info("fix_drawing_rels_in_xlsx: rewrote %d absolute path(s) in %s", n, xlsx_path)
+        logger.info("fix_drawing_rels_in_xlsx: rewrote %d absolute Target path(s) in %s",
+                    n, xlsx_path)
     return n
 
 
@@ -505,54 +789,129 @@ def _attach_image_fit(
     span_cols: int = 1,
     span_rows: int = 1,
 ) -> bool:
-    """Attach image CENTERED inside the (span_rows x span_cols) cell area.
+    """Attach image CENTERED + ASPECT-PRESERVED inside (span_rows × span_cols).
 
-    Per Thang 2026-05-11 round 2: plain `ws.add_image(img, "L2")` anchors
-    at TOP-LEFT of the cell. To center, we build a OneCellAnchor with
-    explicit colOff/rowOff (image-px → EMU). This is the same anchor
-    type LibreOffice/Gotenberg accept — only TwoCellAnchor was the one
-    being stripped.
+    Thang 2026-05-22: switched from OneCellAnchor → TwoCellAnchor with the
+    `to` marker computed precisely from the image's bottom-right pixel
+    position inside the merge range. This pins the image WITHIN the cell
+    range bounds in both LibreOffice + Excel + OnlyOffice — OneCellAnchor
+    only specifies the size and top-left, so renderers that resize cells
+    (Gotenberg fitToPage) may misposition the bottom edge.
+
+    Aspect ratio is preserved (PIL thumbnail keeps ratio). Image is centered.
+    fill_ratio 0.85 → 7.5% safety on each side. editAs="oneCell" keeps the
+    image fixed at its computed size when user resizes cells in Excel.
     """
+    from openpyxl.drawing.spreadsheet_drawing import (
+        OneCellAnchor, TwoCellAnchor, AnchorMarker,
+    )
+    from openpyxl.drawing.xdr import XDRPositiveSize2D
+    from openpyxl.utils.units import pixels_to_EMU
+
     target_w, target_h = _cell_pixel_size(
         ws, anchor_row, anchor_col, n_cols=span_cols, n_rows=span_rows,
     )
-    img_max_w = max(20, int(target_w * 0.88))
-    img_max_h = max(20, int(target_h * 0.88))
+    fill_ratio = 0.85
+    safety = 6
+    img_max_w = max(20, int(target_w * fill_ratio))
+    img_max_h = max(20, int(target_h * fill_ratio))
     xl_img = _pil_image_to_xl(img_bytes, max_w=img_max_w, max_h=img_max_h)
     if not xl_img:
         return False
 
     img_w = int(xl_img.width or img_max_w)
     img_h = int(xl_img.height or img_max_h)
-    off_x = max(0, (target_w - img_w) // 2)
-    off_y = max(0, (target_h - img_h) // 2)
+    if img_w > target_w - safety * 2:
+        scale = (target_w - safety * 2) / img_w
+        img_w = max(20, int(img_w * scale))
+        img_h = max(20, int(img_h * scale))
+    if img_h > target_h - safety * 2:
+        scale = (target_h - safety * 2) / img_h
+        img_w = max(20, int(img_w * scale))
+        img_h = max(20, int(img_h * scale))
+    xl_img.width = img_w
+    xl_img.height = img_h
+    off_x = max(safety, (target_w - img_w) // 2)
+    off_y = max(safety, (target_h - img_h) // 2)
+
+    # ── Compute TwoCellAnchor `to` corner ─────────────────────
+    # Image bottom-right pixel offset from anchor cell's top-left:
+    target_br_x = off_x + img_w
+    target_br_y = off_y + img_h
+
+    # Walk through span_cols, finding which col contains target_br_x and the
+    # remaining pixel offset within that col.
+    to_col_idx = anchor_col - 1  # 0-indexed
+    to_col_off_px = target_br_x
+    cum = 0
+    for offset in range(span_cols):
+        c_letter = get_column_letter(anchor_col + offset)
+        w_units = ws.column_dimensions[c_letter].width or 8.43
+        w_px = max(1, int(w_units * 7.0))
+        if cum + w_px >= target_br_x:
+            to_col_idx = (anchor_col + offset) - 1
+            to_col_off_px = target_br_x - cum
+            break
+        cum += w_px
+    else:
+        # target_br_x exceeds total span — clamp to last col's full width
+        to_col_idx = (anchor_col + span_cols - 1) - 1
+        last_w_units = (
+            ws.column_dimensions[get_column_letter(anchor_col + span_cols - 1)].width
+            or 8.43
+        )
+        to_col_off_px = max(1, int(last_w_units * 7.0))
+
+    to_row_idx = anchor_row - 1
+    to_row_off_px = target_br_y
+    cum = 0
+    for offset in range(span_rows):
+        r = anchor_row + offset
+        h_pts = ws.row_dimensions[r].height or 15.0
+        h_px = max(1, int(h_pts * 1.333))
+        if cum + h_px >= target_br_y:
+            to_row_idx = r - 1
+            to_row_off_px = target_br_y - cum
+            break
+        cum += h_px
+    else:
+        to_row_idx = (anchor_row + span_rows - 1) - 1
+        last_h_pts = (
+            ws.row_dimensions[anchor_row + span_rows - 1].height or 15.0
+        )
+        to_row_off_px = max(1, int(last_h_pts * 1.333))
 
     try:
-        from openpyxl.drawing.spreadsheet_drawing import (
-            OneCellAnchor, AnchorMarker,
-        )
-        from openpyxl.drawing.xdr import XDRPositiveSize2D
-        from openpyxl.utils.units import pixels_to_EMU
-
-        marker = AnchorMarker(
+        _from = AnchorMarker(
             col=anchor_col - 1, colOff=pixels_to_EMU(off_x),
             row=anchor_row - 1, rowOff=pixels_to_EMU(off_y),
         )
-        ext = XDRPositiveSize2D(
-            cx=pixels_to_EMU(img_w), cy=pixels_to_EMU(img_h),
+        to = AnchorMarker(
+            col=to_col_idx, colOff=pixels_to_EMU(to_col_off_px),
+            row=to_row_idx, rowOff=pixels_to_EMU(to_row_off_px),
         )
-        xl_img.anchor = OneCellAnchor(_from=marker, ext=ext)
+        xl_img.anchor = TwoCellAnchor(_from=_from, to=to, editAs="oneCell")
         ws._images.append(xl_img)
         return True
     except Exception as exc:
-        logger.warning(
-            "centered OneCellAnchor failed (%s) — falling back to top-left", exc,
-        )
+        logger.warning("TwoCellAnchor failed (%s) — fallback OneCellAnchor", exc)
         try:
-            ws.add_image(xl_img, f"{get_column_letter(anchor_col)}{anchor_row}")
+            marker = AnchorMarker(
+                col=anchor_col - 1, colOff=pixels_to_EMU(off_x),
+                row=anchor_row - 1, rowOff=pixels_to_EMU(off_y),
+            )
+            ext = XDRPositiveSize2D(
+                cx=pixels_to_EMU(img_w), cy=pixels_to_EMU(img_h),
+            )
+            xl_img.anchor = OneCellAnchor(_from=marker, ext=ext)
+            ws._images.append(xl_img)
             return True
         except Exception:
-            return False
+            try:
+                ws.add_image(xl_img, f"{get_column_letter(anchor_col)}{anchor_row}")
+                return True
+            except Exception:
+                return False
 
 
 def _attach_image_fit_DEAD(  # kept for diff-clarity, never called
@@ -691,7 +1050,10 @@ def _fixup_quotation_template(ws) -> None:
     #    portrait page is ~816 px. Without this, LibreOffice/Gotenberg
     #    splits the table across 2 pages.
     try:
-        ws.page_setup.orientation = ws.ORIENTATION_LANDSCAPE
+        # Thang 2026-05-20: switched to A4 portrait per user request.
+        # fitToWidth=1 scales wide content to fit portrait width — image
+        # column + price columns will shrink but stay on one page.
+        ws.page_setup.orientation = ws.ORIENTATION_PORTRAIT
         ws.page_setup.paperSize = ws.PAPERSIZE_A4
         ws.page_setup.fitToWidth = 1
         ws.page_setup.fitToHeight = 0  # 0 = unlimited rows, just fit width
@@ -900,6 +1262,14 @@ def fill_cam_ket(
         COL_C, COL_D, COL_F, COL_J, COL_L, COL_N = 3, 4, 6, 10, 12, 14
 
         now = datetime.now()
+        # Thang 2026-05-21: defensive template fixups — refresh ALL date cells
+        # to today (V2/V3 was inheriting V1's date because template had multiple
+        # hardcoded date cells that single per-cell writes didn't touch).
+        n_dates = _refresh_dates_in_sheet(ws, now)
+        n_dash = _fix_dash_bullets_in_sheet(ws)
+        if n_dates or n_dash:
+            logger.info("CAM KET fixups: %d date cells refreshed, %d dash bullets fixed",
+                        n_dates, n_dash)
         extra_rows = 0
 
         for i, product in enumerate(products):
@@ -947,8 +1317,16 @@ def fill_cam_ket(
                     logger.info("CAM KET: image fit-attached for %s at row %d",
                                 bqms_code, start_row)
             else:
-                logger.info("CAM KET: no image for bqms=%r (images_map keys=%s)",
-                            bqms_code, list(images_map.keys())[:5])
+                # Thang 2026-06-03: WARNING (was info) so missing-image
+                # gaps surface in standard log filters next to the
+                # QUOTATION sibling line — single noisy line beats a
+                # silent blank in the PDF.
+                logger.warning(
+                    "CAM KET: NO image for bqms=%r at row %d. "
+                    "images_map has %d keys (sample: %s). Cell will be blank.",
+                    bqms_code, start_row, len(images_map),
+                    list(images_map.keys())[:5],
+                )
             # NOTE: rows 2-3 of each 3-row block may carry stale sample text
             # ("FINGER RF" etc.) from the template. Fix at template level
             # rather than guessing here. See plans/bqms-bugs.md.
@@ -976,25 +1354,41 @@ def fill_cam_ket(
         date_row = 31 + extra_rows
         _safe_set_cell(ws, date_row, COL_L, f"Ngày {now.day} Tháng {now.month} năm {now.year}")
 
-        # Per Thang 2026-05-10 "dòng dãn cách chưa đều":
-        # Normalize header rows (1-13) to consistent 22pt + each item block
-        # row to 28pt min so text + image fit comfortably + bottom signature
-        # rows (date + footer) to 32pt for legibility.
+        # Per Thang 2026-05-21: "khoảng cách giữa các dòng chưa đều nhau"
+        # — apply uniform heights so the page reads cleanly.
+        # Header rows 1-13: uniform 24pt (was 22, mixed). Bullet text inside
+        # header rows (multi-line "Đã gửi báo giá..." etc.) needs more space.
         for r in range(1, 14):
             cur = ws.row_dimensions[r].height
-            if cur is None or cur < 22 or cur > 35:
-                ws.row_dimensions[r].height = 22
-        # Item blocks (rows 16-18, 19-21, then dynamic)
+            if cur is None or cur < 24 or cur > 40:
+                ws.row_dimensions[r].height = 24
+            # If cell carries multi-line content, bump it more
+            cell_val = ws.cell(row=r, column=1).value or ws.cell(row=r, column=2).value
+            if isinstance(cell_val, str) and "\n" in cell_val:
+                n_lines = cell_val.count("\n") + 1
+                ws.row_dimensions[r].height = max(24, n_lines * 18)
+            # Apply wrap_text + top alignment on bullet rows so dash content
+            # reflows cleanly instead of overflowing right.
+            try:
+                from openpyxl.styles import Alignment as _Al
+                c1 = ws.cell(row=r, column=1)
+                if isinstance(c1.value, str) and ("-" in c1.value or "•" in c1.value):
+                    c1.alignment = _Al(wrap_text=True, vertical="top", horizontal="left")
+            except Exception:
+                pass
+
+        # Item blocks (rows 16-18, 19-21, then dynamic): each row in a block
+        # carries spec text + image — bump to 36pt for visible image headroom.
         last_block_row = SP_START + len(products) * ROWS_PER_SP - 1 + extra_rows
         for r in range(SP_START, last_block_row + 1):
             cur = ws.row_dimensions[r].height
-            if cur is None or cur < 28:
-                ws.row_dimensions[r].height = 28
+            if cur is None or cur < 32:
+                ws.row_dimensions[r].height = 36
         # Date + signature footer rows
         for r in range(date_row, date_row + 5):
             cur = ws.row_dimensions[r].height
-            if cur is None or cur < 22:
-                ws.row_dimensions[r].height = 22
+            if cur is None or cur < 24:
+                ws.row_dimensions[r].height = 24
     else:
         # Create from scratch
         wb = openpyxl.Workbook()
@@ -1088,6 +1482,14 @@ def fill_cam_ket(
 
     Path(output_path).parent.mkdir(parents=True, exist_ok=True)
     wb.save(output_path)
+    # Thang 2026-05-21: CRITICAL — openpyxl writes absolute drawing rels
+    # (Target="/xl/media/image1.png") which LibreOffice/x2t silently reject.
+    # Symptom: OnlyOffice editor opens, immediately throws error code=-4
+    # "Tải về không thành công" because the xlsx → Editor.bin conversion
+    # fails. PDF rendering via Gotenberg also drops images. Fix rewrites
+    # paths to relative ("../media/image1.png") in the saved zip.
+    # (Function existed at line 554 but was never called — dead code.)
+    fix_drawing_rels_in_xlsx(output_path)
     logger.info("CAM KET filled: %d products -> %s", len(products), output_path)
     return True
 
@@ -1100,16 +1502,42 @@ def fill_quotation(
     images_map: dict[str, bytes],
     rfq_no: str,
     output_path: str,
+    round_n: int = 1,
+    quote_date=None,
 ) -> bool:
     """Fill the Commercial Quotation Excel template.
 
     If template_path is None or not found, creates from scratch.
     Columns: A=idx, B=RFQ, C=BQMS+spec, D=maker, E=image,
              F=unit, G=qty, H=price, I=amount, J=notes
+
+    Args:
+        quote_date: optional date/datetime to stamp on the quotation header
+                    (cell C4 + defensive date sweep). Defaults to today.
+                    Per Thang 2026-06-13: passing a date pins it; default
+                    today still wins for fresh round-1 quotes.
     """
     from openpyxl.styles import Font, Alignment, Border, Side, PatternFill
 
-    now = datetime.now()
+    # Thang 2026-06-13: caller may pass an explicit quote_date (date,
+    # datetime, or yyyy-mm-dd string). Default = today in VN tz (forced
+    # via _vn_now) so server tz can't drift the stamped date. Always
+    # converted to a datetime so `_refresh_dates_in_sheet` + strftime work
+    # uniformly.
+    if quote_date is None:
+        now = _vn_now()
+    elif isinstance(quote_date, datetime):
+        now = quote_date
+    elif isinstance(quote_date, _date):
+        # `date` → datetime at midnight (time component unused for dd/mm/yyyy)
+        now = datetime(quote_date.year, quote_date.month, quote_date.day)
+    elif isinstance(quote_date, str) and quote_date.strip():
+        try:
+            now = datetime.fromisoformat(quote_date.strip())
+        except ValueError:
+            now = _vn_now()
+    else:
+        now = _vn_now()
 
     if template_path and Path(template_path).exists():
         wb = openpyxl.load_workbook(template_path)
@@ -1124,54 +1552,55 @@ def fill_quotation(
         # Per Thang 2026-05-10.
         _fixup_quotation_template(ws)
 
+        # Thang 2026-05-21: defensive — refresh ALL date cells in the
+        # Quotation sheet so V2/V3 don't inherit V1's date from template
+        # cells that aren't on the explicit per-cell write path.
+        n_dates = _refresh_dates_in_sheet(ws, now)
+        # Thang 2026-05-22: same dash-bullet fix as CAM_KET — template's
+        # "-Cam kết..." (missing space after dash) renders ugly in PDF.
+        # Normalize to "- Cam kết..." so QUOTATION matches the template
+        # form 100%.
+        n_dash = _fix_dash_bullets_in_sheet(ws)
+        if n_dates or n_dash:
+            logger.info("QUOTATION fixups: %d date cells refreshed, "
+                        "%d dash bullets fixed", n_dates, n_dash)
+
         COL_A, COL_B, COL_C, COL_D = 1, 2, 3, 4
         COL_E, COL_F, COL_G, COL_H, COL_I, COL_J = 5, 6, 7, 8, 9, 10
 
         _safe_set_cell(ws, 4, COL_C, now.strftime("%d/%m/%Y"))
         _safe_set_cell(ws, 6, COL_H, rfq_no)
-        _safe_set_cell(ws, 7, COL_C, f"QTAMABN-SEV {now.strftime('%d%m%Y')} - {rfq_no}")
-        # Product description: short list of ALL items being quoted (max 3).
-        # Per Thang 2026-05-10:
-        # 1) header layout was wrong (chỉ lấy first item)
-        # 2) PDF was breaking because the long aggregated text wrapped
-        #    vertically inside narrow col A (~10 chars), making row 14
-        #    grow to 15+ lines and pushing the items table off page 1.
-        # Fix: cap each name at 35 chars + max 3 items + merge A14:J14 so
-        # the text spans the full table width and fits on 1-2 lines.
-        if products:
-            seen: list[str] = []
-            for p in products:
-                name = (p.get("short_name") or p.get("spec") or p.get("bqms") or "").strip()
-                if name and name not in seen:
-                    # Trim long specs so the header doesn't blow up.
-                    seen.append(name[:35] + ("…" if len(name) > 35 else ""))
-                if len(seen) >= 3:
-                    break
-            desc = ", ".join(seen)
-            # Merge A14:J14 so the description gets ~146 width units
-            # (~1020 px) and stays on 1-2 lines instead of 15+.
-            try:
-                # First clear any existing merge on row 14 cols A..J that
-                # might be holding back our merge.
-                from openpyxl.utils.cell import range_boundaries as _rb
-                for mr in list(ws.merged_cells.ranges):
-                    a, b, c, d = _rb(str(mr))
-                    if b <= 14 <= d and a >= 1 and c <= 10:
-                        ws.unmerge_cells(str(mr))
-                ws.merge_cells(start_row=14, start_column=1, end_row=14, end_column=10)
-            except Exception:
-                pass
-            _safe_set_cell(ws, 14, COL_A, f"Product description / Tên hàng: {desc}")
-            try:
-                from openpyxl.styles import Alignment as _Al, Font as _F
-                ws.cell(row=14, column=COL_A).alignment = _Al(
-                    wrap_text=True, vertical="center", horizontal="left",
-                )
-                ws.cell(row=14, column=COL_A).font = _F(name="Arial", size=10, bold=True)
-            except Exception:
-                pass
-            # Explicit modest height — 2 lines max.
-            ws.row_dimensions[14].height = 26
+        # Quotation No format (Thang 2026-05-22, separator = underscore):
+        #   1 mã   → "{RFQ_NO}_{BQMS_NO}_AMABACNINH_L{round}"
+        #   2+ mã  → "{RFQ_NO}_AMABACNINH_L{round}"
+        # Underscore between SEGMENTS so the dash inside BQMS code
+        # (e.g. Z0000002-389973) stays intact and visually distinct.
+        distinct_codes = []
+        for p in products:
+            code = (p.get("bqms") or "").strip()
+            if code and code not in distinct_codes:
+                distinct_codes.append(code)
+        if len(distinct_codes) == 1:
+            quotation_no = f"{rfq_no}_{distinct_codes[0]}_AMABACNINH_L{round_n}"
+        else:
+            quotation_no = f"{rfq_no}_AMABACNINH_L{round_n}"
+        _safe_set_cell(ws, 7, COL_C, quotation_no)
+        # Product description row REMOVED (Thang 2026-06-15): user requested it
+        # be hidden — the items table below already lists every product, so the
+        # aggregated header line just duplicates info and crowds the page.
+        # Clear A14 so any placeholder text "Product description/ Tên hàng: "
+        # left in the template doesn't render. Keep row 14 with modest height
+        # so the spacing above the items table doesn't collapse.
+        try:
+            from openpyxl.utils.cell import range_boundaries as _rb
+            for mr in list(ws.merged_cells.ranges):
+                a, b, c, d = _rb(str(mr))
+                if b <= 14 <= d and a >= 1 and c <= 10:
+                    ws.unmerge_cells(str(mr))
+        except Exception:
+            pass
+        _safe_set_cell(ws, 14, COL_A, "")
+        ws.row_dimensions[14].height = 8
 
         # Widen B (BQMS code col) so item codes like Z0000002-544469 fit.
         ws.column_dimensions["B"].width = max(ws.column_dimensions["B"].width or 0, 18)
@@ -1248,8 +1677,11 @@ def fill_quotation(
             estimated_lines = 1 + (spec_len // 38) + spec_text.count("\n")
             ws.row_dimensions[row].height = max(85, min(180, estimated_lines * 16 + 30))
 
-            # Image (strict mapping) — auto-fit cell E{row}. Per Thang
-            # 2026-05-10: ảnh phải tự co dãn theo cell.
+            # Image (strict mapping) — auto-fit cell E{row}.
+            # Thang 2026-05-21: row was already bumped to ≥85pt for image
+            # headroom. Pass span_rows=1 (single-row cell, no merge), but
+            # cell pixel size now includes the bumped row height so image
+            # fills properly with new fill_ratio=0.92.
             bqms_code = (product.get("bqms") or "").strip()
             if bqms_code and bqms_code in images_map:
                 ok = _attach_image_fit(
@@ -1260,7 +1692,15 @@ def fill_quotation(
                 if ok:
                     logger.info("QUOTATION: image fit-attached for %s at row %d", bqms_code, row)
             else:
-                logger.info("QUOTATION: no image for bqms=%r", bqms_code)
+                # Thang 2026-06-03: was info-level, easy to miss. Upgrade
+                # to WARNING with all the context an operator needs to
+                # fix it (rename a scraper file, picker-pin, or upload an
+                # override). Matches CAM_KET sibling log.
+                logger.warning(
+                    "QUOTATION: NO image for bqms=%r at row %d. "
+                    "images_map has %d keys (sample: %s). Cell will be blank.",
+                    bqms_code, row, len(images_map), list(images_map.keys())[:5],
+                )
 
             last_data_row = row
 
@@ -1340,7 +1780,15 @@ def fill_quotation(
 
         ws['A4'] = 'Quotation No:'
         ws['A4'].font = Font(name='Arial', size=10, bold=True)
-        ws['B4'] = f"QTAMABN-SEV {now.strftime('%d%m%Y')} - {rfq_no}"
+        _scratch_codes = []
+        for p in products:
+            c = (p.get("bqms") or "").strip()
+            if c and c not in _scratch_codes:
+                _scratch_codes.append(c)
+        if len(_scratch_codes) == 1:
+            ws['B4'] = f"{rfq_no}_{_scratch_codes[0]}_AMABACNINH_L{round_n}"
+        else:
+            ws['B4'] = f"{rfq_no}_AMABACNINH_L{round_n}"
         ws['B4'].font = data_font
 
         ws['F3'] = 'RFQ No:'
@@ -1437,6 +1885,9 @@ def fill_quotation(
 
     Path(output_path).parent.mkdir(parents=True, exist_ok=True)
     wb.save(output_path)
+    # Thang 2026-05-21: same drawing-rels fix as Cam kết — required for
+    # OnlyOffice converter (x2t) to not crash on absolute image paths.
+    fix_drawing_rels_in_xlsx(output_path)
     logger.info("Quotation filled: %d products -> %s", len(products), output_path)
     return True
 
@@ -1451,6 +1902,8 @@ async def run_autofill_job(
     cam_ket_template: str | None = None,
     commercial_template: str | None = None,
     flow_type: str = "tm",
+    round_n: int = 1,
+    quote_date: _date | datetime | str | None = None,
 ) -> dict[str, Any]:
     """Execute the full auto-fill pipeline for a quotation.
 
@@ -1458,6 +1911,11 @@ async def run_autofill_job(
         flow_type: "tm" (Thương Mại) or "gc" (Gia Công).
             TM: CAM KET (all items) + Commercial Quotation (TM items only).
             GC: CAM KET (all items) + Commercial Quotation (GC items with cost breakdown).
+        quote_date: optional date (date | datetime | yyyy-mm-dd string) to
+            stamp on output files. None → today in VN tz (Asia/Ho_Chi_Minh)
+            so server tz can't drift the stamped date. Threaded into
+            fill_quotation() + GC builder so all paths share the same date.
+            Per Thang 2026-06-13 (Bug fix T3).
 
     Steps:
       1. Apply user-edited prices (unit_price field overrides suggested_price)
@@ -1507,7 +1965,24 @@ async def run_autofill_job(
 
         # Get RFQ no — used to locate the parent QT folder + name the L1 subfolder.
         rfq_no = items[0].get("don_hang", "UNKNOWN") if items else "UNKNOWN"
-        now = datetime.now()
+        # Thang 2026-06-13 (Bug fix T3): use caller-supplied quote_date if
+        # provided; otherwise FORCE VN tz so the year/month folder naming
+        # below matches Hanoi office calendar. Resolved into `quote_dt` so
+        # we pass the exact same value down to fill_quotation().
+        if quote_date is None:
+            quote_dt: datetime = _vn_now()
+        elif isinstance(quote_date, datetime):
+            quote_dt = quote_date
+        elif isinstance(quote_date, _date):
+            quote_dt = datetime(quote_date.year, quote_date.month, quote_date.day)
+        elif isinstance(quote_date, str) and quote_date.strip():
+            try:
+                quote_dt = datetime.fromisoformat(quote_date.strip())
+            except ValueError:
+                quote_dt = _vn_now()
+        else:
+            quote_dt = _vn_now()
+        now = quote_dt
 
         # Per Thang 2026-05-10: output goes into the parent QT folder's L1
         # subfolder so cam ket + quotation files live together with the
@@ -1524,10 +1999,13 @@ async def run_autofill_job(
             )
             parent = find_existing_rfq_folder(rfq_no, now)
             if parent is not None:
-                output_dir = quote_round_subfolder(parent, rfq_no, round_n=1)
+                # Thang 2026-05-21: pass actual round_n so files land directly
+                # in L{round_n}/. Previously hardcoded round_n=1 and caller
+                # post-moved files L1→L{n} — that move overwrote existing L{n}.
+                output_dir = quote_round_subfolder(parent, rfq_no, round_n=round_n)
                 logger.info(
-                    "autofill: using L1 subfolder under parent QT folder: %s",
-                    output_dir,
+                    "autofill: using L%d subfolder under parent QT folder: %s",
+                    round_n, output_dir,
                 )
             else:
                 # Fallback: old layout under /data/files/quotations/
@@ -1591,9 +2069,87 @@ async def run_autofill_job(
         for code, ovr_bytes in override_map.items():
             images_map[code] = ovr_bytes
 
+        # PRIORITY 0 (Thang 2026-05-22): user-pinned primary image from picker
+        # modal. Stored in `bqms_code_primary_image.image_path` (DB) — set via
+        # POST /bqms/code/{code}/primary-image after user crops+pins via UI.
+        # Same priority order /bqms-images uses for the gallery → keeps báo giá
+        # in sync with what user sees in the BQMS table image column.
+        # Overlay LAST so this beats both filesystem matches + per-rfq overrides.
+        pinned_map: dict[str, bytes] = {}
+        try:
+            codes = list({(it.get("bqms") or "").strip() for it in items if it.get("bqms")})
+            if codes:
+                rows = await conn.fetch(
+                    "SELECT bqms_code, image_path FROM bqms_code_primary_image "
+                    "WHERE bqms_code = ANY($1::text[])",
+                    codes,
+                )
+                for r in rows:
+                    p = Path(r["image_path"]) if r["image_path"] else None
+                    if p and p.exists() and p.is_file():
+                        try:
+                            pinned_map[r["bqms_code"]] = p.read_bytes()
+                        except OSError as exc:
+                            logger.warning("pinned image read failed %s: %s", p, exc)
+                    elif p:
+                        logger.warning(
+                            "pinned image disappeared from disk: %s (code=%s)",
+                            p, r["bqms_code"],
+                        )
+        except Exception as exc:
+            logger.warning("pinned image DB lookup failed (continuing): %s", exc)
+
+        for code, pin_bytes in pinned_map.items():
+            images_map[code] = pin_bytes
+            logger.info("autofill: image PINNED (primary) for %s (%d bytes)",
+                        code, len(pin_bytes))
+
         if images_map:
-            logger.info('autofill: %d products matched to images (%d overrides)',
-                        len(images_map), len(override_map))
+            logger.info('autofill: %d products matched to images '
+                        '(%d overrides, %d pinned)',
+                        len(images_map), len(override_map), len(pinned_map))
+
+        # Defensive diagnostic (Thang 2026-06-03): when a priced item's
+        # bqms_code falls through ALL fallback layers (filesystem substring
+        # match → /data/quote-overrides/{rfq}/ → bqms_code_primary_image),
+        # the cell is left blank in CAM_KET + QUOTATION and the user has
+        # no obvious clue why. Surface it now so the next /admin pass +
+        # log review immediately spots the gap.
+        # Also flag any "_unmapped_*" files we got from the bidding scraper
+        # — those indicate multi-code workbooks the scraper couldn't
+        # attribute (e.g. RFQ_Tool_Box.xlsx for QT26071059), and the
+        # candidate codes are exactly the ones that will end up blank.
+        try:
+            requested_codes = sorted({
+                (it.get("bqms") or "").strip()
+                for it in items if it.get("bqms")
+            })
+            missing_codes = [c for c in requested_codes if c and c not in images_map]
+            if missing_codes:
+                logger.warning(
+                    "autofill: %d/%d items have NO image after all fallbacks "
+                    "(filesystem + override + pinned). Codes without image: %s. "
+                    "RFQ=%s. Action: rename matching file under "
+                    "/data/onedrive-staging/.../%s/images/ to '{code}_1.png', "
+                    "OR picker-pin via /bqms/code/{code}/primary-image.",
+                    len(missing_codes), len(requested_codes),
+                    missing_codes[:20], rfq_no, rfq_no,
+                )
+            unmapped_files = [
+                n for n, _ in all_image_files if "_unmapped_" in n.lower()
+            ]
+            if unmapped_files:
+                logger.warning(
+                    "autofill: bidding scraper left %d UNMAPPED image file(s) "
+                    "for RFQ=%s: %s. These cannot match any bqms_code via "
+                    "substring. Candidate codes from this RFQ's items: %s. "
+                    "If the count matches, rename them in order: "
+                    "'_unmapped_N.ext' -> '{candidate_code}_1.ext'.",
+                    len(unmapped_files), rfq_no, unmapped_files[:10],
+                    missing_codes[:20],
+                )
+        except Exception as _diag_exc:  # never let diag crash the pipeline
+            logger.debug("autofill: missing-image diagnostic failed: %s", _diag_exc)
 
         # Filter items by flow_type
         if flow_type == "gc":
@@ -1648,6 +2204,7 @@ async def run_autofill_job(
                     images_map=images_map,
                     output_dir=output_dir,
                     gc_template_path="/data/files/templates/QUOTATION_GC.xlsx",
+                    quote_date=quote_dt,
                 )
                 files.extend(gc_result.get("files", []))
                 if gc_result.get("errors"):
@@ -1698,12 +2255,22 @@ async def run_autofill_job(
         # Per Thang 2026-05-11: skip if no items have a price (price filter
         # already applied above; target_items would be []).
         if not is_gc_flow and target_items:
-            qt_xlsx = str(output_dir / f"QUOTATION_{rfq_no}.xlsx")
-            fill_quotation(commercial_template, target_items, images_map, rfq_no, qt_xlsx)
+            # Quotation XLSX filename = parent folder name + .xlsx (matches PDF
+            # naming convention). User requirement 2026-06-04: copy exactly to
+            # make it easy to identify the round (L1/L2/L3/L4). Happy path
+            # produces e.g. `QT26071059_AMABACNINH_L1.xlsx/.pdf`; fallback
+            # folder shape (no AMABACNINH suffix) is honored automatically
+            # because we derive from output_dir.name rather than hardcoding.
+            base_name = output_dir.name
+            qt_xlsx = str(output_dir / f"{base_name}.xlsx")
+            fill_quotation(
+                commercial_template, target_items, images_map, rfq_no, qt_xlsx,
+                round_n=round_n, quote_date=quote_dt,
+            )
             files.append({"type": "quotation_xlsx", "path": qt_xlsx})
 
             try:
-                qt_pdf = str(output_dir / f"QUOTATION_{rfq_no}.pdf")
+                qt_pdf = str(output_dir / f"{base_name}.pdf")
                 await convert_xlsx_to_pdf(qt_xlsx, qt_pdf)
                 files.append({"type": "quotation_pdf", "path": qt_pdf})
             except Exception as exc:

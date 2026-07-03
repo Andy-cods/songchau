@@ -18,6 +18,7 @@ import { useRouter } from 'next/navigation';
 import { api } from '@/lib/api';
 import { cn, formatCurrency } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
+import { PageHeader } from '@/components/shared/page-header';
 import {
   Dialog,
   DialogContent,
@@ -350,7 +351,7 @@ function StepReview({
         <button
           type="button"
           onClick={addItem}
-          className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-indigo-600 hover:text-indigo-700 hover:bg-indigo-50 rounded-md transition-colors"
+          className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-brand-600 hover:text-brand-700 hover:bg-brand-50 rounded-md transition-colors"
         >
           <Plus className="h-3.5 w-3.5" />
           Thêm dòng
@@ -441,7 +442,7 @@ function StepReview({
           <span className="text-sm text-slate-500">
             Tổng: {items.length} dòng
           </span>
-          <span className="text-sm font-bold font-mono text-indigo-700">
+          <span className="text-sm font-bold font-mono text-brand-700">
             {formatCurrency(
               items.reduce(
                 (sum, item) => sum + item.sell_price * item.quantity,
@@ -671,14 +672,11 @@ export default function QuotationWizardPage() {
   return (
     <div>
       {/* Header */}
-      <div className="mb-6">
-        <h2 className="text-xl font-display font-bold text-slate-900">
-          Tạo báo giá BQMS
-        </h2>
-        <p className="text-sm text-slate-500 mt-0.5">
-          Upload RFQ, xem xét và gửi duyệt báo giá
-        </p>
-      </div>
+      <PageHeader
+        title="Tạo báo giá BQMS"
+        subtitle="Upload RFQ, xem xét và gửi duyệt báo giá"
+        className="mb-6"
+      />
 
       {/* Step Indicator */}
       <StepIndicator currentStep={currentStep} />

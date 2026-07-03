@@ -5,6 +5,17 @@ import { useQuery } from '@tanstack/react-query';
 import { ClipboardList, Filter, Search } from 'lucide-react';
 import { api } from '@/lib/api';
 import { cn, formatDate, formatRelativeTime } from '@/lib/utils';
+import { PageHeader } from '@/components/shared/page-header';
+import { Card } from '@/components/shared/card';
+import { EmptyState } from '@/components/shared/empty-state';
+import {
+  Table,
+  TableHeader,
+  TableBody,
+  TableRow,
+  TableHead,
+  TableCell,
+} from '@/components/shared/table';
 
 // ─── Types ───────────────────────────────────────────────────────
 
@@ -37,7 +48,7 @@ const ACTION_STYLES: Record<
   },
   LOGIN: {
     label: 'Đăng nhập',
-    className: 'bg-indigo-50 text-indigo-700 border-indigo-200',
+    className: 'bg-cyan-50 text-cyan-700 border-cyan-200',
   },
   LOGOUT: {
     label: 'Đăng xuất',
@@ -148,16 +159,12 @@ export default function AuditLogPage() {
   return (
     <div>
       {/* Header */}
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <h2 className="text-xl font-display font-bold text-slate-900">
-            Nhật ký hệ thống
-          </h2>
-          <p className="text-sm text-slate-500 mt-0.5">
-            Theo dõi mọi hoạt động trong hệ thống
-          </p>
-        </div>
-      </div>
+      <PageHeader
+        icon={ClipboardList}
+        title="Nhật ký hệ thống"
+        subtitle="Theo dõi mọi hoạt động trong hệ thống"
+        className="mb-6"
+      />
 
       {/* Error State */}
       {error && !isLoading && (
@@ -178,7 +185,7 @@ export default function AuditLogPage() {
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Tìm kiếm người dùng, bảng, ID..."
-            className="w-full pl-10 pr-4 py-2 border border-slate-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+            className="w-full pl-10 pr-4 py-2 border border-slate-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent"
           />
         </div>
 
@@ -196,7 +203,7 @@ export default function AuditLogPage() {
                 className={cn(
                   'px-2.5 py-1 text-xs font-medium rounded border transition-colors',
                   filterAction === action
-                    ? 'bg-indigo-600 text-white border-indigo-600'
+                    ? 'bg-brand-600 text-white border-brand-600'
                     : 'bg-white text-slate-600 border-slate-300 hover:border-slate-400'
                 )}
               >
@@ -210,119 +217,109 @@ export default function AuditLogPage() {
       </div>
 
       {/* Table */}
-      <div className="bg-white rounded-lg shadow-sm border border-slate-200 overflow-hidden">
+      <Card padded={false} className="overflow-hidden">
         {isLoading ? (
           <TableSkeleton />
         ) : filtered.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-16 text-slate-300">
-            <ClipboardList className="h-12 w-12 mb-3" />
-            <p className="text-sm text-slate-400">
-              {entries.length === 0
+          <EmptyState
+            icon={ClipboardList}
+            heading={
+              entries.length === 0
                 ? 'Chưa có dữ liệu nhật ký'
-                : 'Không có kết quả nào'}
-            </p>
-          </div>
+                : 'Không có kết quả nào'
+            }
+          />
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[900px]">
-              <thead>
-                <tr className="border-b border-slate-100 bg-slate-50/50">
-                  {[
-                    'Thời gian',
-                    'Người dùng',
-                    'Hành động',
-                    'Bảng',
-                    'ID',
-                    'Chi tiết',
-                  ].map((h) => (
-                    <th
-                      key={h}
-                      className="px-4 py-3 text-left text-xs font-mono uppercase tracking-wider text-slate-400"
-                    >
-                      {h}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {filtered.map((entry: any, idx: number) => (
-                  <tr
-                    key={entry.id ?? idx}
-                    className="hover:bg-slate-50/50 transition-colors"
-                  >
-                    {/* Thời gian */}
-                    <td className="px-4 py-3 whitespace-nowrap">
-                      <div>
-                        <p className="text-xs font-mono text-slate-600">
-                          {formatRelativeTime(
-                            entry.timestamp ?? entry.created_at
-                          )}
-                        </p>
-                        <p className="text-[10px] text-slate-400">
-                          {entry.timestamp || entry.created_at
-                            ? `${new Date(
-                                entry.timestamp ?? entry.created_at
-                              ).toLocaleTimeString('vi-VN', {
-                                hour: '2-digit',
-                                minute: '2-digit',
-                                second: '2-digit',
-                              })} ${formatDate(
-                                entry.timestamp ?? entry.created_at
-                              )}`
-                            : '—'}
-                        </p>
-                      </div>
-                    </td>
-
-                    {/* Người dùng */}
-                    <td className="px-4 py-3 whitespace-nowrap">
-                      <div>
-                        <p className="text-sm text-slate-800 font-medium">
-                          {entry.user_name ?? entry.user_email ?? '—'}
-                        </p>
-                        <p className="text-xs text-slate-400">
-                          {entry.user_email ?? ''}
-                        </p>
-                      </div>
-                    </td>
-
-                    {/* Hành động */}
-                    <td className="px-4 py-3">
-                      <ActionBadge action={entry.action} />
-                    </td>
-
-                    {/* Bảng */}
-                    <td className="px-4 py-3 whitespace-nowrap">
-                      <span className="text-xs font-mono bg-slate-100 text-slate-600 px-2 py-0.5 rounded">
-                        {TABLE_LABELS[entry.table_name] ??
-                          entry.table_name ??
-                          '—'}
-                      </span>
-                    </td>
-
-                    {/* ID */}
-                    <td className="px-4 py-3 whitespace-nowrap">
-                      <span className="text-xs font-mono text-indigo-600">
-                        {entry.record_id ?? '—'}
-                      </span>
-                    </td>
-
-                    {/* Chi tiết */}
-                    <td className="px-4 py-3 max-w-[300px]">
-                      <p
-                        className="text-sm text-slate-600 truncate"
-                        title={entry.detail ?? entry.description ?? ''}
-                      >
-                        {entry.detail ?? entry.description ?? '—'}
-                      </p>
-                    </td>
-                  </tr>
+          <Table className="min-w-[900px]">
+            <TableHeader>
+              <TableRow>
+                {[
+                  'Thời gian',
+                  'Người dùng',
+                  'Hành động',
+                  'Bảng',
+                  'ID',
+                  'Chi tiết',
+                ].map((h) => (
+                  <TableHead key={h}>{h}</TableHead>
                 ))}
-              </tbody>
-            </table>
-          </div>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {filtered.map((entry: any, idx: number) => (
+                <TableRow key={entry.id ?? idx}>
+                  {/* Thời gian */}
+                  <TableCell className="whitespace-nowrap">
+                    <div>
+                      <p className="text-xs font-mono text-slate-600">
+                        {formatRelativeTime(
+                          entry.timestamp ?? entry.created_at
+                        )}
+                      </p>
+                      <p className="text-[11px] text-slate-400">
+                        {entry.timestamp || entry.created_at
+                          ? `${new Date(
+                              entry.timestamp ?? entry.created_at
+                            ).toLocaleTimeString('vi-VN', {
+                              hour: '2-digit',
+                              minute: '2-digit',
+                              second: '2-digit',
+                            })} ${formatDate(
+                              entry.timestamp ?? entry.created_at
+                            )}`
+                          : '—'}
+                      </p>
+                    </div>
+                  </TableCell>
+
+                  {/* Người dùng */}
+                  <TableCell className="whitespace-nowrap">
+                    <div>
+                      <p className="text-sm text-slate-800 font-medium">
+                        {entry.user_name ?? entry.user_email ?? '—'}
+                      </p>
+                      <p className="text-xs text-slate-400">
+                        {entry.user_email ?? ''}
+                      </p>
+                    </div>
+                  </TableCell>
+
+                  {/* Hành động */}
+                  <TableCell>
+                    <ActionBadge action={entry.action} />
+                  </TableCell>
+
+                  {/* Bảng */}
+                  <TableCell className="whitespace-nowrap">
+                    <span className="text-xs font-mono bg-slate-100 text-slate-600 px-2 py-0.5 rounded">
+                      {TABLE_LABELS[entry.table_name] ??
+                        entry.table_name ??
+                        '—'}
+                    </span>
+                  </TableCell>
+
+                  {/* ID */}
+                  <TableCell className="whitespace-nowrap">
+                    <span className="text-xs font-mono text-brand-600">
+                      {entry.record_id ?? '—'}
+                    </span>
+                  </TableCell>
+
+                  {/* Chi tiết */}
+                  <TableCell className="max-w-[300px]">
+                    <p
+                      className="text-sm text-slate-600 truncate"
+                      title={entry.detail ?? entry.description ?? ''}
+                    >
+                      {entry.detail ?? entry.description ?? '—'}
+                    </p>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
         )}
-      </div>
+      </Card>
 
       {/* Count + Pagination */}
       <div className="flex items-center justify-between mt-3">

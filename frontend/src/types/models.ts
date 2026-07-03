@@ -198,20 +198,40 @@ export interface BQMSKpi {
 
 // ─── Notification ───────────────────────────────────────────────
 
+// Real DB enum values (backend `notification_type`): init_v3.sql + migrations
+// (m41 leave_*, procurement_v2_004 procurement_*).
 export type NotificationType =
-  | 'approval_request'
-  | 'approval_result'
-  | 'delivery_update'
-  | 'system'
-  | 'mention';
+  | 'workflow_request'
+  | 'workflow_approved'
+  | 'workflow_rejected'
+  | 'deadline_reminder'
+  | 'stock_alert'
+  | 'po_received'
+  | 'bqms_rfq_new'
+  | 'report_ready'
+  | 'leave_request'
+  | 'leave_approved'
+  | 'leave_rejected'
+  | 'leave_cancelled'
+  | 'procurement_award'
+  | 'procurement_quote'
+  | 'procurement_contract'
+  | 'procurement_po'
+  | 'procurement_delivery';
 
 export interface Notification {
   id: string;
-  user_id: string;
+  // API returns `recipient_id`; `user_id` kept as a back-compat alias.
+  recipient_id: string;
+  user_id?: string;
   type: NotificationType;
   title: string;
+  // `message` is the backend alias for `body` (api injects it in _enrich).
   message: string;
+  body?: string;
   link?: string;
+  ref_type?: string | null;
+  ref_id?: number | string | null;
   is_read: boolean;
   created_at: string;
 }

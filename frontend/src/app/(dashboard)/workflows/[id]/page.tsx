@@ -20,6 +20,8 @@ import { toast } from 'sonner';
 import { api } from '@/lib/api';
 import { cn, formatCurrency, formatDate, formatRelativeTime } from '@/lib/utils';
 import { StatusBadge } from '@/components/shared/status-badge';
+import { Card } from '@/components/shared/card';
+import { EmptyState } from '@/components/shared/empty-state';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -68,7 +70,7 @@ function TimelineItem({
   const actionLabels: Record<string, { label: string; color: string; dotColor: string }> = {
     created: { label: 'Tạo yêu cầu', color: 'text-slate-600', dotColor: 'bg-slate-400' },
     approved: { label: 'Đã duyệt', color: 'text-emerald-600', dotColor: 'bg-emerald-500' },
-    rejected: { label: 'Từ chối', color: 'text-red-600', dotColor: 'bg-red-500' },
+    rejected: { label: 'Từ chối', color: 'text-rose-600', dotColor: 'bg-rose-500' },
     escalated: { label: 'Chuyển cấp trên', color: 'text-amber-600', dotColor: 'bg-amber-500' },
     submitted: { label: 'Gửi duyệt', color: 'text-brand-600', dotColor: 'bg-brand-500' },
     commented: { label: 'Bình luận', color: 'text-slate-600', dotColor: 'bg-slate-400' },
@@ -117,7 +119,7 @@ function TimelineItem({
               <StatusBadge
                 label={STATUS_CONFIG[entry.to_status].label}
                 variant={STATUS_CONFIG[entry.to_status].variant}
-                className="text-[10px]"
+                className="text-[11px]"
               />
             )}
           </div>
@@ -211,15 +213,12 @@ export default function WorkflowDetailPage() {
 
   if (!workflow) {
     return (
-      <div className="flex flex-col items-center justify-center py-24 text-slate-400">
-        <FileCheck className="h-12 w-12 mb-3" />
-        <p className="text-sm font-medium">Không tìm thấy yêu cầu phê duyệt</p>
-        <Link href="/workflows" className="mt-4">
-          <Button variant="outline" size="sm">
-            Quay lại danh sách
-          </Button>
-        </Link>
-      </div>
+      <EmptyState
+        icon={FileCheck}
+        heading="Không tìm thấy yêu cầu phê duyệt"
+        actionLabel="Quay lại danh sách"
+        onAction={() => router.push('/workflows')}
+      />
     );
   }
 
@@ -333,7 +332,7 @@ export default function WorkflowDetailPage() {
                         step.status === 'approved'
                           ? 'bg-emerald-50 border-emerald-200'
                           : step.status === 'rejected'
-                          ? 'bg-red-50 border-red-200'
+                          ? 'bg-rose-50 border-rose-200'
                           : 'bg-slate-50 border-slate-200'
                       )}
                     >
@@ -372,7 +371,7 @@ export default function WorkflowDetailPage() {
           {/* Timeline / History */}
           <div className="bg-white rounded-lg shadow-sm border border-slate-200 p-5">
             <h3 className="text-sm font-semibold text-slate-700 mb-4 flex items-center gap-2">
-              <Clock className="h-4 w-4 text-indigo-500" />
+              <Clock className="h-4 w-4 text-brand-500" />
               Lịch sử xử lý
             </h3>
 
@@ -448,7 +447,7 @@ export default function WorkflowDetailPage() {
                 {showRejectForm && (
                   <div className="space-y-3">
                     <label className="block text-xs font-medium text-slate-600">
-                      Lý do từ chối <span className="text-red-500">*</span>
+                      Lý do từ chối <span className="text-rose-500">*</span>
                     </label>
                     <textarea
                       value={rejectComment}
@@ -459,12 +458,12 @@ export default function WorkflowDetailPage() {
                       placeholder="Nhập lý do từ chối..."
                       rows={3}
                       className={cn(
-                        'w-full px-3 py-2 text-sm border rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-red-500 resize-none',
-                        rejectError ? 'border-red-400' : 'border-slate-200'
+                        'w-full px-3 py-2 text-sm border rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-rose-500 resize-none',
+                        rejectError ? 'border-rose-400' : 'border-slate-200'
                       )}
                     />
                     {rejectError && (
-                      <p className="text-xs text-red-600">{rejectError}</p>
+                      <p className="text-xs text-rose-600">{rejectError}</p>
                     )}
                     <div className="flex gap-2">
                       <Button

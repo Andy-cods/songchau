@@ -33,6 +33,7 @@ COMPOSE_FILE="${DEPLOY_DIR}/docker-compose.yml"
 # Flags từ arguments
 DO_BACKUP=true
 DO_BUILD=true
+RUN_TESTS=true
 TARGET_BRANCH=""
 
 # ── Màu sắc ───────────────────────────────────────────────────────
@@ -44,9 +45,11 @@ while [[ $# -gt 0 ]]; do
     case "$1" in
         --no-backup)   DO_BACKUP=false; shift ;;
         --skip-build)  DO_BUILD=false;  shift ;;
+        --skip-tests)  RUN_TESTS=false; shift ;;
         --branch)      TARGET_BRANCH="$2"; shift 2 ;;
         --help|-h)
-            echo "Sử dụng: $0 [--no-backup] [--skip-build] [--branch <branch>]"
+            echo "Sử dụng: $0 [--no-backup] [--skip-build] [--skip-tests] [--branch <branch>]"
+            echo "  --skip-tests : bỏ CỔNG KIỂM THỬ trước khi lên live (KHÔNG khuyến nghị — chỉ khi khẩn cấp)"
             exit 0 ;;
         *) echo "Tham số không hợp lệ: $1"; exit 1 ;;
     esac
@@ -252,13 +255,52 @@ else
     log "Build images mới..."
     log "(Quá trình này có thể mất 2-5 phút...)"
 
+    # W0-02: PHẢI build đủ 4 service backend — trước chỉ 'api frontend' khiến
+    # sc-worker/sc-scheduler chạy CODE CŨ sau mỗi deploy (bug HIGH tái diễn).
     if docker compose -f "${COMPOSE_FILE}" build \
         --no-cache \
         --progress=plain \
-        api frontend 2>>"${DEPLOY_LOG}"; then
-        success "Build thành công"
+        api frontend procrastinate-worker procrastinate-scheduler 2>>"${DEPLOY_LOG}"; then
+        success "Build thành công (api + frontend + worker + scheduler)"
     else
         error "Build thất bại! Xem log: ${DEPLOY_LOG}"
+        exit 1
+    fi
+fi
+
+# ═══════════════════════════════════════════════════════════════════
+# BƯỚC 4b: CỔNG KIỂM THỬ (W1-11) — chạy TRƯỚC khi đưa code mới lên live
+# Test image api VỪA build (cô lập tuyệt đối khỏi prod DB). Đỏ → HỦY deploy,
+# KHÔNG restart container: code cũ vẫn chạy nguyên vẹn (không cần rollback).
+# ═══════════════════════════════════════════════════════════════════
+header "Bước 4b: Cổng kiểm thử (CI gate)"
+
+if [[ "${RUN_TESTS}" == "false" ]]; then
+    warn "Bỏ qua cổng test (--skip-tests) — KHÔNG khuyến nghị, chỉ dùng khi khẩn cấp"
+else
+    GATE_SCRIPT="${DEPLOY_DIR}/backend/scripts/run_tests_ci.sh"
+    if [[ ! -x "${GATE_SCRIPT}" && ! -f "${GATE_SCRIPT}" ]]; then
+        error "Không thấy ${GATE_SCRIPT} — không thể chạy cổng test (dùng --skip-tests nếu chủ đích)"
+        ROLLBACK_NEEDED=false
+        exit 1
+    fi
+    # Tên image api mà compose vừa build & sẽ dùng khi 'up -d' (Compose v2)
+    GATE_IMG=$(docker compose -f "${COMPOSE_FILE}" config --images api 2>/dev/null | head -1)
+    if [[ -z "${GATE_IMG}" ]]; then
+        error "Không xác định được image 'api' để test (docker compose config --images api rỗng)."
+        error "HỦY deploy để an toàn (code cũ vẫn chạy). Dùng --skip-tests nếu thực sự cần bỏ qua."
+        ROLLBACK_NEEDED=false
+        exit 1
+    fi
+    log "Chạy harness (smoke+unit+integration) trên image mới: ${GATE_IMG}"
+    log "(Cô lập: Postgres tạm + network riêng — KHÔNG chạm prod DB)"
+    if TEST_IMG="${GATE_IMG}" bash "${GATE_SCRIPT}" -m 'smoke or unit or integration'; then
+        success "Cổng test PASSED — an toàn đưa code mới lên live"
+    else
+        error "CỔNG TEST THẤT BẠI — HỦY deploy. Code mới KHÔNG được đưa lên live."
+        error "Container cũ vẫn đang chạy nguyên vẹn — không cần rollback."
+        error "Sửa test/bug rồi deploy lại, hoặc --skip-tests nếu khẩn cấp (tự chịu rủi ro)."
+        ROLLBACK_NEEDED=false
         exit 1
     fi
 fi

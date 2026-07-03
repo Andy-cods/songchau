@@ -1,0 +1,47 @@
+=== sharedStrings (all <t> text) ===
+'BÁO GIÁ'
+'CÔNG TY TNHH MỘT THÀNH VIÊN SONG CHÂU'
+'TDP 4 Đạm Nội, Phường Tiền Châu, Thành phố Phúc Yên, Tỉnh Vĩnh Phúc'
+'Số báo giá:'
+'SC/TEC - 260520'
+'Mã số thuế: 2500574479'
+'Ngày báo giá:'
+'Điện thoại: 0984716995'
+'Người báo giá:'
+'Đặng Thị Sơn'
+'Website: http://songchau.vn'
+'Hiệu lực báo giá:'
+'10 ngày'
+'Email: dangthison@songchau.vn'
+'TO'
+'Mrs Hoa'
+'CÔNG TY TNHH TECNOTION (Tecnotion Co., Ltd)'
+'Nhà xưởng xây sẵn NX3, Lô đất CN4-2, Khu công nghiệp Yên Phong II-C, Xã Tam Giang, Bắc Ninh'
+'Chúng tôi xin gửi tới Quý công ty bảng báo giá với nội dung như sau:'
+'STT'
+'Vật tư yêu cầu'
+'Số lượng  (MOQ)'
+'ĐVT'
+'Đơn giá'
+'Thành tiền'
+'Ghi chú'
+'Cờ lê lực đầu mỏ lết 5 – 25 Nm độ mở 10-27 mm\r\n(đã bao gồm phí hiệu chuẩn)'
+'Cái'
+'Búa nhựa và cao su 40mm Total THRUH6940'
+'Tay hàn weller model WEP70 (dùng cho máy hàn WE1010)'
+'Đặt hàng: 20-25 ngày'
+'Điều khoản:'
+'* Giao hàng tại kho bên mua\r\n* Thời gian giao hàng: 5-7 ngày kể từ ngày xác nhận đặt hàng\r\n* Điều khoản thanh toán: Theo thỏa thuận hợp đồng.\r\n* Đơn giá có thể thay đổi nếu số lượng đặt hàng thay đổi.'
+'VAT 8%'
+'Tổng tiền thanh toán'
+'XÁC NHẬN BÁO GIÁ'
+'XÁC NHẬN ĐẶT HÀNG'
+'THANK YOU FOR YOUR BUSINESS!'
+'Thành tiền bằng chữ:  Mười ba triệu hai trăm ba mươi nghìn đồng.'
+
+=== drawing1.xml (image anchors) ===
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<xdr:wsDr xmlns:xdr="http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><xdr:oneCellAnchor><xdr:from><xdr:col>0</xdr:col><xdr:colOff>0</xdr:colOff><xdr:row>28</xdr:row><xdr:rowOff>133350</xdr:rowOff></xdr:from><xdr:ext cx="4581525" cy="695325"/><xdr:sp macro="" textlink=""><xdr:nvSpPr><xdr:cNvPr id="2" name="Text Box 18"><a:extLst><a:ext uri="{FF2B5EF4-FFF2-40B4-BE49-F238E27FC236}"><a16:creationId xmlns:a16="http://schemas.microsoft.com/office/drawing/2014/main" id="{9E14CBEC-E7D0-4035-951F-F38E46427C14}"/></a:ext></a:extLst></xdr:cNvPr><xdr:cNvSpPr txBox="1"/></xdr:nvSpPr><xdr:spPr><a:xfrm><a:off x="0" y="12538710"/><a:ext cx="4581525" cy="695325"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom><a:noFill/><a:ln w="9525"><a:noFill/></a:ln></xdr:spPr><xdr:txBody><a:bodyPr vertOverflow="clip" vert="horz" wrap="square" anchor="t" anchorCtr="0"/><a:lstStyle/><a:p><a:pPr lvl="0" algn="l" rtl="0"/><a:endParaRPr lang="zh-CN" altLang="en-US" sz="600"><a:solidFill><a:srgbClr val="000000"/></a:solidFill><a:latin typeface="Trebuchet MS" panose="020B0603020202020204" charset="0"/><a:ea typeface="Trebuchet MS" panose="020B0603020202020204" charset="0"/><a:cs typeface="Trebuchet MS" panose="020B0603020202020204" charset="0"/><a:sym typeface="Trebuchet MS" panose="020B0603020202020204" charset="0"/></a:endParaRPr></a:p></xdr:txBody></xdr:sp><xdr:clientData fLocksWithSheet="0"/></xdr:oneCellAnchor><xdr:oneCellAnchor><xdr:from><xdr:col>0</xdr:col><xdr:colOff>148004</xdr:colOff><xdr:row>0</xdr:row><xdr:rowOff>43963</xdr:rowOff></xdr:from><xdr:ext cx="672612" cy="710711"/><xdr:pic><xdr:nvPicPr><xdr:cNvPr id="3" name="image1.jpg"><a:extLst><a:ext uri="{FF2B5EF4-FFF2-40B4-BE49-F238E27FC236}"><a16:creationId xmlns:a16="http://schemas.microsoft.com/office/drawing/2014/main" id="{2CFD1F97-5FF9-4513-9C8B-1A2DB7C0B730}"/></a:ext></a:extLst></xdr:cNvPr><xdr:cNvPicPr preferRelativeResize="0"/></xdr:nvPicPr><xdr:blipFill rotWithShape="1"><a:blip xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" r:embed="rId1" cstate="print"/><a:srcRect l="12820" r="5983"/><a:stretch/></xdr:blipFill><xdr:spPr><a:xfrm><a:off x="148004" y="43963"/><a:ext cx="672612" cy="710711"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom><a:noFill/></xdr:spPr></xdr:pic><xdr:clientData fLocksWithSheet="0"/></xdr:oneCellAnchor><xdr:oneCellAnchor><xdr:from><xdr:col>1</xdr:col><xdr:colOff>182441</xdr:colOff><xdr:row>20</xdr:row><xdr:rowOff>171937</xdr:rowOff></xdr:from><xdr:ext cx="2827458" cy="1639765"/><xdr:pic><xdr:nvPicPr><xdr:cNvPr id="4" name="image2.jpg"><a:extLst><a:ext uri="{FF2B5EF4-FFF2-40B4-BE49-F238E27FC236}"><a16:creationId xmlns:a16="http://schemas.microsoft.com/office/drawing/2014/main" id="{62B5D3FF-F6ED-4CE5-B762-DF4674CDAF4F}"/></a:ext></a:extLst></xdr:cNvPr><xdr:cNvPicPr preferRelativeResize="0"/></xdr:nvPicPr><xdr:blipFill><a:blip xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" r:embed="rId2" cstate="print"/><a:stretch><a:fillRect/></a:stretch></xdr:blipFill><xdr:spPr><a:xfrm><a:off x="571061" y="7525237"/><a:ext cx="2827458" cy="1639765"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom><a:noFill/></xdr:spPr></xdr:pic><xdr:clientData fLocksWithSheet="0"/></xdr:oneCellAnchor></xdr:wsDr>
+=== drawing1.xml.rels ===
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="../media/image2.jpeg"/><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="../media/image1.jpeg"/></Relationships>

@@ -20,6 +20,16 @@ import {
   Undo2,
 } from 'lucide-react';
 import Link from 'next/link';
+import { PageHeader } from '@/components/shared/page-header';
+import { EmptyState } from '@/components/shared/empty-state';
+import {
+  Table,
+  TableHeader,
+  TableBody,
+  TableRow,
+  TableHead,
+  TableCell,
+} from '@/components/shared/table';
 
 interface Quotation {
   id: number;
@@ -52,7 +62,7 @@ const STATUS_BADGE: Record<string, { label: string; cls: string; icon: any }> = 
   processing: { label: 'Đang xử lý',   cls: 'bg-blue-100 text-blue-700',   icon: Loader2 },
   completed:  { label: 'Hoàn thành',   cls: 'bg-green-100 text-green-700', icon: CheckCircle },
   failed:     { label: 'Lỗi',          cls: 'bg-red-100 text-red-700',     icon: XCircle },
-  submitted:  { label: 'Đã gửi',       cls: 'bg-purple-100 text-purple-700', icon: CheckCircle },
+  submitted:  { label: 'Đã gửi',       cls: 'bg-sky-100 text-sky-700',     icon: CheckCircle },
 };
 
 export default function QuotationHistoryPage() {
@@ -117,18 +127,19 @@ export default function QuotationHistoryPage() {
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <h2 className="text-xl font-display font-bold text-slate-900">Lịch Sử Báo Giá</h2>
-          <p className="text-sm text-slate-500 mt-0.5">Danh sách tất cả báo giá đã tạo</p>
-        </div>
-        <Link
-          href="/bqms/quotation/new"
-          className="flex items-center gap-2 px-4 py-2 bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium rounded-lg transition-colors"
-        >
-          <FileSpreadsheet className="h-4 w-4" />Tạo mới
-        </Link>
-      </div>
+      <PageHeader
+        title="Lịch Sử Báo Giá"
+        subtitle="Danh sách tất cả báo giá đã tạo"
+        className="mb-6"
+        actions={
+          <Link
+            href="/bqms/quotation/new"
+            className="flex items-center gap-2 px-4 py-2 bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium rounded-lg transition-colors"
+          >
+            <FileSpreadsheet className="h-4 w-4" />Tạo mới
+          </Link>
+        }
+      />
 
       <div className="mb-4 flex gap-3 items-center">
         <div className="relative max-w-md flex-1">
@@ -157,80 +168,76 @@ export default function QuotationHistoryPage() {
             <Loader2 className="h-6 w-6 animate-spin mx-auto mb-2" />Đang tải...
           </div>
         ) : quotations.length === 0 ? (
-          <div className="p-8 text-center text-slate-400">Chưa có báo giá nào</div>
+          <EmptyState icon={FileSpreadsheet} heading="Chưa có báo giá nào" />
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead>
-                <tr className="border-b border-slate-100 bg-slate-50/50">
-                  <th className="text-left text-xs font-mono uppercase tracking-wider text-slate-400 px-4 py-3">#</th>
-                  <th className="text-left text-xs font-mono uppercase tracking-wider text-slate-400 px-4 py-3">RFQ</th>
-                  <th className="text-left text-xs font-mono uppercase tracking-wider text-slate-400 px-4 py-3">Trạng thái</th>
-                  <th className="text-left text-xs font-mono uppercase tracking-wider text-slate-400 px-4 py-3">Items</th>
-                  <th className="text-left text-xs font-mono uppercase tracking-wider text-slate-400 px-4 py-3">OneDrive</th>
-                  <th className="text-left text-xs font-mono uppercase tracking-wider text-slate-400 px-4 py-3">Người tạo</th>
-                  <th className="text-left text-xs font-mono uppercase tracking-wider text-slate-400 px-4 py-3">Ngày tạo</th>
-                  <th className="text-right text-xs font-mono uppercase tracking-wider text-slate-400 px-4 py-3">Thao tác</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {quotations.map((q) => {
-                  const badge = STATUS_BADGE[q.status] || STATUS_BADGE.draft;
-                  const Icon = badge.icon;
-                  const isSynced = !!q.onedrive_url;
-                  const isDeleted = !!q.deleted_at;
-                  return (
-                    <tr
-                      key={q.id}
-                      className={`hover:bg-slate-50/50 transition-colors ${isDeleted ? 'opacity-50' : ''}`}
-                    >
-                      <td className="px-4 py-3 text-sm text-slate-500">{q.id}</td>
-                      <td className="px-4 py-3 text-sm font-medium text-slate-700">
-                        {q.rfq_no}
-                        {isDeleted && (
-                          <span className="ml-1 text-[10px] text-rose-500 uppercase">đã xóa</span>
-                        )}
-                      </td>
-                      <td className="px-4 py-3">
-                        <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium ${badge.cls}`}>
-                          <Icon className="h-3 w-3" />{badge.label}
+          <Table>
+            <TableHeader>
+              <TableRow className="hover:bg-transparent dark:hover:bg-transparent">
+                <TableHead>#</TableHead>
+                <TableHead>RFQ</TableHead>
+                <TableHead>Trạng thái</TableHead>
+                <TableHead>Items</TableHead>
+                <TableHead>OneDrive</TableHead>
+                <TableHead>Người tạo</TableHead>
+                <TableHead>Ngày tạo</TableHead>
+                <TableHead className="text-right">Thao tác</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {quotations.map((q) => {
+                const badge = STATUS_BADGE[q.status] || STATUS_BADGE.draft;
+                const Icon = badge.icon;
+                const isSynced = !!q.onedrive_url;
+                const isDeleted = !!q.deleted_at;
+                return (
+                  <TableRow key={q.id} className={isDeleted ? 'opacity-50' : ''}>
+                    <TableCell className="text-sm text-slate-500">{q.id}</TableCell>
+                    <TableCell className="text-sm font-medium text-slate-700">
+                      {q.rfq_no}
+                      {isDeleted && (
+                        <span className="ml-1 text-[11px] text-rose-500 uppercase">đã xóa</span>
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium ${badge.cls}`}>
+                        <Icon className="h-3 w-3" />{badge.label}
+                      </span>
+                    </TableCell>
+                    <TableCell className="text-sm text-slate-600">
+                      {q.filled_items}/{q.total_items}
+                    </TableCell>
+                    <TableCell className="text-sm">
+                      {isSynced ? (
+                        <a
+                          href={q.onedrive_url!}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center gap-1 text-blue-700 hover:underline"
+                          title={`Sync lúc ${q.onedrive_synced_at ? new Date(q.onedrive_synced_at).toLocaleString('vi-VN') : ''}`}
+                        >
+                          <Cloud className="h-3.5 w-3.5" />
+                          Mở
+                        </a>
+                      ) : q.onedrive_sync_error ? (
+                        <span
+                          className="inline-flex items-center gap-1 text-rose-500"
+                          title={q.onedrive_sync_error}
+                        >
+                          <CloudOff className="h-3.5 w-3.5" />Lỗi
                         </span>
-                      </td>
-                      <td className="px-4 py-3 text-sm text-slate-600">
-                        {q.filled_items}/{q.total_items}
-                      </td>
-                      <td className="px-4 py-3 text-sm">
-                        {isSynced ? (
-                          <a
-                            href={q.onedrive_url!}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="inline-flex items-center gap-1 text-blue-700 hover:underline"
-                            title={`Sync lúc ${q.onedrive_synced_at ? new Date(q.onedrive_synced_at).toLocaleString('vi-VN') : ''}`}
-                          >
-                            <Cloud className="h-3.5 w-3.5" />
-                            Mở
-                          </a>
-                        ) : q.onedrive_sync_error ? (
-                          <span
-                            className="inline-flex items-center gap-1 text-rose-500"
-                            title={q.onedrive_sync_error}
-                          >
-                            <CloudOff className="h-3.5 w-3.5" />Lỗi
-                          </span>
-                        ) : (
-                          <span className="inline-flex items-center gap-1 text-slate-400">
-                            <CloudOff className="h-3.5 w-3.5" />
-                            Chưa sync
-                          </span>
-                        )}
-                      </td>
-                      <td className="px-4 py-3 text-sm text-slate-600">{q.created_by_name}</td>
-                      <td className="px-4 py-3 text-sm text-slate-500">
-                        {new Date(q.created_at).toLocaleDateString('vi-VN')}
-                      </td>
-                      <td className="px-4 py-3 text-right">
-                        <div className="flex items-center justify-end gap-0.5">
+                      ) : (
+                        <span className="inline-flex items-center gap-1 text-slate-400">
+                          <CloudOff className="h-3.5 w-3.5" />
+                          Chưa sync
+                        </span>
+                      )}
+                    </TableCell>
+                    <TableCell className="text-sm text-slate-600">{q.created_by_name}</TableCell>
+                    <TableCell className="text-sm text-slate-500">
+                      {new Date(q.created_at).toLocaleDateString('vi-VN')}
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <div className="flex items-center justify-end gap-0.5">
                           {!isDeleted && (
                             <Link
                               href={`/bqms/quotation/${q.id}`}
@@ -263,7 +270,7 @@ export default function QuotationHistoryPage() {
                                 <button
                                   onClick={() => shareMut.mutate(q.id)}
                                   disabled={shareMut.isPending}
-                                  className="p-1.5 hover:bg-purple-50 rounded text-slate-400 hover:text-purple-600 disabled:opacity-50"
+                                  className="p-1.5 hover:bg-brand-50 rounded text-slate-400 hover:text-brand-600 disabled:opacity-50"
                                   title="Tạo + copy share link"
                                 >
                                   <Share2 className="h-4 w-4" />
@@ -296,13 +303,12 @@ export default function QuotationHistoryPage() {
                             </button>
                           )}
                         </div>
-                      </td>
-                    </tr>
+                      </TableCell>
+                    </TableRow>
                   );
                 })}
-              </tbody>
-            </table>
-          </div>
+            </TableBody>
+          </Table>
         )}
 
         {/* Pagination */}

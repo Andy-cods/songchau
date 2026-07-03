@@ -1,0 +1,88 @@
+{
+  "_meta": {
+    "template": "SOURCING_QUOTE.xlsx",
+    "source": "mẫu báo giá.xlsx (Song Châu, sheet 200526)",
+    "sheet_name": "200526",
+    "items_header_row": 13,
+    "items_first_data_row": 14,
+    "items_sample_rows": [14, 15, 16],
+    "items_sample_count": 3,
+    "totals_block_first_row_after_items": 17,
+    "totals_block_anchor_offsets": {
+      "subtotal_label_col": "F",
+      "subtotal_value_col": "H",
+      "vat_label_col": "F",
+      "vat_value_col": "H",
+      "grand_label_col": "F",
+      "grand_value_col": "H",
+      "terms_merge_cols": "A:E",
+      "terms_height": 27.6,
+      "vat_rate_default": 0.08,
+      "vat_label_default": "VAT 8%"
+    },
+    "amount_in_words_row_offset_after_totals": 3,
+    "sign_row_label_xnbg_offset_after_totals": 4,
+    "thank_you_row_offset_after_totals": 5,
+    "instructions": "Renderer loads template, fills placeholder cells (header + customer block), then duplicates items_sample_rows[0] N times for N items. Totals block (3 rows) is placed at items_last_row+1. Sample rows are removed if N < 3; extra rows are inserted if N > 3."
+  },
+  "header": {
+    "quote_no": "G4",
+    "quote_date": "G5",
+    "quote_owner": "G6",
+    "validity": "G7"
+  },
+  "customer": {
+    "contact_person": "B9",
+    "customer_company": "B10",
+    "customer_address": "B11",
+    "customer_mst": "B12",
+    "intro_line": "A12"
+  },
+  "items_table_header": {
+    "stt": "A13",
+    "item_desc_merged": "B13:C13",
+    "qty": "D13",
+    "uom": "E13",
+    "unit_price": "F13",
+    "amount": "G13",
+    "note": "H13"
+  },
+  "items_row_columns": {
+    "stt": "A",
+    "desc_merge_start": "B",
+    "desc_merge_end": "C",
+    "qty": "D",
+    "uom": "E",
+    "unit_price": "F",
+    "amount": "G",
+    "note": "H",
+    "default_row_height": 63.0
+  },
+  "totals": {
+    "terms_text_merge": "A{r0}:E{r0+2}",
+    "subtotal_label_cell": "F{r0}",
+    "subtotal_value_cell": "H{r0}",
+    "vat_label_cell": "F{r0+1}",
+    "vat_value_cell": "H{r0+1}",
+    "grand_label_cell": "F{r0+2}",
+    "grand_value_cell": "H{r0+2}"
+  },
+  "footer": {
+    "amount_in_words_cell": "A{r0+3}",
+    "sign_left_cell": "B{r0+4}",
+    "sign_left_text": "XÁC NHẬN BÁO GIÁ",
+    "sign_right_cell": "F{r0+4}",
+    "sign_right_text": "XÁC NHẬN ĐẶT HÀNG",
+    "thank_you_merged": "A{r0+5}:H{r0+5}",
+    "thank_you_text": "THANK YOU FOR YOUR BUSINESS!"
+  },
+  "static_defaults": {
+    "intro_line": "Chúng tôi xin gửi tới Quý công ty bảng báo giá với nội dung như sau:",
+    "validity": "10 ngày",
+    "vat_rate": 0.08,
+    "vat_label": "VAT 8%",
+    "subtotal_label": "Thành tiền",
+    "grand_total_label": "Tổng tiền thanh toán",
+    "default_terms": "Điều khoản:\n* Giao hàng tại kho bên mua\n* Thời gian giao hàng: 5-7 ngày kể từ ngày xác nhận đặt hàng\n* Điều khoản thanh toán: Theo thỏa thuận hợp đồng.\n* Đơn giá có thể thay đổi nếu số lượng đặt hàng thay đổi."
+  }
+}

@@ -114,12 +114,35 @@ async function apiRequest<T>(
     throw createApiError('Phiên đăng nhập đã hết hạn', 401);
   }
 
+  // Handle 429 Too Many Requests — friendly Vietnamese toast (server already
+  // sends a localized detail, but fall back gracefully if it doesn't).
+  if (res.status === 429) {
+    let detail = 'Quá nhiều yêu cầu — đợi 1 phút rồi thử lại.';
+    try {
+      const errorData = await res.json();
+      if (typeof errorData?.detail === 'string') detail = errorData.detail;
+    } catch {
+      // body not JSON — keep default Vietnamese message
+    }
+    throw createApiError(detail, 429);
+  }
+
   // Handle non-OK responses
   if (!res.ok) {
     let detail = 'Có lỗi xảy ra';
     try {
       const errorData = await res.json();
-      detail = errorData.detail || errorData.message || detail;
+      const ed = errorData?.detail;
+      if (typeof ed === 'string') {
+        detail = ed;
+      } else if (ed && typeof ed === 'object') {
+        // FastAPI/rbac structured detail, e.g. {error, message, required_roles}.
+        // Extract the human message — never let the object reach the UI as
+        // "[object Object]" (that made permission/session errors look silent).
+        detail = ed.message || ed.error || JSON.stringify(ed);
+      } else if (typeof errorData?.message === 'string') {
+        detail = errorData.message;
+      }
     } catch {
       // Response body is not JSON
     }

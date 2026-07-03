@@ -7,6 +7,7 @@ import { FileCheck, Check, X } from 'lucide-react';
 import { getWorkflows, approveWorkflow, rejectWorkflow } from '@/services/workflows';
 import { DataTable } from '@/components/shared/data-table';
 import { EmptyState } from '@/components/shared/empty-state';
+import { PageHeader } from '@/components/shared/page-header';
 import { StatusBadge } from '@/components/shared/status-badge';
 import { Button } from '@/components/ui/button';
 import {
@@ -167,16 +168,12 @@ export default function WorkflowsPage() {
   return (
     <div>
       {/* Header */}
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <h2 className="text-xl font-display font-bold text-slate-900">
-            Phê duyệt
-          </h2>
-          <p className="text-sm text-slate-500 mt-0.5">
-            Quản lý luồng phê duyệt và yêu cầu
-          </p>
-        </div>
-      </div>
+      <PageHeader
+        className="mb-6"
+        icon={FileCheck}
+        title="Phê duyệt"
+        subtitle="Quản lý luồng phê duyệt và yêu cầu"
+      />
 
       {/* Status filter */}
       <div className="mb-4 flex items-center gap-3">

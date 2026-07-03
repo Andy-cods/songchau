@@ -121,8 +121,15 @@ async def playwright_bqms_login(
     """
     from playwright.async_api import async_playwright
 
-    uname = username or settings.BQMS_USERNAME
-    pwd = password or settings.BQMS_PASSWORD
+    if username and password:
+        uname, pwd = username, password
+    else:
+        # Resolve from runtime override (app_config) with env fallback. An
+        # explicit username/password param still wins when both are provided.
+        from app.services.bqms_credentials import get_bqms_credentials
+        res_user, res_pwd = get_bqms_credentials()
+        uname = username or res_user
+        pwd = password or res_pwd
     base = base_url or settings.BQMS_BASE_URL or "https://www.sec-bqms.com"
 
     if not uname or not pwd:
@@ -321,8 +328,15 @@ async def playwright_fetch_pos(
     """
     from playwright.async_api import async_playwright
 
-    uname = username or settings.BQMS_USERNAME
-    pwd = password or settings.BQMS_PASSWORD
+    if username and password:
+        uname, pwd = username, password
+    else:
+        # Resolve from runtime override (app_config) with env fallback. An
+        # explicit username/password param still wins when both are provided.
+        from app.services.bqms_credentials import get_bqms_credentials
+        res_user, res_pwd = get_bqms_credentials()
+        uname = username or res_user
+        pwd = password or res_pwd
     base = base_url or settings.BQMS_BASE_URL or "https://www.sec-bqms.com"
 
     if not uname or not pwd:

@@ -10,6 +10,7 @@ import { getSuppliers } from '@/services/suppliers';
 import { DataTable } from '@/components/shared/data-table';
 import { EmptyState } from '@/components/shared/empty-state';
 import { StatusBadge } from '@/components/shared/status-badge';
+import { PageHeader } from '@/components/shared/page-header';
 import { Button } from '@/components/ui/button';
 import type { Supplier, PaginatedResponse } from '@/types/models';
 
@@ -95,22 +96,20 @@ export default function SuppliersPage() {
   return (
     <div>
       {/* Header */}
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <h2 className="text-xl font-display font-bold text-slate-900">
-            Nhà cung cấp
-          </h2>
-          <p className="text-sm text-slate-500 mt-0.5">
-            Quản lý danh sách nhà cung cấp
-          </p>
-        </div>
-        <Link href="/suppliers/new">
-          <Button>
-            <Plus className="h-4 w-4" />
-            Thêm NCC
-          </Button>
-        </Link>
-      </div>
+      <PageHeader
+        title="Nhà cung cấp"
+        subtitle="Quản lý danh sách nhà cung cấp"
+        icon={Building2}
+        className="mb-6"
+        actions={
+          <Link href="/suppliers/new">
+            <Button>
+              <Plus className="h-4 w-4" />
+              Thêm NCC
+            </Button>
+          </Link>
+        }
+      />
 
       {/* Data Table */}
       <DataTable

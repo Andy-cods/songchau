@@ -20,6 +20,8 @@ import {
   Legend,
   ResponsiveContainer,
 } from 'recharts';
+import { CHART } from '@/lib/chart-colors';
+import { PageHeader } from '@/components/shared/page-header';
 
 // ─── Types ─────────────────────────────────────────────────────
 
@@ -77,10 +79,10 @@ function fmtVnd(value: number): string {
 function MarginBadge({ pct }: { pct: number }) {
   const cls =
     pct >= 15
-      ? 'bg-green-100 text-green-700'
+      ? 'bg-emerald-100 text-emerald-700'
       : pct >= 5
       ? 'bg-amber-100 text-amber-700'
-      : 'bg-red-100 text-red-700';
+      : 'bg-rose-100 text-rose-700';
   return (
     <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${cls}`}>
       {Number(pct ?? 0).toFixed(1)}%
@@ -184,25 +186,24 @@ export default function ProfitAnalysisPage() {
   return (
     <div>
       {/* Header */}
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <h2 className="text-xl font-display font-bold text-slate-900 flex items-center gap-2">
-            <BarChart2 className="h-5 w-5 text-brand-600" />
-            Phân tích lợi nhuận
-          </h2>
-          <p className="text-sm text-slate-500 mt-0.5">Tổng quan doanh thu, chi phí và biên lợi nhuận</p>
-        </div>
-        <select
-          value={months}
-          onChange={(e) => setMonths(Number(e.target.value))}
-          className="border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-700"
-        >
-          <option value={3}>3 tháng</option>
-          <option value={6}>6 tháng</option>
-          <option value={12}>12 tháng</option>
-          <option value={24}>24 tháng</option>
-        </select>
-      </div>
+      <PageHeader
+        title="Phân tích lợi nhuận"
+        subtitle="Tổng quan doanh thu, chi phí và biên lợi nhuận"
+        icon={BarChart2}
+        className="mb-6"
+        actions={
+          <select
+            value={months}
+            onChange={(e) => setMonths(Number(e.target.value))}
+            className="border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-700"
+          >
+            <option value={3}>3 tháng</option>
+            <option value={6}>6 tháng</option>
+            <option value={12}>12 tháng</option>
+            <option value={24}>24 tháng</option>
+          </select>
+        }
+      />
 
       {/* KPI Cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
@@ -210,21 +211,21 @@ export default function ProfitAnalysisPage() {
           label="Doanh thu"
           value={overview ? fmtVnd(overview.total_revenue) : '—'}
           icon={DollarSign}
-          colorClass="bg-blue-50 text-blue-600"
+          colorClass="bg-brand-50 text-brand-600"
           loading={overviewLoading}
         />
         <KpiCard
           label="Chi phí"
           value={overview ? fmtVnd(overview.total_cost) : '—'}
           icon={TrendingDown}
-          colorClass="bg-red-50 text-red-600"
+          colorClass="bg-rose-50 text-rose-600"
           loading={overviewLoading}
         />
         <KpiCard
           label="Lợi nhuận gộp"
           value={overview ? fmtVnd(overview.gross_profit) : '—'}
           icon={TrendingUp}
-          colorClass="bg-green-50 text-green-600"
+          colorClass="bg-emerald-50 text-emerald-600"
           loading={overviewLoading}
         />
         <KpiCard
@@ -234,10 +235,10 @@ export default function ProfitAnalysisPage() {
           colorClass={
             overview && overview.avg_margin_pct != null
               ? overview.avg_margin_pct >= 15
-                ? 'bg-green-50 text-green-600'
+                ? 'bg-emerald-50 text-emerald-600'
                 : overview.avg_margin_pct >= 5
                 ? 'bg-amber-50 text-amber-600'
-                : 'bg-red-50 text-red-600'
+                : 'bg-rose-50 text-rose-600'
               : 'bg-slate-50 text-slate-600'
           }
           loading={overviewLoading}
@@ -253,11 +254,11 @@ export default function ProfitAnalysisPage() {
           </div>
           <div className="bg-white rounded-lg shadow-sm border border-slate-200 px-4 py-3">
             <p className="text-xs text-slate-500 uppercase tracking-wider">Deal tốt nhất</p>
-            <p className="text-sm font-medium text-green-700 mt-0.5 truncate">{overview.best_deal ?? '—'}</p>
+            <p className="text-sm font-medium text-emerald-700 mt-0.5 truncate">{overview.best_deal ?? '—'}</p>
           </div>
           <div className="bg-white rounded-lg shadow-sm border border-slate-200 px-4 py-3">
             <p className="text-xs text-slate-500 uppercase tracking-wider">Deal kém nhất</p>
-            <p className="text-sm font-medium text-red-700 mt-0.5 truncate">{overview.worst_deal ?? '—'}</p>
+            <p className="text-sm font-medium text-rose-700 mt-0.5 truncate">{overview.worst_deal ?? '—'}</p>
           </div>
         </div>
       )}
@@ -354,7 +355,7 @@ export default function ProfitAnalysisPage() {
                       <td className="px-4 py-3 text-sm font-medium text-slate-800">{row.maker}</td>
                       <td className="px-4 py-3 text-sm text-right font-mono text-slate-600">{row.deal_count}</td>
                       <td className="px-4 py-3 text-sm text-right font-mono text-slate-700">{fmtVnd(row.total_revenue)}</td>
-                      <td className="px-4 py-3 text-sm text-right font-mono text-green-700">{fmtVnd(row.total_profit)}</td>
+                      <td className="px-4 py-3 text-sm text-right font-mono text-emerald-700">{fmtVnd(row.total_profit)}</td>
                       <td className="px-4 py-3 text-center">
                         <MarginBadge pct={row.avg_margin} />
                       </td>
@@ -436,7 +437,7 @@ export default function ProfitAnalysisPage() {
                     <Line
                       type="monotone"
                       dataKey="revenue"
-                      stroke="#3b82f6"
+                      stroke={CHART.brand}
                       strokeWidth={2}
                       name="Doanh thu"
                       dot={{ r: 3 }}
@@ -444,7 +445,7 @@ export default function ProfitAnalysisPage() {
                     <Line
                       type="monotone"
                       dataKey="cost"
-                      stroke="#ef4444"
+                      stroke={CHART.danger}
                       strokeWidth={2}
                       name="Chi phí"
                       dot={{ r: 3 }}
@@ -452,7 +453,7 @@ export default function ProfitAnalysisPage() {
                     <Line
                       type="monotone"
                       dataKey="profit"
-                      stroke="#10b981"
+                      stroke={CHART.success}
                       strokeWidth={2}
                       name="Lợi nhuận"
                       dot={{ r: 3 }}
@@ -477,9 +478,9 @@ export default function ProfitAnalysisPage() {
                     {periods.map((row, i) => (
                       <tr key={i} className="hover:bg-slate-50/50 transition-colors">
                         <td className="px-4 py-3 text-sm font-medium text-slate-700">{row.month}</td>
-                        <td className="px-4 py-3 text-sm text-right font-mono text-blue-700">{fmtVnd(row.revenue)}</td>
-                        <td className="px-4 py-3 text-sm text-right font-mono text-red-700">{fmtVnd(row.cost)}</td>
-                        <td className="px-4 py-3 text-sm text-right font-mono text-green-700">{fmtVnd(row.profit)}</td>
+                        <td className="px-4 py-3 text-sm text-right font-mono text-brand-700">{fmtVnd(row.revenue)}</td>
+                        <td className="px-4 py-3 text-sm text-right font-mono text-rose-700">{fmtVnd(row.cost)}</td>
+                        <td className="px-4 py-3 text-sm text-right font-mono text-emerald-700">{fmtVnd(row.profit)}</td>
                         <td className="px-4 py-3 text-center">
                           <MarginBadge pct={row.margin_pct} />
                         </td>

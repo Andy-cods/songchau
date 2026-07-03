@@ -1,0 +1,142 @@
+# =============================================================================
+# rbac_matrix.yaml — Ma trận quyền KỲ VỌNG cho MỌI route (snapshot-based).
+#
+# W1-02 (Đợt 1). File này là "nguồn khai báo" quyền cho từng route; test
+# tests/test_rbac_matrix.py enumerate app.routes lúc chạy rồi ĐỐI CHIẾU hành vi
+# HTTP thực tế (401/403 vs đã-qua-cổng) với những gì khai ở đây + với chính
+# cấu hình require_role đọc-được-từ-runtime (introspection).
+#
+# CÁCH DÙNG (đọc kỹ trước khi sửa):
+#   * role_matrix    : 8 role THẬT trong role_enum. KHÔNG có 'sales'/'director'
+#                      (code CÓ truyền 2 tên này vào require_role nhưng role_enum
+#                      không hề có → không user nào mang được → nhánh chết. Test
+#                      chỉ chạy 8 role thật + no-token).
+#   * no_auth        : "METHOD path" gọi được KHÔNG cần token (whitelist). Test
+#                      universal "no-token ⇒ 401" bỏ qua các route này.
+#   * vendor_prefixes: tiền tố cổng NCC. Chỉ role=vendor (đã kích hoạt) qua được
+#                      resolve_vendor; MỌI role /api/v1 khác ⇒ 403; no-token ⇒ 401.
+#   * viewer_deny_prefixes: nhóm endpoint "giá nội bộ" khai allow_viewer=False —
+#                      viewer PHẢI 403 kể cả GET (không được hưởng cơ chế
+#                      viewer-read-only-toàn-hệ).
+#   * routes         : quyền kỳ vọng CHI TIẾT từng route (key = "METHOD path",
+#                      path là template runtime, vd "/api/v1/suppliers/{supplier_id}").
+#                      value.roles = ĐÚNG danh sách tham số require_role(...) trong
+#                      code (giữ cả 'sales'/'director' để test cross-check khớp
+#                      introspection). value.auth: role|any|none|vendor.
+#                      value.viewer_deny: true nếu allow_viewer=False.
+#                      value.status: verified (đã đọc code) | todo (chờ điền).
+#
+# strict_drift:
+#   false (mặc định) → test completeness CHỈ cảnh báo (skip) khi còn route chưa
+#                      khai — để suite xanh trong lúc đang seed dần.
+#   true             → BẬT chống-drift cứng: route có trong app.routes mà KHÔNG
+#                      có trong yaml ⇒ FAIL "route mới chưa khai báo quyền".
+#
+# TỰ SINH yaml đầy đủ: chạy pytest với env RBAC_MATRIX_DUMP=1 → test ghi
+#   tests/rbac_matrix.generated.yaml (introspect require_role của MỌI route) để
+#   người review dán ngược vào `routes:` bên dưới. (Không chạy được server ở máy
+#   tác giả nên phần routes bên dưới mới seed các router đã đọc tận code.)
+# =============================================================================
+
+strict_drift: false
+
+role_matrix:
+  - admin
+  - manager
+  - procurement
+  - warehouse
+  - staff
+  - accountant
+  - viewer
+  - vendor
+
+# --- Whitelist KHÔNG cần token -----------------------------------------------
+no_auth:
+  # Health/liveness/readiness (app.api.health — không dependency auth)
+  - "GET /api/health"
+  - "GET /api/health/liveness"
+  - "GET /api/health/readiness"
+  # Auth core (app.api.v1.auth — chỉ get_db, không require_role)
+  - "POST /api/v1/auth/login"
+  - "POST /api/v1/auth/refresh"     # dùng cookie refresh_token, không Bearer
+  - "POST /api/v1/auth/logout"
+  # Cổng NCC — auth (app.api.vendor.auth — đăng ký/đăng nhập/kích hoạt/quên mk)
+  - "POST /api/vendor/auth/register"
+  - "POST /api/vendor/auth/login"
+  - "POST /api/vendor/auth/activate"
+  - "POST /api/vendor/auth/forgot-password"
+  - "POST /api/vendor/auth/reset-password"
+  # OnlyOffice callback (document server gọi ngược, không mang JWT người dùng).
+  # TODO-verify: xác nhận endpoint này thực sự không require_role.
+  - "POST /api/v1/onlyoffice/callback"
+
+# --- Cổng NCC (vendor portal) ------------------------------------------------
+vendor_prefixes:
+  - "/api/vendor"
+
+# --- "Giá nội bộ" — chặn cả viewer (allow_viewer=False) ----------------------
+# Nguồn: grep allow_viewer=False (price_analytics, analytics_trends,
+# analytics_exports, price_lookup, market_prices). Dùng cho test riêng khẳng
+# định viewer bị 403 kể cả GET.
+viewer_deny_prefixes:
+  - "/api/v1/price-analytics"
+  - "/api/v1/analytics"      # analytics_trends + analytics_exports mount /analytics
+  - "/api/v1/price-lookup"
+  - "/api/v1/market-prices"
+
+# --- Quyền CHI TIẾT từng route (seed các router đã đọc tận code) --------------
+# Các router CHƯA seed sẽ được test hành vi phủ qua introspection require_role
+# (nguồn sự thật khi chạy) + liệt kê ở completeness-report để orchestrator điền.
+routes:
+  # ---- suppliers (app/api/v1/suppliers.py, prefix /suppliers) ----
+  "GET /api/v1/suppliers":
+    auth: role
+    roles: [admin, manager, procurement, staff]
+    status: verified
+  "POST /api/v1/suppliers":
+    auth: role
+    roles: [admin, manager, procurement]
+    status: verified
+  "GET /api/v1/suppliers/{supplier_id}":
+    auth: role
+    roles: [admin, manager, procurement, staff]
+    status: verified
+  "PUT /api/v1/suppliers/{supplier_id}":
+    auth: role
+    roles: [admin, manager, procurement]
+    status: verified
+  "DELETE /api/v1/suppliers/{supplier_id}":
+    auth: role
+    roles: [admin, manager]
+    status: verified
+  "GET /api/v1/suppliers/{supplier_id}/price-history":
+    auth: role
+    roles: [admin, manager, procurement]
+    status: verified
+
+  # ---- users (app/api/v1/users.py, prefix /users) — admin-only ----
+  "GET /api/v1/users":
+    auth: role
+    roles: [admin]
+    status: verified
+  "POST /api/v1/users":
+    auth: role
+    roles: [admin]
+    status: verified
+  "PUT /api/v1/users/{user_id}":
+    auth: role
+    roles: [admin]
+    status: verified
+  "DELETE /api/v1/users/{user_id}":
+    auth: role
+    roles: [admin]
+    status: verified
+  "POST /api/v1/users/{user_id}/reset-password":
+    auth: role
+    roles: [admin]
+    status: verified
+
+  # ---- auth /me (app/api/v1/auth.py) — bất kỳ ai đăng nhập ----
+  "GET /api/v1/auth/me":
+    auth: any
+    status: verified

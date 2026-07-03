@@ -66,6 +66,7 @@ class CustomerDuplicateCheckRequest(BaseModel):
 
 
 class CustomerUpdateRequest(BaseModel):
+    """Per Thang 2026-05-14: mở rộng để user bổ sung thông tin KH từ CRM page."""
     company_name: str | None = None
     short_name: str | None = None
     tax_code: str | None = None
@@ -73,6 +74,18 @@ class CustomerUpdateRequest(BaseModel):
     business_system: str | None = None
     customer_type: str | None = None
     is_active: bool | None = None
+    # Extended intake fields
+    industry: str | None = None
+    company_size: str | None = None
+    lead_source: str | None = None
+    preferred_channel: str | None = None
+    website: str | None = None
+    notes: str | None = None
+    # Primary contact (upsert vào crm_contacts WHERE is_primary=true)
+    contact_name: str | None = None
+    contact_role: str | None = None
+    contact_email: str | None = None
+    contact_phone: str | None = None
 
 
 class ContactCreateRequest(BaseModel):
@@ -89,11 +102,23 @@ class ContactCreateRequest(BaseModel):
 class InteractionCreateRequest(BaseModel):
     customer_id: int
     contact_id: int | None = None
-    interaction_type: Literal["email", "call", "meeting", "visit", "other"]
+    interaction_type: Literal[
+        "email", "call", "meeting", "visit", "other",
+        "zalo", "note", "demo", "support",
+    ]
     subject: str = Field(..., min_length=1, max_length=500)
     notes: str | None = None
     outcome: str | None = None
     follow_up_date: date | None = None
+
+
+class AssignOwnerRequest(BaseModel):
+    owner_id: str | None = None  # UUID string; null = unassign
+
+
+class BulkAssignOwnerRequest(BaseModel):
+    customer_ids: list[int] = Field(..., min_length=1)
+    owner_id: str | None = None  # UUID string; null = unassign
 
 
 class ExternalMapCreateRequest(BaseModel):
@@ -185,6 +210,22 @@ async def _assert_customer_exists(conn: asyncpg.Connection, customer_id: int) ->
         raise HTTPException(404, detail=f"Không tìm thấy khách hàng ID {customer_id}")
 
 
+async def _validate_owner_id(conn: asyncpg.Connection, owner_id: str | None) -> str | None:
+    """Validate an owner_id is a real, active user UUID. None = unassign (passthrough)."""
+    if owner_id is None:
+        return None
+    owner_id = owner_id.strip()
+    if not owner_id:
+        return None
+    try:
+        ok = await conn.fetchval("SELECT 1 FROM users WHERE id = $1::uuid", owner_id)
+    except Exception:  # malformed UUID
+        raise HTTPException(400, detail="owner_id không hợp lệ (UUID)")
+    if not ok:
+        raise HTTPException(404, detail=f"Không tìm thấy người dùng {owner_id}")
+    return owner_id
+
+
 # ---------------------------------------------------------------------------
 # GET /customers
 # ---------------------------------------------------------------------------
@@ -202,17 +243,88 @@ async def _get_customer_match_context_or_404(
 def _normalize_external_map_value(value: str) -> str:
     return " ".join(value.strip().split()).lower()
 
+# ---------------------------------------------------------------------------
+# GET /customers/search  — lightweight autofill for CustomerPicker
+# Declared BEFORE /customers/{customer_id} so "search" is not parsed as an id.
+# ---------------------------------------------------------------------------
+
+@router.get("/customers/search")
+async def search_customers(
+    q: str = Query(..., min_length=1, description="Tên / mã / MST"),
+    limit: int = Query(10, ge=1, le=50),
+    token_data: TokenData = Depends(require_role("staff", "accountant", "manager", "admin")),
+    conn: asyncpg.Connection = Depends(get_db),
+):
+    """Tìm nhanh khách hàng (không dấu) cho CustomerPicker autofill."""
+    q_norm = q.strip()
+    rows = await conn.fetch(
+        """
+        SELECT
+            c.id, c.customer_code, c.company_name, c.short_name,
+            c.tax_code, c.address, c.business_system::text AS business_system,
+            pc.full_name AS contact_full_name,
+            pc.phone     AS contact_phone,
+            pc.email     AS contact_email
+        FROM customers c
+        LEFT JOIN LATERAL (
+            SELECT full_name, phone, email
+            FROM crm_contacts
+            WHERE customer_id = c.id
+            ORDER BY is_primary DESC, created_at ASC
+            LIMIT 1
+        ) pc ON true
+        WHERE c.deleted_at IS NULL
+          AND (
+                c.company_name_unaccent ILIKE '%' || unaccent(lower($1)) || '%'
+             OR c.customer_code ILIKE '%' || $1 || '%'
+             OR c.tax_code ILIKE '%' || $1 || '%'
+          )
+        ORDER BY c.company_name
+        LIMIT $2
+        """,
+        q_norm, limit,
+    )
+
+    data = [
+        {
+            "id": r["id"],
+            "customer_code": r["customer_code"],
+            "company_name": r["company_name"],
+            "short_name": r["short_name"],
+            "tax_code": r["tax_code"],
+            "address": r["address"],
+            "business_system": r["business_system"],
+            "primary_contact": (
+                {
+                    "full_name": r["contact_full_name"],
+                    "phone": r["contact_phone"],
+                    "email": r["contact_email"],
+                }
+                if r["contact_full_name"] is not None
+                else None
+            ),
+        }
+        for r in rows
+    ]
+    return {"data": data}
+
+
 @router.get("/customers")
 async def list_customers(
     search: str | None = Query(None, description="Tìm kiếm tên / mã / MST"),
     customer_type: str | None = Query(None),
     is_active: bool | None = Query(None),
+    owner: str | None = Query(None, description="'mine' | <uuid> — lọc theo người phụ trách"),
     page: int = Query(1, ge=1),
-    page_size: int = Query(50, ge=1, le=200),
+    page_size: int = Query(50, ge=1, le=1000),
     token_data: TokenData = Depends(require_role("staff", "accountant", "manager", "admin")),
     conn: asyncpg.Connection = Depends(get_db),
 ):
-    """Danh sách khách hàng có thống kê: tổng đơn hàng, doanh thu, ngày đặt hàng gần nhất."""
+    """Danh sách khách hàng có thống kê: tổng đơn hàng, doanh thu, ngày đặt hàng gần nhất.
+
+    page_size cap = 1000 (trang CRM /crm tải page_size=500 để lọc/hiển thị client-side
+    toàn bộ KH); cap cũ le=200 khiến request 500 → 422 làm vỡ trang KH (2026-06-30).
+    """
     conditions = ["1=1"]
     params: list = []
     idx = 1
@@ -234,6 +346,20 @@ async def list_customers(
         params.append(is_active)
         idx += 1
 
+    if owner:
+        owner_uuid = token_data.user_id if owner == "mine" else owner.strip()
+        # Validate non-"mine" values are real UUIDs to avoid a cast error 500.
+        if owner != "mine":
+            try:
+                exists = await conn.fetchval("SELECT 1 FROM users WHERE id = $1::uuid", owner_uuid)
+            except Exception:
+                raise HTTPException(400, detail="owner không hợp lệ (UUID hoặc 'mine')")
+            if not exists:
+                raise HTTPException(404, detail=f"Không tìm thấy người dùng {owner_uuid}")
+        conditions.append(f"c.owner_id = ${idx}::uuid")
+        params.append(owner_uuid)
+        idx += 1
+
     where_clause = " AND ".join(conditions)
     offset = (page - 1) * page_size
 
@@ -242,24 +368,38 @@ async def list_customers(
     )
     total = count_row["total"] if count_row else 0
 
+    # Per Thang 2026-05-14: trả về full thông tin để frontend Customers tab
+    # render card grid + inline edit, không cần round-trip lấy detail.
     rows = await conn.fetch(
         f"""
         SELECT
             c.id, c.customer_code, c.company_name, c.short_name,
             c.tax_code, c.address, c.business_system, c.customer_type,
             c.is_active,
+            c.industry, c.company_size, c.lead_source,
+            c.preferred_channel, c.website, c.notes,
+            c.created_at,
+            c.owner_id,
+            ou.full_name AS owner_name,
+            -- Latest contact moment: explicit contact stamp OR last interaction
+            GREATEST(MAX(cc.last_contacted_at), MAX(ci.created_at)) AS last_contacted_at,
+            -- Primary contact (latest if multiple primary)
+            (SELECT full_name FROM crm_contacts WHERE customer_id=c.id AND is_primary=true ORDER BY id DESC LIMIT 1) AS contact_name,
+            (SELECT position  FROM crm_contacts WHERE customer_id=c.id AND is_primary=true ORDER BY id DESC LIMIT 1) AS contact_role,
+            (SELECT email     FROM crm_contacts WHERE customer_id=c.id AND is_primary=true ORDER BY id DESC LIMIT 1) AS contact_email,
+            (SELECT phone     FROM crm_contacts WHERE customer_id=c.id AND is_primary=true ORDER BY id DESC LIMIT 1) AS contact_phone,
             COUNT(DISTINCT so.id)                               AS total_orders,
             COALESCE(SUM(so.total_amount), 0)                  AS total_revenue,
             MAX(so.created_at)::DATE                           AS last_order_date,
             COUNT(DISTINCT cc.id)                              AS contact_count,
             COUNT(DISTINCT ci.id)                              AS interaction_count
         FROM customers c
+        LEFT JOIN users ou ON ou.id = c.owner_id
         LEFT JOIN sales_orders so ON so.customer_id = c.id
         LEFT JOIN crm_contacts cc ON cc.customer_id = c.id
         LEFT JOIN crm_interactions ci ON ci.customer_id = c.id
         WHERE {where_clause}
-        GROUP BY c.id, c.customer_code, c.company_name, c.short_name,
-                 c.tax_code, c.address, c.business_system, c.customer_type, c.is_active
+        GROUP BY c.id, ou.full_name
         ORDER BY total_revenue DESC NULLS LAST, c.company_name
         LIMIT ${idx} OFFSET ${idx + 1}
         """,
@@ -541,6 +681,7 @@ async def update_customer(
     # Fields that need special casting
     enum_fields = {"business_system"}
 
+    # Per Thang 2026-05-14: mở rộng để user bổ sung thông tin từ CRM page.
     field_map = {
         "company_name": body.company_name,
         "short_name": body.short_name,
@@ -549,6 +690,12 @@ async def update_customer(
         "business_system": body.business_system,
         "customer_type": body.customer_type,
         "is_active": body.is_active,
+        "industry": body.industry,
+        "company_size": body.company_size,
+        "lead_source": body.lead_source,
+        "preferred_channel": body.preferred_channel,
+        "website": body.website,
+        "notes": body.notes,
     }
 
     for field, value in field_map.items():
@@ -560,16 +707,210 @@ async def update_customer(
             params.append(value)
             idx += 1
 
-    if not updates:
+    # Primary contact upsert (chỉ nếu user gửi ít nhất 1 field)
+    has_contact_update = any(
+        v is not None for v in [body.contact_name, body.contact_role, body.contact_email, body.contact_phone]
+    )
+
+    if not updates and not has_contact_update:
         raise HTTPException(400, detail="Không có trường nào được cập nhật")
 
-    params.append(customer_id)
+    if updates:
+        params.append(customer_id)
+        row = await conn.fetchrow(
+            f"UPDATE customers SET {', '.join(updates)} WHERE id = ${idx} RETURNING *",
+            *params,
+        )
+    else:
+        row = await conn.fetchrow("SELECT * FROM customers WHERE id = $1", customer_id)
+
+    # Upsert primary contact in crm_contacts
+    if has_contact_update:
+        existing_pc = await conn.fetchrow(
+            "SELECT id FROM crm_contacts WHERE customer_id=$1 AND is_primary=true LIMIT 1",
+            customer_id,
+        )
+        if existing_pc:
+            c_updates: list[str] = []
+            c_params: list = []
+            c_idx = 1
+            c_map = {
+                "full_name": body.contact_name,
+                "position": body.contact_role,
+                "email": body.contact_email,
+                "phone": body.contact_phone,
+            }
+            for cf, cv in c_map.items():
+                if cv is not None:
+                    c_updates.append(f"{cf} = ${c_idx}")
+                    c_params.append(cv)
+                    c_idx += 1
+            if c_updates:
+                c_params.append(existing_pc["id"])
+                await conn.execute(
+                    f"UPDATE crm_contacts SET {', '.join(c_updates)} WHERE id = ${c_idx}",
+                    *c_params,
+                )
+        else:
+            # Create new primary contact
+            await conn.execute(
+                """
+                INSERT INTO crm_contacts (customer_id, full_name, position, email, phone, is_primary, notes)
+                VALUES ($1, $2, $3, $4, $5, true, 'Created from /crm Customers tab')
+                """,
+                customer_id,
+                body.contact_name or row["company_name"],
+                body.contact_role,
+                body.contact_email,
+                body.contact_phone,
+            )
+
+    return {"data": dict(row), "message": "Đã cập nhật khách hàng thành công"}
+
+
+# ---------------------------------------------------------------------------
+# Owner assignment (manager/admin only)
+# ---------------------------------------------------------------------------
+
+@router.patch("/customers/{customer_id}/owner")
+async def assign_customer_owner(
+    customer_id: int,
+    body: AssignOwnerRequest,
+    token_data: TokenData = Depends(require_role("manager", "admin")),
+    conn: asyncpg.Connection = Depends(get_db),
+):
+    """Gán / bỏ người phụ trách cho 1 khách hàng (manager/admin)."""
+    await _assert_customer_exists(conn, customer_id)
+    owner_uuid = await _validate_owner_id(conn, body.owner_id)
+
     row = await conn.fetchrow(
-        f"UPDATE customers SET {', '.join(updates)} WHERE id = ${idx} RETURNING *",
+        """
+        UPDATE customers
+        SET owner_id = $1::uuid, updated_at = NOW()
+        WHERE id = $2
+        RETURNING id, owner_id,
+                  (SELECT full_name FROM users WHERE id = customers.owner_id) AS owner_name
+        """,
+        owner_uuid,
+        customer_id,
+    )
+    logger.info("Customer %s owner set to %s by %s", customer_id, owner_uuid, token_data.user_id)
+    return {"data": dict(row), "message": "Đã cập nhật người phụ trách"}
+
+
+@router.post("/customers/assign-owner")
+async def bulk_assign_customer_owner(
+    body: BulkAssignOwnerRequest,
+    token_data: TokenData = Depends(require_role("manager", "admin")),
+    conn: asyncpg.Connection = Depends(get_db),
+):
+    """Gán hàng loạt người phụ trách cho nhiều khách hàng (manager/admin)."""
+    owner_uuid = await _validate_owner_id(conn, body.owner_id)
+
+    updated = await conn.fetch(
+        """
+        UPDATE customers
+        SET owner_id = $1::uuid, updated_at = NOW()
+        WHERE id = ANY($2::bigint[])
+        RETURNING id
+        """,
+        owner_uuid,
+        body.customer_ids,
+    )
+    logger.info(
+        "Bulk owner set to %s for %d customers by %s",
+        owner_uuid, len(updated), token_data.user_id,
+    )
+    return {
+        "data": {
+            "updated_ids": [r["id"] for r in updated],
+            "updated_count": len(updated),
+            "owner_id": owner_uuid,
+        },
+        "message": f"Đã gán người phụ trách cho {len(updated)} khách hàng",
+    }
+
+
+# ---------------------------------------------------------------------------
+# GET /follow-ups/due  — work queue rail
+# ---------------------------------------------------------------------------
+
+@router.get("/follow-ups/due")
+async def follow_ups_due(
+    scope: Literal["mine", "all"] = Query("mine"),
+    limit: int = Query(80, ge=1, le=300),
+    token_data: TokenData = Depends(require_role("staff", "accountant", "manager", "admin")),
+    conn: asyncpg.Connection = Depends(get_db),
+):
+    """Hàng đợi 'Cần làm hôm nay': follow-up quá hạn / hôm nay / sắp tới (<=7 ngày)."""
+    conditions = [
+        "i.follow_up_date IS NOT NULL",
+        "c.deleted_at IS NULL",
+        "i.follow_up_date <= CURRENT_DATE + INTERVAL '7 days'",
+    ]
+    params: list = []
+    idx = 1
+
+    if scope == "mine":
+        conditions.append(f"(c.owner_id = ${idx}::uuid OR i.created_by = ${idx}::uuid)")
+        params.append(token_data.user_id)
+        idx += 1
+
+    where_clause = " AND ".join(conditions)
+    params.append(limit)
+
+    rows = await conn.fetch(
+        f"""
+        SELECT
+            i.id            AS interaction_id,
+            i.customer_id,
+            c.company_name,
+            i.interaction_type,
+            i.subject,
+            i.follow_up_date,
+            (CURRENT_DATE - i.follow_up_date)::int AS days_overdue
+        FROM crm_interactions i
+        JOIN customers c ON c.id = i.customer_id
+        WHERE {where_clause}
+        ORDER BY i.follow_up_date ASC, i.id ASC
+        LIMIT ${idx}
+        """,
         *params,
     )
 
-    return {"data": dict(row), "message": "Đã cập nhật khách hàng thành công"}
+    overdue: list[dict] = []
+    today_items: list[dict] = []
+    upcoming: list[dict] = []
+    for r in rows:
+        item = {
+            "interaction_id": r["interaction_id"],
+            "customer_id": r["customer_id"],
+            "company_name": r["company_name"],
+            "interaction_type": r["interaction_type"],
+            "subject": r["subject"],
+            "follow_up_date": r["follow_up_date"].isoformat() if r["follow_up_date"] else None,
+            "days_overdue": r["days_overdue"],
+        }
+        d = r["days_overdue"]
+        if d > 0:
+            overdue.append(item)
+        elif d == 0:
+            today_items.append(item)
+        else:
+            upcoming.append(item)
+
+    return {
+        "data": {
+            "overdue": overdue,
+            "today": today_items,
+            "upcoming": upcoming,
+        },
+        "counts": {
+            "overdue": len(overdue),
+            "today": len(today_items),
+            "upcoming": len(upcoming),
+        },
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -988,6 +1329,38 @@ async def create_interaction(
     return {"data": dict(row), "message": "Đã ghi lại tương tác thành công"}
 
 
+@router.patch("/interactions/{interaction_id}/done")
+async def mark_interaction_followup_done(
+    interaction_id: int,
+    token_data: TokenData = Depends(require_role("staff", "accountant", "manager", "admin")),
+    conn: asyncpg.Connection = Depends(get_db),
+):
+    """Đánh dấu việc theo dõi (follow-up) đã xong.
+
+    Cách làm: xóa ``follow_up_date`` (về NULL) để tương tác này rời khỏi hàng đợi
+    "Cần làm hôm nay" (GET /follow-ups/due lọc theo follow_up_date IS NOT NULL).
+    Bản ghi tương tác vẫn giữ nguyên trong lịch sử/timeline.
+    """
+    row = await conn.fetchrow(
+        """
+        UPDATE crm_interactions
+           SET follow_up_date = NULL
+         WHERE id = $1
+        RETURNING id, customer_id
+        """,
+        interaction_id,
+    )
+    if not row:
+        raise HTTPException(404, detail="Không tìm thấy tương tác")
+    logger.info(
+        "Interaction %s follow-up marked done by %s", interaction_id, token_data.user_id
+    )
+    return {
+        "data": {"id": row["id"], "customer_id": row["customer_id"]},
+        "message": "Đã đánh dấu xong",
+    }
+
+
 # ---------------------------------------------------------------------------
 # GET /customers/{id}/timeline
 # ---------------------------------------------------------------------------
@@ -996,14 +1369,20 @@ async def create_interaction(
 async def customer_timeline(
     customer_id: int,
     limit: int = Query(50, ge=1, le=200, description="Số sự kiện tối đa"),
+    offset: int = Query(0, ge=0, description="Bỏ qua N sự kiện đầu (phân trang)"),
     token_data: TokenData = Depends(require_role("staff", "accountant", "manager", "admin")),
     conn: asyncpg.Connection = Depends(get_db),
 ):
     """
     Timeline kết hợp của đơn hàng + tương tác + hóa đơn cho một khách hàng.
     Trả về danh sách sự kiện sắp xếp theo thời gian giảm dần.
+
+    Phân trang: mỗi nguồn fetch (limit + offset) rồi merge-sort, slice ở Python
+    để đảm bảo thứ tự thời gian đúng across các nguồn.
     """
     await _assert_customer_exists(conn, customer_id)
+
+    fetch_n = limit + offset
 
     # Sales orders
     orders = await conn.fetch(
@@ -1020,7 +1399,7 @@ async def customer_timeline(
         ORDER BY created_at DESC
         LIMIT $2
         """,
-        customer_id, limit,
+        customer_id, fetch_n,
     )
 
     # Invoices
@@ -1038,7 +1417,7 @@ async def customer_timeline(
         ORDER BY created_at DESC
         LIMIT $2
         """,
-        customer_id, limit,
+        customer_id, fetch_n,
     )
 
     # Interactions
@@ -1056,7 +1435,7 @@ async def customer_timeline(
         ORDER BY ci.created_at DESC
         LIMIT $2
         """,
-        customer_id, limit,
+        customer_id, fetch_n,
     )
 
     # Merge and sort
@@ -1066,13 +1445,14 @@ async def customer_timeline(
         + _rows_to_list(interactions)
     )
     all_events.sort(key=lambda x: x["created_at"], reverse=True)
-    all_events = all_events[:limit]
+    page_events = all_events[offset:offset + limit]
 
     return {
         "data": {
             "customer_id": customer_id,
-            "events": all_events,
+            "events": page_events,
             "total": len(all_events),
+            "has_more": len(all_events) > offset + limit,
         },
         "message": "Timeline khách hàng",
     }

@@ -1,6 +1,9 @@
 import type { Config } from 'tailwindcss';
 
 const config: Config = {
+  // 'class' strategy → toggle dark mode by adding `class="dark"` to <html>.
+  // Driven by ThemeProvider (src/providers/theme-provider.tsx).
+  darkMode: 'class',
   content: ['./src/**/*.{js,ts,jsx,tsx,mdx}'],
   theme: {
     extend: {
@@ -8,11 +11,15 @@ const config: Config = {
         brand: {
           50: '#f0f4ff',
           100: '#e0e9ff',
+          200: '#c7d2fe',
+          300: '#a5b4fc',
           400: '#818cf8',
           500: '#6366f1',
           600: '#4f46e5',
           700: '#4338ca',
+          800: '#3730a3',
           900: '#1e1b4b',
+          950: '#15123a',
         },
         status: {
           success: '#059669',

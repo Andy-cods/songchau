@@ -31,14 +31,15 @@ CREATE EXTENSION IF NOT EXISTS "unaccent";
 -- 1. ENUM TYPES — 14 loai du lieu liet ke
 -- ============================================================================
 
--- Vai tro nguoi dung — 6 vai tro cho 18 nhan vien
+-- Vai tro nguoi dung — 7 vai tro (Thang 2026-05-20: added viewer)
 CREATE TYPE role_enum AS ENUM (
     'admin',        -- Quan tri vien toan quyen
     'manager',      -- Quan ly / Giam doc
     'procurement',  -- Phong mua hang
     'warehouse',    -- Phong kho
     'staff',        -- Nhan vien thuong
-    'accountant'    -- Ke toan
+    'accountant',   -- Ke toan
+    'viewer'        -- Khach (xem-only, mọi endpoint GET, từ chối POST/PUT/DELETE)
 );
 
 -- Trang thai quy trinh duyet — 6 trang thai
@@ -886,6 +887,7 @@ CREATE TABLE bqms_deliveries (
     quotation_no            TEXT,
     product_id              BIGINT REFERENCES products(id),
     bqms_code               TEXT,
+    item_name               TEXT,
     specification           TEXT,
     quantity                NUMERIC(12,3),
     unit                    TEXT DEFAULT 'EA',

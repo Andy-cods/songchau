@@ -18,6 +18,9 @@ const buttonVariants = cva(
           'border border-slate-300 bg-white text-slate-700 hover:bg-slate-50',
         ghost: 'text-slate-600 hover:bg-slate-100 hover:text-slate-900',
         destructive: 'bg-red-600 text-white hover:bg-red-700 shadow-sm',
+        // Approve / confirm-positive action. emerald-600 ≈ token status.success
+        // (#059669). Pair with `destructive` (Từ chối) for approve/reject rows.
+        success: 'bg-emerald-600 text-white hover:bg-emerald-700 shadow-sm',
       },
       size: {
         sm: 'h-8 px-3 text-xs',

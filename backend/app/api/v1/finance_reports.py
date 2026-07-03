@@ -101,23 +101,31 @@ async def profit_loss_statement(
         period_start, period_end,
     )
 
-    # Operating expenses from cash_book
+    # Operating expenses from cash_book.
+    # Convention THẬT: direction 'chi' = TIỀN RA (chi phí). Chấp nhận thêm
+    # 'expense' để tương thích ngược (CHECK constraint vẫn cho phép giá trị này).
+    # JOIN cash_book_categories để trả kèm category_code/category_name.
     operating_expenses = await conn.fetch(
         """
         SELECT
-            category_id,
-            COALESCE(SUM(amount), 0) AS amount
-        FROM cash_book
-        WHERE direction = 'expense'
-          
-          AND entry_date BETWEEN $1 AND $2
-        GROUP BY category_id
+            cb.category_id,
+            cat.category_code,
+            cat.category_name,
+            COALESCE(SUM(cb.amount), 0) AS amount
+        FROM cash_book cb
+        LEFT JOIN cash_book_categories cat ON cat.id = cb.category_id
+        WHERE cb.direction IN ('chi', 'expense')
+          AND cb.entry_date BETWEEN $1 AND $2
+        GROUP BY cb.category_id, cat.category_code, cat.category_name
         ORDER BY amount DESC
         """,
         period_start, period_end,
     )
 
-    total_opex = sum(r["amount"] for r in operating_expenses)
+    # float() bắt buộc: r["amount"] là Decimal (asyncpg numeric); trước fix
+    # direction, filter 'expense' luôn rỗng nên sum([])=0 (int) che lỗi — nay có
+    # dòng 'chi' thật, gross_profit(float) - total_opex(Decimal) sẽ TypeError→500.
+    total_opex = float(sum((r["amount"] for r in operating_expenses), 0))
     gross_profit = float(pl_from_deals["gross_profit_vnd"] or 0)
     net_profit = gross_profit - total_opex
 
@@ -289,42 +297,46 @@ async def cash_flow_statement(
         period_start, period_end,
     )
 
-    # Cash book breakdown by category
+    # Cash book breakdown by category — JOIN cash_book_categories để lấy
+    # category_code + category_name THẬT (cash_book chỉ có category_id, KHÔNG có
+    # cột 'category'). Đọc r["category"] như code cũ → KeyError → 500.
     cb_breakdown = await conn.fetch(
         """
         SELECT
-            direction,
-            category_id,
-            COALESCE(SUM(amount), 0) AS amount,
+            cb.direction,
+            cb.category_id,
+            cat.category_code,
+            cat.category_name,
+            COALESCE(SUM(cb.amount), 0) AS amount,
             COUNT(*) AS entry_count
-        FROM cash_book
-        WHERE entry_date BETWEEN $1 AND $2
-        GROUP BY direction, category_id
-        ORDER BY direction, amount DESC
+        FROM cash_book cb
+        LEFT JOIN cash_book_categories cat ON cat.id = cb.category_id
+        WHERE cb.entry_date BETWEEN $1 AND $2
+        GROUP BY cb.direction, cb.category_id, cat.category_code, cat.category_name
+        ORDER BY cb.direction, amount DESC
         """,
         period_start, period_end,
     )
 
-    # Categorize as operating / investing / financing
-    operating_categories = {"customer_receipt", "supplier_payment", "salary", "rent", "tax", "other"}
-    investing_categories: set[str] = set()   # extend as business grows
-    financing_categories: set[str] = set()   # extend as business grows
+    # Phân loại operating / investing / financing.
+    # Taxonomy THẬT (cash_book_categories) hiện CHỈ có nhóm HOẠT ĐỘNG KINH DOANH:
+    # mọi category thu/chi đều là operating. CHƯA có category đầu tư (investing)
+    # hay tài chính (financing), nên 2 nhóm đó để RỖNG (giữ khung 3 nhóm để FE
+    # không vỡ; mở rộng khi taxonomy bổ sung nhóm). Bỏ set cứng
+    # 'customer_receipt'/'supplier_payment'/... của code cũ — KHÔNG có thật.
+    operating_items = list(cb_breakdown)
+    investing_items: list = []   # chưa có category đầu tư trong cash_book_categories
+    financing_items: list = []   # chưa có category tài chính trong cash_book_categories
+    unclassified_items: list = []
 
-    operating_items = [r for r in cb_breakdown if r["category"] in operating_categories]
-    investing_items = [r for r in cb_breakdown if r["category"] in investing_categories]
-    financing_items = [r for r in cb_breakdown if r["category"] in financing_categories]
-    unclassified_items = [
-        r for r in cb_breakdown
-        if r["category"] not in operating_categories
-        and r["category"] not in investing_categories
-        and r["category"] not in financing_categories
-    ]
-
-    def _net(items: list[dict]) -> float:
-        # cash_book uses direction values 'in'/'income' for inflows, 'out'/'expense' for outflows
-        income = sum(r["amount"] for r in items if r["direction"] in ("in", "income", "inbound"))
-        expense = sum(r["amount"] for r in items if r["direction"] in ("out", "expense", "outbound"))
-        return float(income) - float(expense)
+    def _net(items: list) -> float:
+        # cash_book convention THẬT: direction 'thu' = TIỀN VÀO (inflow),
+        # 'chi' = TIỀN RA (outflow). Chấp nhận thêm 'income'/'expense' để tương
+        # thích ngược (CHECK constraint vẫn cho phép). 'transfer' bỏ qua (không
+        # tính vào lưu chuyển thuần).
+        inflow = sum(r["amount"] for r in items if r["direction"] in ("thu", "income"))
+        outflow = sum(r["amount"] for r in items if r["direction"] in ("chi", "expense"))
+        return float(inflow) - float(outflow)
 
     net_operating = _net(operating_items)
     net_investing = _net(investing_items)
@@ -573,14 +585,15 @@ async def monthly_comparison(
         months,
     )
 
-    # Operating expenses from cash_book
+    # Operating expenses from cash_book — direction 'chi' = TIỀN RA (chi phí).
+    # Chấp nhận thêm 'expense' để tương thích ngược với dữ liệu cũ.
     expense_rows = await conn.fetch(
         """
         SELECT
             DATE_TRUNC('month', entry_date)::DATE       AS month,
             COALESCE(SUM(amount), 0)               AS total_expense_vnd
         FROM cash_book
-        WHERE direction = 'expense'
+        WHERE direction IN ('chi', 'expense')
           AND entry_date >= DATE_TRUNC('month', NOW()) - ($1 - 1) * INTERVAL '1 month'
         GROUP BY 1
         ORDER BY 1
@@ -588,14 +601,14 @@ async def monthly_comparison(
         months,
     )
 
-    # Cash book income
+    # Cash book income — direction 'thu' = TIỀN VÀO. Chấp nhận thêm 'income'.
     income_rows = await conn.fetch(
         """
         SELECT
             DATE_TRUNC('month', entry_date)::DATE       AS month,
             COALESCE(SUM(amount), 0)               AS total_income_vnd
         FROM cash_book
-        WHERE direction = 'income'
+        WHERE direction IN ('thu', 'income')
           AND entry_date >= DATE_TRUNC('month', NOW()) - ($1 - 1) * INTERVAL '1 month'
         GROUP BY 1
         ORDER BY 1

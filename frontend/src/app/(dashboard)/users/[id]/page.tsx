@@ -16,6 +16,9 @@ import { toast } from 'sonner';
 import { api } from '@/lib/api';
 import { cn, formatDate, formatRelativeTime } from '@/lib/utils';
 import { StatusBadge } from '@/components/shared/status-badge';
+import { PageHeader } from '@/components/shared/page-header';
+import { Card } from '@/components/shared/card';
+import { EmptyState } from '@/components/shared/empty-state';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -95,17 +98,15 @@ export default function UserDetailPage() {
 
   if (!isAdmin) {
     return (
-      <div className="flex flex-col items-center justify-center py-24">
-        <div className="flex h-16 w-16 items-center justify-center rounded-full bg-red-50 mb-4">
-          <ShieldAlert className="h-8 w-8 text-red-400" />
-        </div>
-        <h3 className="text-lg font-display font-semibold text-slate-900">
-          Truy cập bị từ chối
-        </h3>
-        <p className="mt-1 text-sm text-slate-500 max-w-sm text-center">
-          Bạn không có quyền truy cập trang này.
-        </p>
-        <Link href="/users" className="mt-4">
+      <div className="flex flex-col items-center">
+        <EmptyState
+          variant="error"
+          icon={ShieldAlert}
+          heading="Truy cập bị từ chối"
+          description="Bạn không có quyền truy cập trang này."
+          className="pt-24 pb-3"
+        />
+        <Link href="/users">
           <Button variant="outline" size="sm">
             Quay lại danh sách
           </Button>
@@ -128,12 +129,13 @@ export default function UserDetailPage() {
 
   if (error || !userData) {
     return (
-      <div className="flex flex-col items-center justify-center py-20">
-        <User className="h-16 w-16 text-slate-300 mb-4" />
-        <h3 className="text-lg font-semibold text-slate-700 mb-2">
-          Không tìm thấy người dùng
-        </h3>
-        <Link href="/users" className="mt-4">
+      <div className="flex flex-col items-center">
+        <EmptyState
+          icon={User}
+          heading="Không tìm thấy người dùng"
+          className="pt-20 pb-3"
+        />
+        <Link href="/users">
           <Button variant="outline" size="sm">
             <ArrowLeft className="h-4 w-4 mr-2" />
             Quay lại danh sách
@@ -153,22 +155,22 @@ export default function UserDetailPage() {
         >
           <ArrowLeft className="h-4 w-4" />
         </Link>
-        <div className="flex-1">
-          <h2 className="text-xl font-display font-bold text-slate-900">
-            {userData.full_name ?? userData.email}
-          </h2>
-          <p className="text-sm text-slate-500 mt-0.5 font-mono">
-            {userData.email}
-          </p>
-        </div>
-        <StatusBadge
-          label={userData.is_active ? 'Hoạt động' : 'Khóa'}
-          variant={userData.is_active ? 'success' : 'danger'}
+        <PageHeader
+          icon={User}
+          title={userData.full_name ?? userData.email}
+          subtitle={<span className="font-mono">{userData.email}</span>}
+          actions={
+            <StatusBadge
+              label={userData.is_active ? 'Hoạt động' : 'Khóa'}
+              variant={userData.is_active ? 'success' : 'danger'}
+            />
+          }
+          className="flex-1"
         />
       </div>
 
       {/* Info Card */}
-      <div className="bg-white rounded-lg shadow-sm border border-slate-200 p-6 mb-6">
+      <Card padded={false} className="p-6 mb-6">
         <div className="flex items-center justify-between mb-4">
           <h3 className="text-sm font-semibold text-slate-700">
             Thông tin tài khoản
@@ -318,7 +320,7 @@ export default function UserDetailPage() {
             </InfoRow>
           </dl>
         )}
-      </div>
+      </Card>
     </div>
   );
 }

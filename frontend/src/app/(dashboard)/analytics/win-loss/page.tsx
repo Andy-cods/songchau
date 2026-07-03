@@ -5,6 +5,16 @@ import { useQuery } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 import { Trophy, Loader2 } from 'lucide-react';
 import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
+import { CHART, WIN_LOSS_COLORS } from '@/lib/chart-colors';
+import { PageHeader } from '@/components/shared/page-header';
+import {
+  Table,
+  TableHeader,
+  TableBody,
+  TableRow,
+  TableHead,
+  TableCell,
+} from '@/components/shared/table';
 
 interface Overview {
   total_rfq: number;
@@ -32,7 +42,8 @@ interface LossReason {
   avg_our_price: number;
 }
 
-const COLORS = ['#10b981', '#ef4444', '#94a3b8'];
+// Win/Loss/Pending → success / danger / neutral (shared token).
+const COLORS = WIN_LOSS_COLORS;
 
 export default function WinLossPage() {
   const [months, setMonths] = useState(6);
@@ -73,25 +84,24 @@ export default function WinLossPage() {
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <h2 className="text-xl font-display font-bold text-slate-900">
-            <Trophy className="h-5 w-5 inline mr-2 text-amber-500" />
-            Phân Tích Win/Loss
-          </h2>
-          <p className="text-sm text-slate-500 mt-0.5">Tỷ lệ thắng/thua theo maker, xu hướng và lý do</p>
-        </div>
-        <select
-          value={months}
-          onChange={(e) => setMonths(Number(e.target.value))}
-          className="px-3 py-2 border border-slate-200 rounded-lg text-sm"
-        >
-          <option value={3}>3 tháng</option>
-          <option value={6}>6 tháng</option>
-          <option value={12}>12 tháng</option>
-          <option value={24}>24 tháng</option>
-        </select>
-      </div>
+      <PageHeader
+        title="Phân Tích Win/Loss"
+        subtitle="Tỷ lệ thắng/thua theo maker, xu hướng và lý do"
+        icon={Trophy}
+        className="mb-6"
+        actions={
+          <select
+            value={months}
+            onChange={(e) => setMonths(Number(e.target.value))}
+            className="px-3 py-2 border border-slate-200 rounded-lg text-sm"
+          >
+            <option value={3}>3 tháng</option>
+            <option value={6}>6 tháng</option>
+            <option value={12}>12 tháng</option>
+            <option value={24}>24 tháng</option>
+          </select>
+        }
+      />
 
       {loadingOverview ? (
         <div className="p-8 text-center text-slate-400"><Loader2 className="h-6 w-6 animate-spin mx-auto" /></div>
@@ -103,9 +113,9 @@ export default function WinLossPage() {
               <p className="text-xs text-slate-500 uppercase tracking-wider">Tổng RFQ</p>
               <p className="text-2xl font-bold text-slate-800 mt-1">{(overview.total_rfq ?? 0).toLocaleString()}</p>
             </div>
-            <div className="bg-green-50 rounded-lg shadow-sm border border-green-200 p-4">
-              <p className="text-xs text-green-600 uppercase tracking-wider">Tỷ lệ thắng</p>
-              <p className="text-2xl font-bold text-green-700 mt-1">{overview.win_rate || 0}%</p>
+            <div className="bg-emerald-50 rounded-lg shadow-sm border border-emerald-200 p-4">
+              <p className="text-xs text-emerald-600 uppercase tracking-wider">Tỷ lệ thắng</p>
+              <p className="text-2xl font-bold text-emerald-700 mt-1">{overview.win_rate || 0}%</p>
             </div>
             <div className="bg-white rounded-lg shadow-sm border border-slate-200 p-4">
               <p className="text-xs text-slate-500 uppercase tracking-wider">Makers</p>
@@ -142,8 +152,8 @@ export default function WinLossPage() {
                   <YAxis type="category" dataKey="name" tick={{ fontSize: 11 }} width={100} />
                   <Tooltip />
                   <Legend />
-                  <Bar dataKey="Thắng" fill="#10b981" />
-                  <Bar dataKey="Thua" fill="#ef4444" />
+                  <Bar dataKey="Thắng" fill={CHART.success} />
+                  <Bar dataKey="Thua" fill={CHART.danger} />
                 </BarChart>
               </ResponsiveContainer>
             </div>
@@ -154,29 +164,27 @@ export default function WinLossPage() {
             <div className="px-4 py-3 border-b border-slate-100">
               <h3 className="text-sm font-semibold text-slate-700">Lý Do Thua Thầu</h3>
             </div>
-            <div className="overflow-x-auto">
-              <table className="w-full">
-                <thead>
-                  <tr className="border-b border-slate-100 bg-slate-50/50">
-                    <th className="text-left text-xs font-mono uppercase tracking-wider text-slate-400 px-4 py-3">Lý do</th>
-                    <th className="text-right text-xs font-mono uppercase tracking-wider text-slate-400 px-4 py-3">Số lần</th>
-                    <th className="text-right text-xs font-mono uppercase tracking-wider text-slate-400 px-4 py-3">Giá TB của ta</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {losses.map((l, i) => (
-                    <tr key={i} className="hover:bg-slate-50/50 transition-colors">
-                      <td className="px-4 py-3 text-sm text-slate-700">{l.reason}</td>
-                      <td className="px-4 py-3 text-sm text-right font-medium text-red-600">{l.count}</td>
-                      <td className="px-4 py-3 text-sm text-right text-slate-600">{(l.avg_our_price ?? 0).toLocaleString('vi-VN')} ₫</td>
-                    </tr>
-                  ))}
-                  {losses.length === 0 && (
-                    <tr><td colSpan={3} className="px-4 py-8 text-center text-slate-400">Không có dữ liệu</td></tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Lý do</TableHead>
+                  <TableHead className="text-right">Số lần</TableHead>
+                  <TableHead className="text-right">Giá TB của ta</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {losses.map((l, i) => (
+                  <TableRow key={i}>
+                    <TableCell className="text-sm text-slate-700">{l.reason}</TableCell>
+                    <TableCell className="text-sm text-right font-medium text-red-600">{l.count}</TableCell>
+                    <TableCell className="text-sm text-right text-slate-600">{(l.avg_our_price ?? 0).toLocaleString('vi-VN')} ₫</TableCell>
+                  </TableRow>
+                ))}
+                {losses.length === 0 && (
+                  <TableRow><TableCell colSpan={3} className="px-4 py-8 text-center text-slate-400">Không có dữ liệu</TableCell></TableRow>
+                )}
+              </TableBody>
+            </Table>
           </div>
         </>
       )}

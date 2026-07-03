@@ -15,3 +15,10 @@ data/backups/
 
 # Next.js build artifacts
 frontend/tsconfig.tsbuildinfo
+
+# --- Ad-hoc scripts hardcode VPS creds (2026-07-04) — TUYỆT ĐỐI không commit ---
+scripts/deploy_bqms_5_tasks.py
+scripts/deploy_sourcing_orders.py
+scripts/deploy_sourcing_orders_option_b.py
+scripts/onedrive_sync_agent.py
+scripts/windows/onedrive_continuous_sync.py

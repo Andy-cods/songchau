@@ -132,7 +132,7 @@ export function QuickPriceLookup() {
       onClick={() => setOpen(false)}
     >
       <div
-        className="bg-white rounded-2xl shadow-2xl w-[720px] max-w-[95vw] max-h-[80vh] overflow-hidden flex flex-col"
+        className="bg-white rounded-xl shadow-2xl w-[720px] max-w-[95vw] max-h-[80vh] overflow-hidden flex flex-col"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center gap-3 px-5 py-4 border-b border-slate-200">
@@ -146,7 +146,7 @@ export function QuickPriceLookup() {
             className="flex-1 text-base outline-none placeholder:text-slate-400"
             autoFocus
           />
-          <kbd className="text-[10px] font-mono text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded">ESC</kbd>
+          <kbd className="text-[11px] font-mono text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded">ESC</kbd>
           <button onClick={() => setOpen(false)} className="text-slate-400 hover:text-slate-600">
             <X className="w-4 h-4" />
           </button>
@@ -192,7 +192,7 @@ export function QuickPriceLookup() {
                   {selected.internal_quotes[0]?.specification || '—'}
                   {selected.internal_quotes[0]?.maker && ` · ${selected.internal_quotes[0].maker}`}
                   {selected.internal_quotes[0]?.item_type && (
-                    <span className="ml-2 inline-flex items-center rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium">
+                    <span className="ml-2 inline-flex items-center rounded bg-slate-100 px-1.5 py-0.5 text-[11px] font-medium">
                       {selected.internal_quotes[0].item_type}
                     </span>
                   )}
@@ -291,7 +291,7 @@ export function QuickPriceLookup() {
             <div className="p-10 text-center text-slate-400">
               <Package className="w-8 h-8 mx-auto mb-3 opacity-40" />
               <p className="text-sm">Tra cứu giá nhanh theo mã BQMS</p>
-              <p className="text-xs mt-1">Gõ ít nhất 2 ký tự để xem gợi ý · <kbd className="text-[10px] font-mono bg-slate-100 px-1 py-0.5 rounded">Ctrl+K</kbd> để mở nhanh</p>
+              <p className="text-xs mt-1">Gõ ít nhất 2 ký tự để xem gợi ý · <kbd className="text-[11px] font-mono bg-slate-100 px-1 py-0.5 rounded">Ctrl+K</kbd> để mở nhanh</p>
             </div>
           )}
 
@@ -321,7 +321,7 @@ function Section({ title, count, children }: { title: string; count: number; chi
 function Stat({ label, value }: { label: string; value: string }) {
   return (
     <div className="rounded-lg bg-slate-50 p-2">
-      <div className="text-[10px] uppercase text-slate-500">{label}</div>
+      <div className="text-[11px] uppercase text-slate-500">{label}</div>
       <div className="font-semibold text-slate-900 tabular-nums mt-0.5">{value}</div>
     </div>
   );

@@ -89,7 +89,7 @@ export function LineAreaChart({
           <h3 className="text-sm font-semibold text-slate-700 mb-3">{title}</h3>
         )}
         <div
-          className="flex items-center justify-center text-slate-400 text-sm"
+          className="flex items-center justify-center text-slate-500 text-sm"
           style={{ height }}
         >
           Chưa có dữ liệu

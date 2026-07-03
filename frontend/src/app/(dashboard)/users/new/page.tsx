@@ -12,6 +12,9 @@ import { useAuth } from '@/providers/auth-provider';
 import { api } from '@/lib/api';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
+import { PageHeader } from '@/components/shared/page-header';
+import { Card } from '@/components/shared/card';
+import { EmptyState } from '@/components/shared/empty-state';
 import { ROLE_LABELS } from '@/lib/constants';
 import type { UserRole } from '@/types/models';
 
@@ -55,17 +58,15 @@ const ROLE_OPTIONS: { value: UserRole; label: string }[] = [
 
 function AccessDenied() {
   return (
-    <div className="flex flex-col items-center justify-center py-24">
-      <div className="flex h-16 w-16 items-center justify-center rounded-full bg-red-50 mb-4">
-        <ShieldAlert className="h-8 w-8 text-red-400" />
-      </div>
-      <h3 className="text-lg font-display font-semibold text-slate-900">
-        Truy cập bị từ chối
-      </h3>
-      <p className="mt-1 text-sm text-slate-500 max-w-sm text-center">
-        Bạn không có quyền truy cập trang này. Chỉ quản trị viên mới có thể thêm người dùng.
-      </p>
-      <Link href="/users" className="mt-4">
+    <div className="flex flex-col items-center">
+      <EmptyState
+        variant="error"
+        icon={ShieldAlert}
+        heading="Truy cập bị từ chối"
+        description="Bạn không có quyền truy cập trang này. Chỉ quản trị viên mới có thể thêm người dùng."
+        className="pt-24 pb-3"
+      />
+      <Link href="/users">
         <Button variant="outline" size="sm">
           Quay lại danh sách
         </Button>
@@ -139,19 +140,17 @@ export default function NewUserPage() {
         >
           <ArrowLeft className="h-4 w-4" />
         </Link>
-        <div>
-          <h2 className="text-xl font-display font-bold text-slate-900">
-            Thêm người dùng mới
-          </h2>
-          <p className="text-sm text-slate-500 mt-0.5">
-            Tạo tài khoản mới cho hệ thống
-          </p>
-        </div>
+        <PageHeader
+          icon={UserPlus}
+          title="Thêm người dùng mới"
+          subtitle="Tạo tài khoản mới cho hệ thống"
+          className="flex-1"
+        />
       </div>
 
       <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
         {/* Basic Info Card */}
-        <div className="bg-white rounded-lg shadow-sm border border-slate-200 p-6">
+        <Card padded={false} className="p-6">
           <h3 className="text-sm font-semibold text-slate-700 mb-4">
             Thông tin cơ bản
           </h3>
@@ -167,7 +166,7 @@ export default function NewUserPage() {
                 {...register('email')}
                 placeholder="email@songchau.vn"
                 className={cn(
-                  'w-full h-9 px-3 text-sm border rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent',
+                  'w-full h-9 px-3 text-sm border rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent',
                   errors.email ? 'border-red-400' : 'border-slate-200'
                 )}
               />
@@ -187,7 +186,7 @@ export default function NewUserPage() {
                 {...register('full_name')}
                 placeholder="Nguyễn Văn A"
                 className={cn(
-                  'w-full h-9 px-3 text-sm border rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent',
+                  'w-full h-9 px-3 text-sm border rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent',
                   errors.full_name ? 'border-red-400' : 'border-slate-200'
                 )}
               />
@@ -206,7 +205,7 @@ export default function NewUserPage() {
               <input
                 {...register('display_name')}
                 placeholder="Tên viết tắt hoặc nickname"
-                className="w-full h-9 px-3 text-sm border border-slate-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                className="w-full h-9 px-3 text-sm border border-slate-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent"
               />
             </div>
 
@@ -218,7 +217,7 @@ export default function NewUserPage() {
               <select
                 {...register('role')}
                 className={cn(
-                  'w-full h-9 px-3 text-sm border rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent',
+                  'w-full h-9 px-3 text-sm border rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent',
                   errors.role ? 'border-red-400' : 'border-slate-200'
                 )}
               >
@@ -244,7 +243,7 @@ export default function NewUserPage() {
               <input
                 {...register('department')}
                 placeholder="VD: Kinh doanh, Kế toán..."
-                className="w-full h-9 px-3 text-sm border border-slate-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                className="w-full h-9 px-3 text-sm border border-slate-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent"
               />
             </div>
 
@@ -257,7 +256,7 @@ export default function NewUserPage() {
                 type="tel"
                 {...register('phone')}
                 placeholder="+84..."
-                className="w-full h-9 px-3 text-sm border border-slate-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                className="w-full h-9 px-3 text-sm border border-slate-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent"
               />
             </div>
 
@@ -271,7 +270,7 @@ export default function NewUserPage() {
                 {...register('password')}
                 placeholder="Tối thiểu 8 ký tự"
                 className={cn(
-                  'w-full h-9 px-3 text-sm border rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent',
+                  'w-full h-9 px-3 text-sm border rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent',
                   errors.password ? 'border-red-400' : 'border-slate-200'
                 )}
               />
@@ -285,7 +284,7 @@ export default function NewUserPage() {
               </p>
             </div>
           </div>
-        </div>
+        </Card>
 
         {/* Actions */}
         <div className="flex items-center justify-end gap-3 pb-6">

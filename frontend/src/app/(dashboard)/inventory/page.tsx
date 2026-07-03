@@ -8,6 +8,7 @@ import { Package } from 'lucide-react';
 import { getInventory } from '@/services/inventory';
 import { DataTable } from '@/components/shared/data-table';
 import { EmptyState } from '@/components/shared/empty-state';
+import { PageHeader } from '@/components/shared/page-header';
 import { cn } from '@/lib/utils';
 import type { InventoryItem, PaginatedResponse } from '@/types/models';
 
@@ -115,26 +116,29 @@ export default function InventoryPage() {
 
   const items = data?.items ?? [];
 
+  const lowStockCount = items.filter((item) => item.current_stock < item.min_stock).length;
+
   return (
-    <div>
+    <div role="region" aria-label="Trang kho hàng">
       {/* Header */}
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <h2 className="text-xl font-display font-bold text-slate-900">
-            Kho hàng
-          </h2>
-          <p className="text-sm text-slate-500 mt-0.5">
-            Theo dõi tồn kho và vị trí hàng hóa
-          </p>
-        </div>
-      </div>
+      <PageHeader
+        icon={Package}
+        title="Kho hàng"
+        subtitle="Theo dõi tồn kho và vị trí hàng hóa"
+        className="mb-6"
+      />
 
       {/* Low stock alert */}
-      {!isLoading && items.some((item) => item.current_stock < item.min_stock) && (
-        <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg flex items-center gap-2">
-          <div className="h-2 w-2 rounded-full bg-red-500 animate-pulse" />
+      {!isLoading && lowStockCount > 0 && (
+        <div
+          role="alert"
+          aria-live="polite"
+          aria-label={`Cảnh báo: ${lowStockCount} mặt hàng dưới mức tồn kho tối thiểu`}
+          className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg flex items-center gap-2"
+        >
+          <div className="h-2 w-2 rounded-full bg-red-500 animate-pulse" aria-hidden="true" />
           <span className="text-sm text-red-700 font-medium">
-            Có {items.filter((item) => item.current_stock < item.min_stock).length} mặt hàng dưới mức tồn kho tối thiểu
+            Có {lowStockCount} mặt hàng dưới mức tồn kho tối thiểu
           </span>
         </div>
       )}

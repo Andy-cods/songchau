@@ -369,15 +369,24 @@ async def auto_generate_invoice(
         ar = await conn.fetchrow(
             """
             INSERT INTO accounts_receivable
-                (customer_id, sales_order_id, amount, paid_amount, status, currency)
-            VALUES ($1, $2, $3, 0, 'unpaid', $4)
+                (customer_id, sales_order_id,
+                 invoice_date, due_date, amount, currency,
+                 paid_amount, status, created_by)
+            VALUES ($1, $2, $3, $4, $5, $6::currency_code, 0, 'pending', $7::uuid)
             ON CONFLICT DO NOTHING
             RETURNING *
             """,
+            # QC fix 2026-06-17: dropped invoice_id/invoice_number — accounts_receivable.invoice_id
+            # FK targets revenue_invoices(id), NOT this module's `invoices` table, so writing
+            # invoices.id here raised 23503 and aborted invoice creation. AR↔invoice link is kept
+            # via the reverse `UPDATE invoices SET ar_id` below. Enum 'pending' + NOT NULL cols stay.
             so["customer_id"],
             body.sales_order_id,
+            invoice_date,
+            due_date,
             total_amount,
             so.get("currency", "VND"),
+            token_data.user_id,
         )
 
         if ar:

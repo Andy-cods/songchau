@@ -33,7 +33,13 @@ import hashlib
 import json
 import logging
 import re
-from datetime import date, datetime
+from datetime import date, datetime, timedelta, timezone
+
+# Vietnam timezone — Samsung's SEC portal renders PO_CONFIRM_DT in local
+# time for SEV/SEVT vendors. Without this, a PO confirmed at e.g. 18:45 UTC
+# shows as the next day in the portal but the previous day if we use
+# `utcfromtimestamp()`. Matches what the user sees in the SEC screen.
+_VN_TZ = timezone(timedelta(hours=7))
 
 logger = logging.getLogger(__name__)
 
@@ -47,18 +53,19 @@ logger = logging.getLogger(__name__)
 _UPSERT_SQL = """
 INSERT INTO bqms_deliveries (
     po_number, shipping_no, bqms_code, po_date, quotation_no,
-    specification, quantity, unit_price, amount,
+    item_name, specification, quantity, unit_price, amount,
     recipient_name, receiving_warehouse, expected_delivery_date,
     delivery_status, data_source, source_hash, synced_at
 ) VALUES (
-    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12,
-    COALESCE($13::delivery_status, 'chua_giao'),
-    'samsung_scrape', $14, NOW()
+    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13,
+    COALESCE($14::delivery_status, 'chua_giao'),
+    'samsung_scrape', $15, NOW()
 )
 ON CONFLICT (po_number, bqms_code) DO UPDATE SET
     shipping_no = COALESCE(NULLIF(bqms_deliveries.shipping_no, ''), EXCLUDED.shipping_no),
     po_date = COALESCE(EXCLUDED.po_date, bqms_deliveries.po_date),
     quotation_no = COALESCE(EXCLUDED.quotation_no, bqms_deliveries.quotation_no),
+    item_name = COALESCE(EXCLUDED.item_name, bqms_deliveries.item_name),
     specification = COALESCE(EXCLUDED.specification, bqms_deliveries.specification),
     quantity = COALESCE(EXCLUDED.quantity, bqms_deliveries.quantity),
     unit_price = COALESCE(EXCLUDED.unit_price, bqms_deliveries.unit_price),
@@ -99,12 +106,30 @@ def _to_number(s) -> float | None:
 
 
 def _parse_date(s) -> date | None:
-    """Parse Samsung's date strings: YYYY-MM-DD, YYYYMMDD, DD/MM/YYYY, etc."""
+    """Parse Samsung's date strings: YYYY-MM-DD, YYYYMMDD, DD/MM/YYYY, etc.
+
+    Samsung also occasionally sends epoch-millisecond timestamps as a numeric
+    string (e.g. `'1778228111000'` = 2026-05-08 UTC) — observed for
+    `PO_CONFIRM_DT` in the MRO PO scrape starting around 2026-05. We treat any
+    purely-numeric string of length 10 (seconds) or 13 (milliseconds) as an
+    epoch and convert via `datetime.fromtimestamp`. Length 8 (YYYYMMDD) is
+    handled by the regular strptime loop below.
+    """
     if s is None:
         return None
     raw = str(s).strip()
     if not raw:
         return None
+    # Epoch handling — Samsung's PO_CONFIRM_DT was switched to epoch-millis
+    # (Thang 2026-05-20). 13 digits = ms, 10 digits = seconds.
+    if raw.isdigit() and len(raw) in (10, 13):
+        try:
+            ts_s = int(raw) / (1000 if len(raw) == 13 else 1)
+            # Sanity guard: only accept timestamps in [2000-01-01, 2100-01-01)
+            if 946_684_800 <= ts_s < 4_102_444_800:
+                return datetime.fromtimestamp(ts_s, tz=_VN_TZ).date()
+        except (ValueError, OverflowError, OSError):
+            pass
     # Try common formats
     for fmt in ("%Y-%m-%d", "%Y/%m/%d", "%Y%m%d", "%d/%m/%Y", "%d-%m-%Y"):
         try:
@@ -131,6 +156,29 @@ def _safe_str(v) -> str | None:
         return None
     s = str(v).strip().replace("&gt;", ">")
     return s or None
+
+
+def _split_item_spec(s) -> tuple[str | None, str | None]:
+    """Split a combined '<ItemName>\\n<Spec>' value into (item_name, spec).
+
+    SPLIT RULE (identical across all three write-paths + the SQL backfill):
+      item_name = trim(text BEFORE the first '\\n')
+      spec      = trim(text AFTER  the first '\\n')
+      If there is NO '\\n', item_name is None and spec is the trimmed input.
+
+    Returns (None, None) for an empty/None input. Samsung specs are usually
+    single-line, so item_name will most often be None here — that is fine.
+    """
+    if s is None:
+        return None, None
+    raw = str(s)
+    if "\n" not in raw:
+        stripped = raw.strip()
+        return None, (stripped or None)
+    head, tail = raw.split("\n", 1)
+    item_name = head.strip() or None
+    spec = tail.strip() or None
+    return item_name, spec
 
 
 async def upsert_deliveries_from_po_staging(pool, limit: int | None = None) -> dict:
@@ -171,6 +219,8 @@ async def upsert_deliveries_from_po_staging(pool, limit: int | None = None) -> d
             po_date = _parse_date(raw.get("PO_CONFIRM_DT"))
             expected_delivery_date = _parse_date(raw.get("REQ_DELIVERY_DATE"))
 
+            item_name, specification = _split_item_spec(raw.get("SPECIFICATION"))
+
             sh = _source_hash(
                 po_number, shipping_no, bqms_code,
                 quantity, amount, raw.get("PO_STATUS_NAME"),
@@ -184,7 +234,8 @@ async def upsert_deliveries_from_po_staging(pool, limit: int | None = None) -> d
                     bqms_code,
                     po_date,
                     _safe_str(raw.get("REQ_NO")),
-                    _safe_str(raw.get("SPECIFICATION")),
+                    item_name,
+                    specification,
                     quantity,
                     unit_price,
                     amount,

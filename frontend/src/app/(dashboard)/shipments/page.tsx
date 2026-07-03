@@ -11,12 +11,25 @@ import {
   Clock,
   Package,
   AlertTriangle,
-  Loader2,
 } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { api } from '@/lib/api';
 import { formatDate } from '@/lib/utils';
+import { StatusBadge } from '@/components/shared/status-badge';
+import { PageHeader } from '@/components/shared/page-header';
+import { Card } from '@/components/shared/card';
+import {
+  Table,
+  TableHeader,
+  TableBody,
+  TableRow,
+  TableHead,
+  TableCell,
+} from '@/components/shared/table';
+import { EmptyState } from '@/components/shared/empty-state';
+import { Skeleton } from '@/components/ui/skeleton';
+import type { StatusVariant } from '@/lib/constants';
 
 // ─── Types ──────────────────────────────────────────────────────────
 
@@ -50,18 +63,20 @@ const COLUMNS: Array<{ key: ShipmentStatus; label: string }> = [
   { key: 'received',  label: 'Đã nhận' },
 ];
 
-const COLUMN_COLORS: Record<ShipmentStatus, string> = {
-  pending:    'bg-slate-50 border-slate-200',
-  in_transit: 'bg-blue-50 border-blue-200',
-  arrived:    'bg-amber-50 border-amber-200',
-  received:   'bg-green-50 border-green-200',
+// Trạng thái lô hàng → token status (info=sky / warning=amber / success=emerald / neutral=slate)
+const STATUS_VARIANT: Record<ShipmentStatus, StatusVariant> = {
+  pending:    'neutral',
+  in_transit: 'info',
+  arrived:    'warning',
+  received:   'success',
 };
 
+// Kanban: cột nền slate trung tính (xem markup); chỉ chip tiêu đề mang status.
 const COLUMN_HEADER_COLORS: Record<ShipmentStatus, string> = {
   pending:    'text-slate-600 bg-slate-100',
-  in_transit: 'text-blue-700 bg-blue-100',
+  in_transit: 'text-sky-700 bg-sky-100',
   arrived:    'text-amber-700 bg-amber-100',
-  received:   'text-green-700 bg-green-100',
+  received:   'text-emerald-700 bg-emerald-100',
 };
 
 // ─── Helpers ────────────────────────────────────────────────────────
@@ -72,8 +87,8 @@ function isOverdue(eta?: string): boolean {
 }
 
 function ShippingIcon({ method }: { method: ShippingMethod }) {
-  if (method === 'air') return <Plane className="h-4 w-4 text-sky-500" />;
-  return <Ship className="h-4 w-4 text-blue-500" />;
+  if (method === 'air') return <Plane className="h-4 w-4 text-slate-400" />;
+  return <Ship className="h-4 w-4 text-slate-400" />;
 }
 
 // ─── Kanban Card ─────────────────────────────────────────────────────
@@ -124,7 +139,7 @@ function KanbanView({ shipments, onCardClick }: { shipments: Shipment[]; onCardC
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
       {COLUMNS.map((col) => (
-        <div key={col.key} className={`rounded-xl border p-3 ${COLUMN_COLORS[col.status ?? col.key]}`}>
+        <div key={col.key} className="rounded-xl border border-slate-200 bg-slate-50 p-3">
           <div className={`inline-flex items-center gap-2 px-2.5 py-1 rounded-full text-xs font-medium mb-3 ${COLUMN_HEADER_COLORS[col.key]}`}>
             {col.label}
             <span className="bg-white/70 rounded-full px-1.5 py-0.5 font-mono text-xs">
@@ -148,74 +163,71 @@ function KanbanView({ shipments, onCardClick }: { shipments: Shipment[]; onCardC
 
 // ─── Table View ──────────────────────────────────────────────────────
 
-const STATUS_CONFIG: Record<ShipmentStatus, { label: string; className: string }> = {
-  pending:    { label: 'Chờ xuất',         className: 'bg-slate-100 text-slate-600' },
-  in_transit: { label: 'Đang vận chuyển',  className: 'bg-blue-100 text-blue-700' },
-  arrived:    { label: 'Đã đến cảng',      className: 'bg-amber-100 text-amber-700' },
-  received:   { label: 'Đã nhận',          className: 'bg-green-100 text-green-700' },
+const STATUS_LABEL: Record<ShipmentStatus, string> = {
+  pending:    'Chờ xuất',
+  in_transit: 'Đang vận chuyển',
+  arrived:    'Đã đến cảng',
+  received:   'Đã nhận',
 };
 
 function TableView({ shipments, onRowClick }: { shipments: Shipment[]; onRowClick: (id: number) => void }) {
   return (
-    <div className="bg-white rounded-lg shadow-sm border border-slate-200 overflow-hidden">
-      <div className="overflow-x-auto">
-        <table className="w-full">
-          <thead>
-            <tr className="border-b border-slate-100 bg-slate-50/50">
-              <th className="text-left text-xs font-mono uppercase tracking-wider text-slate-400 px-4 py-3">Số lô hàng</th>
-              <th className="text-left text-xs font-mono uppercase tracking-wider text-slate-400 px-4 py-3">Mã PO</th>
-              <th className="text-left text-xs font-mono uppercase tracking-wider text-slate-400 px-4 py-3">Nhà cung cấp</th>
-              <th className="text-center text-xs font-mono uppercase tracking-wider text-slate-400 px-4 py-3">Phương thức</th>
-              <th className="text-left text-xs font-mono uppercase tracking-wider text-slate-400 px-4 py-3">Trạng thái</th>
-              <th className="text-center text-xs font-mono uppercase tracking-wider text-slate-400 px-4 py-3">Mặt hàng</th>
-              <th className="text-left text-xs font-mono uppercase tracking-wider text-slate-400 px-4 py-3">ETA</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-slate-100">
-            {shipments.map((s) => {
-              const overdue = isOverdue(s.eta) && s.status !== 'received';
-              const sc = STATUS_CONFIG[s.status];
-              return (
-                <tr
-                  key={s.id}
-                  onClick={() => onRowClick(s.id)}
-                  className={`hover:bg-slate-50/50 transition-colors cursor-pointer ${overdue ? 'bg-red-50/30' : ''}`}
-                >
-                  <td className="px-4 py-3">
-                    <span className="text-sm font-mono font-medium text-brand-600">{s.shipment_number}</span>
-                  </td>
-                  <td className="px-4 py-3">
-                    <span className="text-sm text-slate-700">{s.po_number}</span>
-                  </td>
-                  <td className="px-4 py-3">
-                    <span className="text-sm text-slate-600">{s.supplier_name}</span>
-                  </td>
-                  <td className="px-4 py-3 text-center">
-                    <ShippingIcon method={s.shipping_method} />
-                  </td>
-                  <td className="px-4 py-3">
-                    <span className={`px-2 py-0.5 rounded text-xs font-medium ${sc.className}`}>{sc.label}</span>
-                  </td>
-                  <td className="px-4 py-3 text-center">
-                    <span className="text-sm font-mono text-slate-700">{s.item_count}</span>
-                  </td>
-                  <td className="px-4 py-3">
-                    {s.eta ? (
-                      <span className={`text-sm flex items-center gap-1 ${overdue ? 'text-red-600 font-medium' : 'text-slate-500'}`}>
-                        {overdue && <AlertTriangle className="h-3.5 w-3.5" />}
-                        {formatDate(s.eta)}
-                      </span>
-                    ) : (
-                      <span className="text-sm text-slate-300">—</span>
-                    )}
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
-    </div>
+    <Card padded={false} className="overflow-hidden">
+      <Table>
+        <TableHeader>
+          <TableRow>
+            <TableHead>Số lô hàng</TableHead>
+            <TableHead>Mã PO</TableHead>
+            <TableHead>Nhà cung cấp</TableHead>
+            <TableHead className="text-center">Phương thức</TableHead>
+            <TableHead>Trạng thái</TableHead>
+            <TableHead className="text-center">Mặt hàng</TableHead>
+            <TableHead>ETA</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {shipments.map((s) => {
+            const overdue = isOverdue(s.eta) && s.status !== 'received';
+            return (
+              <TableRow
+                key={s.id}
+                onClick={() => onRowClick(s.id)}
+                className={`cursor-pointer ${overdue ? 'bg-red-50/30' : ''}`}
+              >
+                <TableCell>
+                  <span className="text-sm font-mono font-medium text-brand-600">{s.shipment_number}</span>
+                </TableCell>
+                <TableCell>
+                  <span className="text-sm text-slate-700">{s.po_number}</span>
+                </TableCell>
+                <TableCell>
+                  <span className="text-sm text-slate-600">{s.supplier_name}</span>
+                </TableCell>
+                <TableCell className="text-center">
+                  <ShippingIcon method={s.shipping_method} />
+                </TableCell>
+                <TableCell>
+                  <StatusBadge variant={STATUS_VARIANT[s.status]} label={STATUS_LABEL[s.status]} />
+                </TableCell>
+                <TableCell className="text-center">
+                  <span className="text-sm font-mono text-slate-700">{s.item_count}</span>
+                </TableCell>
+                <TableCell>
+                  {s.eta ? (
+                    <span className={`text-sm flex items-center gap-1 ${overdue ? 'text-red-600 font-medium' : 'text-slate-500'}`}>
+                      {overdue && <AlertTriangle className="h-3.5 w-3.5" />}
+                      {formatDate(s.eta)}
+                    </span>
+                  ) : (
+                    <span className="text-sm text-slate-300">—</span>
+                  )}
+                </TableCell>
+              </TableRow>
+            );
+          })}
+        </TableBody>
+      </Table>
+    </Card>
   );
 }
 
@@ -240,53 +252,56 @@ export default function ShipmentsPage() {
   return (
     <div>
       {/* Header */}
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <h2 className="text-xl font-display font-bold text-slate-900">Vận chuyển</h2>
-          <p className="text-sm text-slate-500 mt-0.5">Theo dõi tình trạng các lô hàng</p>
-        </div>
-        <div className="flex items-center gap-2">
-          {/* View Toggle */}
-          <div className="flex items-center border border-slate-200 rounded-lg overflow-hidden">
-            <button
-              onClick={() => setViewMode('kanban')}
-              className={`flex items-center gap-1.5 px-3 py-2 text-xs font-medium transition-colors ${
-                viewMode === 'kanban' ? 'bg-brand-600 text-white' : 'bg-white text-slate-600 hover:bg-slate-50'
-              }`}
+      <PageHeader
+        icon={Ship}
+        title="Vận chuyển"
+        subtitle="Theo dõi tình trạng các lô hàng"
+        className="mb-6"
+        actions={
+          <>
+            {/* View Toggle */}
+            <div className="flex items-center border border-slate-200 rounded-lg overflow-hidden">
+              <button
+                onClick={() => setViewMode('kanban')}
+                className={`flex items-center gap-1.5 px-3 py-2 text-xs font-medium transition-colors ${
+                  viewMode === 'kanban' ? 'bg-brand-600 text-white' : 'bg-white text-slate-600 hover:bg-slate-50'
+                }`}
+              >
+                <LayoutGrid className="h-3.5 w-3.5" />
+                Kanban
+              </button>
+              <button
+                onClick={() => setViewMode('table')}
+                className={`flex items-center gap-1.5 px-3 py-2 text-xs font-medium transition-colors ${
+                  viewMode === 'table' ? 'bg-brand-600 text-white' : 'bg-white text-slate-600 hover:bg-slate-50'
+                }`}
+              >
+                <List className="h-3.5 w-3.5" />
+                Danh sách
+              </button>
+            </div>
+            <Link
+              href="/shipments/new"
+              className="flex items-center gap-2 px-4 py-2 bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium rounded-lg transition-colors"
             >
-              <LayoutGrid className="h-3.5 w-3.5" />
-              Kanban
-            </button>
-            <button
-              onClick={() => setViewMode('table')}
-              className={`flex items-center gap-1.5 px-3 py-2 text-xs font-medium transition-colors ${
-                viewMode === 'table' ? 'bg-brand-600 text-white' : 'bg-white text-slate-600 hover:bg-slate-50'
-              }`}
-            >
-              <List className="h-3.5 w-3.5" />
-              Danh sách
-            </button>
-          </div>
-          <Link
-            href="/shipments/new"
-            className="flex items-center gap-2 px-4 py-2 bg-brand-600 hover:bg-brand-700 text-white text-sm font-medium rounded-lg transition-colors"
-          >
-            <Plus className="h-4 w-4" />
-            Tạo lô hàng
-          </Link>
-        </div>
-      </div>
+              <Plus className="h-4 w-4" />
+              Tạo lô hàng
+            </Link>
+          </>
+        }
+      />
 
       {/* Content */}
       {isLoading ? (
-        <div className="flex items-center justify-center py-24">
-          <Loader2 className="h-8 w-8 animate-spin text-brand-500" />
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
+          {Array.from({ length: 4 }).map((_, i) => (
+            <Skeleton key={i} className="h-48 w-full rounded-xl" />
+          ))}
         </div>
       ) : shipments.length === 0 ? (
-        <div className="flex flex-col items-center justify-center py-24 text-slate-400">
-          <Ship className="h-12 w-12 mb-3" />
-          <p className="text-sm text-slate-400 font-medium">Chưa có lô hàng nào</p>
-        </div>
+        <Card padded={false}>
+          <EmptyState icon={Ship} heading="Chưa có lô hàng nào" />
+        </Card>
       ) : viewMode === 'kanban' ? (
         <KanbanView shipments={shipments} onCardClick={handleCardClick} />
       ) : (

@@ -16,6 +16,24 @@ import {
 } from 'lucide-react';
 import { useAuth } from '@/providers/auth-provider';
 import { formatRelativeTime } from '@/lib/utils';
+import { PageHeader } from '@/components/shared/page-header';
+import { Card } from '@/components/shared/card';
+import {
+  Table,
+  TableHeader,
+  TableBody,
+  TableRow,
+  TableHead,
+  TableCell,
+} from '@/components/shared/table';
+import { EmptyState } from '@/components/shared/empty-state';
+import { Skeleton } from '@/components/ui/skeleton';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 
 // ─── Types ─────────────────────────────────────────────────────
 
@@ -50,16 +68,16 @@ const PRIORITY_CONFIG: Record<
   number,
   { label: string; className: string }
 > = {
-  1: { label: 'Khẩn', className: 'bg-red-100 text-red-700' },
-  2: { label: 'Cao', className: 'bg-orange-100 text-orange-700' },
-  3: { label: 'Bình thường', className: 'bg-blue-100 text-blue-700' },
+  1: { label: 'Khẩn', className: 'bg-rose-100 text-rose-700' },
+  2: { label: 'Cao', className: 'bg-amber-100 text-amber-700' },
+  3: { label: 'Bình thường', className: 'bg-sky-100 text-sky-700' },
   4: { label: 'Thấp', className: 'bg-slate-100 text-slate-500' },
 };
 
 const STATUS_CONFIG: Record<string, { label: string; className: string }> = {
   pending: { label: 'Chờ xử lý', className: 'bg-amber-100 text-amber-700' },
-  in_progress: { label: 'Đang làm', className: 'bg-blue-100 text-blue-700' },
-  completed: { label: 'Hoàn thành', className: 'bg-green-100 text-green-700' },
+  in_progress: { label: 'Đang làm', className: 'bg-sky-100 text-sky-700' },
+  completed: { label: 'Hoàn thành', className: 'bg-emerald-100 text-emerald-700' },
 };
 
 const TASK_TYPES = [
@@ -114,19 +132,16 @@ function CreateTaskModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-      <div className="bg-white rounded-xl shadow-xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
-        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 sticky top-0 bg-white">
-          <h3 className="text-base font-semibold text-slate-900">Tạo công việc mới</h3>
-          <button onClick={onClose} className="text-slate-400 hover:text-slate-600 transition-colors">
-            <X className="h-5 w-5" />
-          </button>
-        </div>
+    <Dialog open onOpenChange={(o) => { if (!o) onClose(); }}>
+      <DialogContent className="max-h-[90vh] overflow-y-auto p-0">
+        <DialogHeader className="sticky top-0 z-10 flex-row items-center justify-between border-b border-slate-100 bg-white px-6 py-4">
+          <DialogTitle className="text-base">Tạo công việc mới</DialogTitle>
+        </DialogHeader>
 
         <div className="px-6 py-4 space-y-4">
           <div>
             <label className="block text-sm font-medium text-slate-700 mb-1">
-              Tiêu đề <span className="text-red-500">*</span>
+              Tiêu đề <span className="text-rose-500">*</span>
             </label>
             <input
               name="title"
@@ -210,7 +225,7 @@ function CreateTaskModal({
           </div>
 
           {createMutation.isError && (
-            <p className="text-sm text-red-600">Tạo công việc thất bại. Vui lòng thử lại.</p>
+            <p className="text-sm text-rose-600">Tạo công việc thất bại. Vui lòng thử lại.</p>
           )}
         </div>
 
@@ -234,8 +249,8 @@ function CreateTaskModal({
             Tạo công việc
           </button>
         </div>
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -294,24 +309,21 @@ export default function TasksPage() {
   return (
     <div>
       {/* Header */}
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <h2 className="text-xl font-display font-bold text-slate-900 flex items-center gap-2">
-            <ListTodo className="h-5 w-5 text-brand-600" />
-            Quản lý công việc
-          </h2>
-          <p className="text-sm text-slate-500 mt-0.5">
-            {total > 0 ? `${total} công việc` : 'Phân công và theo dõi tiến độ'}
-          </p>
-        </div>
-        <button
-          onClick={() => setShowCreate(true)}
-          className="flex items-center gap-2 px-4 py-2 bg-brand-600 text-white rounded-lg text-sm font-medium hover:bg-brand-700 transition-colors"
-        >
-          <Plus className="h-4 w-4" />
-          Tạo task
-        </button>
-      </div>
+      <PageHeader
+        className="mb-6"
+        icon={ListTodo}
+        title="Quản lý công việc"
+        subtitle={total > 0 ? `${total} công việc` : 'Phân công và theo dõi tiến độ'}
+        actions={
+          <button
+            onClick={() => setShowCreate(true)}
+            className="flex items-center gap-2 px-4 py-2 bg-brand-600 text-white rounded-lg text-sm font-medium hover:bg-brand-700 transition-colors"
+          >
+            <Plus className="h-4 w-4" />
+            Tạo công việc
+          </button>
+        }
+      />
 
       {/* Filter Bar */}
       <div className="bg-white rounded-lg shadow-sm border border-slate-200 p-4 mb-6">
@@ -370,32 +382,33 @@ export default function TasksPage() {
       </div>
 
       {/* Tasks Table */}
-      <div className="bg-white rounded-lg shadow-sm border border-slate-200">
+      <Card padded={false}>
         {isLoading ? (
-          <div className="flex items-center justify-center py-12 text-slate-400">
-            <Loader2 className="h-6 w-6 animate-spin" />
+          <div className="p-4 space-y-3">
+            {Array.from({ length: 5 }).map((_, i) => (
+              <Skeleton key={i} className="h-10 w-full" />
+            ))}
           </div>
         ) : tasks.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-16 text-slate-400">
-            <ListTodo className="h-10 w-10 mb-3 opacity-50" />
-            <p className="text-sm font-medium">Không có công việc nào</p>
-            <p className="text-xs mt-1">Nhấn "Tạo task" để thêm công việc mới</p>
-          </div>
+          <EmptyState
+            icon={ListTodo}
+            heading="Không có công việc nào"
+            description='Nhấn "Tạo công việc" để thêm công việc mới'
+          />
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead>
-                <tr className="border-b border-slate-100 bg-slate-50/50">
-                  <th className="text-left text-xs font-mono uppercase tracking-wider text-slate-400 px-4 py-3">Tiêu đề</th>
-                  <th className="text-left text-xs font-mono uppercase tracking-wider text-slate-400 px-4 py-3">Loại</th>
-                  <th className="text-left text-xs font-mono uppercase tracking-wider text-slate-400 px-4 py-3">Ưu tiên</th>
-                  <th className="text-left text-xs font-mono uppercase tracking-wider text-slate-400 px-4 py-3">Người thực hiện</th>
-                  <th className="text-left text-xs font-mono uppercase tracking-wider text-slate-400 px-4 py-3">Trạng thái</th>
-                  <th className="text-left text-xs font-mono uppercase tracking-wider text-slate-400 px-4 py-3">Hạn</th>
-                  <th className="text-left text-xs font-mono uppercase tracking-wider text-slate-400 px-4 py-3">Thao tác</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Tiêu đề</TableHead>
+                <TableHead>Loại</TableHead>
+                <TableHead>Ưu tiên</TableHead>
+                <TableHead>Người thực hiện</TableHead>
+                <TableHead>Trạng thái</TableHead>
+                <TableHead>Hạn</TableHead>
+                <TableHead>Thao tác</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
                 {tasks.map((task) => {
                   const priorityCfg = PRIORITY_CONFIG[task.priority] ?? PRIORITY_CONFIG[3];
                   const statusCfg = STATUS_CONFIG[task.status] ?? STATUS_CONFIG['pending'];
@@ -405,8 +418,8 @@ export default function TasksPage() {
                     new Date(task.due_date) < new Date();
 
                   return (
-                    <tr key={task.id} className="hover:bg-slate-50/50 transition-colors">
-                      <td className="px-4 py-3">
+                    <TableRow key={task.id}>
+                      <TableCell>
                         <div>
                           <p className="text-sm font-medium text-slate-800">{task.title}</p>
                           {task.description && (
@@ -415,52 +428,52 @@ export default function TasksPage() {
                             </p>
                           )}
                         </div>
-                      </td>
-                      <td className="px-4 py-3">
+                      </TableCell>
+                      <TableCell>
                         <span className="text-xs text-slate-500 bg-slate-100 px-2 py-0.5 rounded">
                           {taskTypeLabel(task.task_type)}
                         </span>
-                      </td>
-                      <td className="px-4 py-3">
+                      </TableCell>
+                      <TableCell>
                         <span
                           className={`text-xs px-2 py-0.5 rounded-full font-medium ${priorityCfg.className}`}
                         >
                           {priorityCfg.label}
                         </span>
-                      </td>
-                      <td className="px-4 py-3">
+                      </TableCell>
+                      <TableCell>
                         <div className="flex items-center gap-1.5">
                           <User className="h-3.5 w-3.5 text-slate-400" />
                           <span className="text-sm text-slate-600">
                             {task.assigned_to_name ?? 'Chưa phân công'}
                           </span>
                         </div>
-                      </td>
-                      <td className="px-4 py-3">
+                      </TableCell>
+                      <TableCell>
                         <span
                           className={`text-xs px-2 py-0.5 rounded-full font-medium ${statusCfg.className}`}
                         >
                           {statusCfg.label}
                         </span>
-                      </td>
-                      <td className="px-4 py-3">
+                      </TableCell>
+                      <TableCell>
                         {task.due_date ? (
-                          <div className={`flex items-center gap-1 text-xs ${isOverdue ? 'text-red-600' : 'text-slate-500'}`}>
+                          <div className={`flex items-center gap-1 text-xs ${isOverdue ? 'text-rose-600' : 'text-slate-500'}`}>
                             <Calendar className="h-3 w-3" />
                             {new Date(task.due_date).toLocaleDateString('vi-VN')}
                           </div>
                         ) : (
                           <span className="text-xs text-slate-400">—</span>
                         )}
-                      </td>
-                      <td className="px-4 py-3">
+                      </TableCell>
+                      <TableCell>
                         {task.status === 'pending' && (
                           <button
                             onClick={() => startMutation.mutate(task.id)}
                             disabled={
                               startMutation.isPending && startMutation.variables === task.id
                             }
-                            className="flex items-center gap-1.5 text-xs px-3 py-1.5 bg-blue-50 text-blue-700 border border-blue-200 rounded-lg hover:bg-blue-100 disabled:opacity-60 transition-colors"
+                            className="flex items-center gap-1.5 text-xs px-3 py-1.5 bg-sky-50 text-sky-700 border border-sky-200 rounded-lg hover:bg-sky-100 disabled:opacity-60 transition-colors"
                           >
                             {startMutation.isPending && startMutation.variables === task.id ? (
                               <Loader2 className="h-3 w-3 animate-spin" />
@@ -476,7 +489,7 @@ export default function TasksPage() {
                             disabled={
                               completeMutation.isPending && completeMutation.variables === task.id
                             }
-                            className="flex items-center gap-1.5 text-xs px-3 py-1.5 bg-green-50 text-green-700 border border-green-200 rounded-lg hover:bg-green-100 disabled:opacity-60 transition-colors"
+                            className="flex items-center gap-1.5 text-xs px-3 py-1.5 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-lg hover:bg-emerald-100 disabled:opacity-60 transition-colors"
                           >
                             {completeMutation.isPending &&
                             completeMutation.variables === task.id ? (
@@ -488,20 +501,19 @@ export default function TasksPage() {
                           </button>
                         )}
                         {task.status === 'completed' && (
-                          <span className="flex items-center gap-1 text-xs text-green-600">
+                          <span className="flex items-center gap-1 text-xs text-emerald-600">
                             <CheckCircle className="h-3.5 w-3.5" />
                             Xong
                           </span>
                         )}
-                      </td>
-                    </tr>
+                      </TableCell>
+                    </TableRow>
                   );
                 })}
-              </tbody>
-            </table>
-          </div>
+            </TableBody>
+          </Table>
         )}
-      </div>
+      </Card>
 
       {/* Create Modal */}
       {showCreate && (

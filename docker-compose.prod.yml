@@ -225,8 +225,8 @@ services:
         labels: "service=worker,project=songchau-erp"
 
     healthcheck:
-      # Worker không có HTTP server, dùng process check
-      test: ["CMD-SHELL", "pgrep -f 'procrastinate.*worker' || exit 1"]
+      # W0-20: pgrep KHÔNG có trong image (báo unhealthy giả 574 lần). Dùng /proc/1/cmdline.
+      test: ["CMD-SHELL", "grep -qa procrastinate /proc/1/cmdline || exit 1"]
       interval: 60s
       timeout: 10s
       retries: 3
@@ -236,10 +236,10 @@ services:
       resources:
         limits:
           cpus: "1.0"
-          memory: 512M
+          memory: 2G          # W0-20: 512M gây OOM khi push (Playwright/Chromium); khớp running 2GiB
         reservations:
           cpus: "0.1"
-          memory: 256M
+          memory: 384M
       restart_policy:
         condition: on-failure
         delay: 15s
@@ -258,7 +258,8 @@ services:
         labels: "service=scheduler,project=songchau-erp"
 
     healthcheck:
-      test: ["CMD-SHELL", "pgrep -f 'procrastinate.*scheduler' || exit 1"]
+      # W0-20: pgrep-free (xem worker)
+      test: ["CMD-SHELL", "grep -qa procrastinate /proc/1/cmdline || exit 1"]
       interval: 60s
       timeout: 10s
       retries: 3
@@ -267,11 +268,11 @@ services:
     deploy:
       resources:
         limits:
-          cpus: "0.25"
-          memory: 128M
+          cpus: "0.5"
+          memory: 1G          # W0-20: 128M quá thấp; khớp running 1GiB
         reservations:
           cpus: "0.05"
-          memory: 64M
+          memory: 256M
       restart_policy:
         condition: on-failure
         delay: 15s

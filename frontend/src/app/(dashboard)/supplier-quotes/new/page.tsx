@@ -7,6 +7,7 @@ import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { toast } from 'sonner';
 import { api } from '@/lib/api';
+import { PageHeader } from '@/components/shared/page-header';
 
 // ─── Types ─────────────────────────────────────────────────────────
 
@@ -153,10 +154,10 @@ export default function NewSupplierQuotePage() {
         <Link href="/supplier-quotes" className="p-2 rounded-lg hover:bg-slate-100 transition-colors text-slate-500">
           <ChevronLeft className="h-5 w-5" />
         </Link>
-        <div>
-          <h2 className="text-xl font-display font-bold text-slate-900">Tạo báo giá nhà cung cấp</h2>
-          <p className="text-sm text-slate-500 mt-0.5">Yêu cầu báo giá từ nhà cung cấp</p>
-        </div>
+        <PageHeader
+          title="Tạo báo giá nhà cung cấp"
+          subtitle="Yêu cầu báo giá từ nhà cung cấp"
+        />
       </div>
 
       <div className="space-y-6 max-w-4xl">
@@ -229,7 +230,7 @@ export default function NewSupplierQuotePage() {
                 </p>
               )}
               {linkedRfqId && !rfqError && (
-                <p className="mt-1 text-xs text-green-600">Đã liên kết RFQ #{linkedRfqId}</p>
+                <p className="mt-1 text-xs text-emerald-600">Đã liên kết RFQ #{linkedRfqId}</p>
               )}
               {rfqLoading && (
                 <p className="mt-1 text-xs text-slate-400">Đang tải dữ liệu RFQ...</p>

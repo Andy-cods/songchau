@@ -13,12 +13,14 @@ Usage as FastAPI dependency:
         ...
 """
 
-from __future__ import annotations
-
 import time
 import logging
 from typing import Any
 
+# NOTE: KHÔNG dùng `from __future__ import annotations` ở file này. RateLimiter
+# được dùng làm FastAPI Depends; PEP 563 string-annotations khiến FastAPI/pydantic
+# không resolve được `request: Request` (forward-ref → "name 'Request' is not
+# defined") khi build dependency từ module route KHÁC. Để annotation eager.
 from fastapi import Request, HTTPException, status
 
 from app.core.cache import cache

@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, Response, Request
 from pydantic import BaseModel, EmailStr
 import asyncpg
 
+from app.core.config import settings
 from app.core.database import get_db
 from app.core.security import (
     verify_password,
@@ -33,7 +34,7 @@ async def login(
     conn: asyncpg.Connection = Depends(get_db),
 ):
     user = await conn.fetchrow(
-        "SELECT id, email, full_name, display_name, role, hashed_password, is_active "
+        "SELECT id, email, full_name, display_name, role, hashed_password, is_active, password_version "
         "FROM users WHERE email = $1",
         body.email,
     )
@@ -43,19 +44,23 @@ async def login(
     if not user["is_active"]:
         raise HTTPException(status_code=403, detail="Tài khoản đã bị vô hiệu hóa")
 
+    # Token of the just-logged-in user carries their CURRENT pv → never self-locks.
     access_token = create_access_token(
         user_id=str(user["id"]),
         role=user["role"],
         email=user["email"],
+        password_version=user["password_version"],
     )
-    refresh_token = create_refresh_token(user_id=str(user["id"]))
+    refresh_token = create_refresh_token(
+        user_id=str(user["id"]), password_version=user["password_version"]
+    )
 
     # Set refresh token as HttpOnly cookie
     response.set_cookie(
         key="refresh_token",
         value=refresh_token,
         httponly=True,
-        secure=False,  # Set True when using HTTPS
+        secure=settings.COOKIE_SECURE,
         samesite="lax",
         max_age=7 * 24 * 3600,
     )
@@ -95,24 +100,39 @@ async def refresh_token(
         raise HTTPException(status_code=401, detail="Invalid refresh token")
 
     user = await conn.fetchrow(
-        "SELECT id, email, role, is_active FROM users WHERE id = $1",
+        "SELECT id, email, role, is_active, password_version FROM users WHERE id = $1",
         payload["sub"],
     )
     if not user or not user["is_active"]:
         raise HTTPException(status_code=401, detail="User not found or inactive")
 
+    # Revoke-token chokepoint: a stale refresh token after a password change/reset
+    # must 401 here, else the admin could mint a fresh access token bypassing revoke.
+    # OLD refresh token lacks 'pv' → defaults to 1 == DB DEFAULT 1 → does not break on deploy.
+    if int(payload.get("pv", 1)) != int(user["password_version"]):
+        raise HTTPException(
+            status_code=401,
+            detail={
+                "error": "TOKEN_REVOKED",
+                "message": "Phiên đã hết hiệu lực do đổi mật khẩu — vui lòng đăng nhập lại",
+            },
+        )
+
     new_access = create_access_token(
         user_id=str(user["id"]),
         role=user["role"],
         email=user["email"],
+        password_version=user["password_version"],
     )
-    new_refresh = create_refresh_token(user_id=str(user["id"]))
+    new_refresh = create_refresh_token(
+        user_id=str(user["id"]), password_version=user["password_version"]
+    )
 
     response.set_cookie(
         key="refresh_token",
         value=new_refresh,
         httponly=True,
-        secure=False,
+        secure=settings.COOKIE_SECURE,
         samesite="lax",
         max_age=7 * 24 * 3600,
     )

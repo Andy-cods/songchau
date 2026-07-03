@@ -80,8 +80,13 @@ class SamsungBQMSClient:
         password: str | None = None,
         base_url: str | None = None,
     ) -> None:
-        self._username = username or settings.BQMS_USERNAME
-        self._password = password or settings.BQMS_PASSWORD
+        if username and password:
+            self._username, self._password = username, password
+        else:
+            from app.services.bqms_credentials import get_bqms_credentials
+            res_user, res_pwd = get_bqms_credentials()
+            self._username = username or res_user
+            self._password = password or res_pwd
         self._base_url = base_url or self.BASE_URL
 
         if not self._username or not self._password:

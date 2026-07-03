@@ -126,17 +126,71 @@ def imv_nightly_sync(timestamp: int = 0) -> dict[str, Any]:
             entity_summary = _sync_entity(entity, rows)
             summary[entity] = entity_summary
     except Exception as exc:
+        # Session-level failure — happened BEFORE any per-entity fetch even
+        # started (typically login broke, or an unexpected crash inside
+        # fetch_all_imv_grids). Previously this only landed in the in-memory
+        # `summary` dict returned to Procrastinate — imv_sync_log stayed
+        # completely silent for the night, so a full scrape outage looked
+        # identical (in the DB the dashboard reads) to "nothing to sync".
+        # Now: write an explicit status='error' row per known entity so
+        # DISTINCT ON (entity_type) queries surface the failure, and run the
+        # consecutive-error alert check per entity.
         logger.exception('imv_nightly_sync top-level error: %s', exc)
         summary['_error'] = str(exc)[:500]
+        error_message = f'session-level failure before fetch: {str(exc)[:400]}'
+        for entity in UPSERT_SPECS.keys():
+            try:
+                log_id = _create_sync_log(entity)
+                error_result = {
+                    'status': 'error',
+                    'total_records': 0,
+                    'new_records': 0,
+                    'updated_records': 0,
+                    'duration_seconds': 0.0,
+                    'error_message': error_message,
+                }
+                _update_sync_log(log_id, error_result, entity_type=entity)
+                summary[entity] = error_result
+                _check_consecutive_errors(entity, error_message)
+            except Exception:
+                logger.exception('imv_nightly_sync: failed to record error log for %s', entity)
 
     summary['duration_seconds'] = round(time.monotonic() - t0, 2)
     logger.info('imv_nightly_sync done in %ss: %s', summary['duration_seconds'], summary)
     return summary
 
 
-def _sync_entity(entity: str, rows: list[dict[str, Any]]) -> dict[str, Any]:
-    """Upsert rows for a single entity + write a sync_log row."""
+def _sync_entity(entity: str, rows: Any) -> dict[str, Any]:
+    """Upsert rows for a single entity + write a sync_log row.
+
+    `rows` is either:
+      - list[dict] — parsed grid rows. May legitimately be an empty list:
+        imv_playwright only returns [] when the XHR XML WAS captured and
+        parsed with totalRecord=0 (a real empty grid) — that is a genuine
+        status='success', total_records=0.
+      - an Exception instance — the entity's fetch itself failed (login broke
+        mid-session, IMV UI changed, or no XML ever came back after retries).
+        This must be recorded as status='error' with the failure message, NOT
+        as a false "success" with 0 rows — that would silently drop data
+        (W0-11).
+    """
     sync_id = _create_sync_log(entity)
+
+    if isinstance(rows, BaseException):
+        error_message = str(rows)[:500]
+        logger.error('imv: entity %s fetch failed, skipping sync: %s', entity, rows)
+        result = {
+            'status': 'error',
+            'total_records': 0,
+            'new_records': 0,
+            'updated_records': 0,
+            'duration_seconds': 0.0,
+            'error_message': error_message,
+        }
+        _update_sync_log(sync_id, result, entity_type=entity)
+        _check_consecutive_errors(entity, error_message)
+        return result
+
     result = {
         'status': 'running',
         'total_records': len(rows),
@@ -157,7 +211,79 @@ def _sync_entity(entity: str, rows: list[dict[str, Any]]) -> dict[str, Any]:
     finally:
         result['duration_seconds'] = round(time.monotonic() - t0, 2)
         _update_sync_log(sync_id, result, entity_type=entity)
+    if result['status'] == 'error':
+        _check_consecutive_errors(entity, result.get('error_message', ''))
     return result
+
+
+# ─── Consecutive-error alert ───────────────────────────────────
+
+
+def _check_consecutive_errors(entity: str, error_message: str) -> None:
+    """If this is the 2nd consecutive 'error' sync for `entity`, notify admins.
+
+    Looks at the 3 most recent imv_sync_log rows for this entity (including
+    the one just written by the caller). Fires exactly once per outage — on
+    the run that makes it 2-in-a-row — not on every subsequent error, so
+    admins aren't spammed every night an outage persists.
+    """
+    conn = psycopg2.connect(SYNC_DSN)
+    try:
+        with conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT status FROM imv_sync_log
+                WHERE entity_type = %s
+                ORDER BY started_at DESC
+                LIMIT 3
+                """,
+                (entity,),
+            )
+            recent = [r[0] for r in cur.fetchall()]  # most recent first
+    finally:
+        conn.close()
+
+    if len(recent) < 2 or recent[0] != 'error' or recent[1] != 'error':
+        return
+    if len(recent) >= 3 and recent[2] == 'error':
+        # Already 3+ in a row — alert already fired on the previous run.
+        return
+
+    _notify_admins_sync_error(entity, error_message)
+
+
+def _notify_admins_sync_error(entity: str, error_message: str) -> None:
+    """Push a Bell notification to admin users — IMV sync failed 2x in a row."""
+    conn = psycopg2.connect(SYNC_DSN)
+    try:
+        with conn, conn.cursor() as cur:
+            cur.execute(
+                "SELECT id FROM users WHERE is_active = true AND deleted_at IS NULL AND role = 'admin'"
+            )
+            admin_ids = [r[0] for r in cur.fetchall()]
+            if not admin_ids:
+                logger.warning('imv: no admin recipients found for consecutive-error alert (%s)', entity)
+                return
+            for uid in admin_ids:
+                try:
+                    cur.execute(
+                        """
+                        INSERT INTO notifications
+                            (recipient_id, type, title, body, ref_type, metadata)
+                        VALUES (%s, 'imv_sync_error', %s, %s, 'imv_sync_log', %s)
+                        """,
+                        (
+                            uid,
+                            f'IMV sync lỗi liên tiếp: {entity}',
+                            (error_message or '')[:500],
+                            psycopg2.extras.Json({'entity': entity, 'link': '/imv'}),
+                        ),
+                    )
+                except Exception:
+                    logger.exception('imv: notif insert failed for admin %s', uid)
+    finally:
+        conn.close()
+    logger.warning('imv: consecutive-error alert sent for entity=%s', entity)
 
 
 # ─── DB helpers ───────────────────────────────────────────────

@@ -29,6 +29,17 @@ from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
+
+class ImvFetchError(RuntimeError):
+    """Raised when a grid fetch cannot be trusted — no XML ever came back even
+    after retries (login broke mid-session, IMV changed its UI, or the portal
+    is unreachable). This is deliberately DISTINCT from a legitimately empty
+    grid: when the XHR XML *is* captured and parses with totalRecord=0, that
+    still returns an empty list normally (real "no data" case). Callers must
+    not treat this exception the same as an empty list — doing so silently
+    drops data (W0-11)."""
+
+
 # ─── Constants ────────────────────────────────────────────────
 
 IMV_BASE = 'https://www.imvmall.com'
@@ -395,15 +406,24 @@ async def _fetch_grid(page, file_id_short: str, cell_map: list, rows_per_page: i
 
     rows: list[dict[str, Any]] = []
     if not captured:
-        logger.info('imv: %s — no XML captured (likely empty grid)', file_id_short)
-        return rows
+        # No XML ever came back — even after the "Tìm kiếm" click retry and the
+        # direct-XHR fallback. This is NOT the same as "grid legitimately has
+        # zero rows" (that case parses XML with totalRecord=0 below and returns
+        # []). An unreachable/broken grid must propagate as an error so the
+        # caller doesn't record a false "success, 0 rows" and silently drop data.
+        raise ImvFetchError(
+            f'{file_id_short}: no XML captured after retries '
+            '(login broken mid-session, IMV UI changed, or grid unreachable)'
+        )
 
+    any_parsed = False
     for url_key, body in list(captured.items()):
         try:
             root = ET.fromstring(body)
         except ET.ParseError as exc:
             logger.error('imv: XML parse failed for %s: %s', file_id_short, exc)
             continue
+        any_parsed = True
         total = int(root.get('totalRecord', '0') or '0')
         server_page_size = int(root.get('ROWS_PER_PAGE', str(rows_per_page)) or rows_per_page)
         logger.info('imv: %s total=%d page_size=%d', file_id_short, total, server_page_size)
@@ -439,13 +459,31 @@ async def _fetch_grid(page, file_id_short: str, cell_map: list, rows_per_page: i
                     logger.warning('imv: %s page %d fetch failed: %s', file_id_short, pg, exc)
         break  # only process first capture (rest are likely duplicates)
 
+    if not any_parsed:
+        # XML WAS captured but every response was unparseable (IMV UI/response
+        # format changed) — same "cannot trust this as empty" situation as
+        # captured being empty outright. Do not return [] here either.
+        raise ImvFetchError(
+            f'{file_id_short}: captured response(s) but none parsed as valid XML'
+        )
+
     return rows
 
 
-async def fetch_all_imv_grids(entities: list[str] | None = None) -> dict[str, list[dict[str, Any]]]:
-    """Login once, fetch all (or specified) grid types in one session."""
+async def fetch_all_imv_grids(entities: list[str] | None = None) -> dict[str, Any]:
+    """Login once, fetch all (or specified) grid types in one session.
+
+    Returns a dict keyed by entity name. Each value is EITHER:
+      - list[dict] — parsed rows (may legitimately be empty — a real empty grid), or
+      - an Exception instance — that entity's fetch failed and must NOT be
+        treated as "success, 0 rows" by the caller (W0-11: fail-silent fix).
+
+    A login failure (before any per-entity fetch starts) is NOT caught here —
+    it propagates out of this function entirely, so the caller can record it
+    explicitly instead of it vanishing into a false "all entities empty".
+    """
     target_entities = entities or list(GRID_REGISTRY.keys())
-    out: dict[str, list[dict[str, Any]]] = {}
+    out: dict[str, Any] = {}
 
     async with async_playwright() as p:
         browser: Browser = await p.chromium.launch(
@@ -475,8 +513,12 @@ async def fetch_all_imv_grids(entities: list[str] | None = None) -> dict[str, li
                     out[entity] = valid
                     logger.info('imv: %s = %d valid rows', entity, len(valid))
                 except Exception as exc:
+                    # Store the exception itself (not []) — a real fetch failure
+                    # must never look identical to a legitimately empty grid.
+                    # See _sync_entity() in app/tasks/imv_sync.py for the
+                    # status='error' handling on the consumer side.
                     logger.exception('imv: %s fetch failed: %s', entity, exc)
-                    out[entity] = []
+                    out[entity] = exc
         finally:
             try:
                 await ctx.close()

@@ -1,5 +1,6 @@
 'use client';
 
+import * as React from 'react';
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
@@ -12,6 +13,18 @@ import {
 } from 'lucide-react';
 import { api } from '@/lib/api';
 import { cn, formatRelativeTime } from '@/lib/utils';
+import { PageHeader } from '@/components/shared/page-header';
+import { Card } from '@/components/shared/card';
+import { EmptyState } from '@/components/shared/empty-state';
+import { Skeleton } from '@/components/ui/skeleton';
+import {
+  Table,
+  TableHeader,
+  TableBody,
+  TableRow,
+  TableHead,
+  TableCell,
+} from '@/components/shared/table';
 
 // ─── Types ───────────────────────────────────────────────────────
 
@@ -45,7 +58,7 @@ function severityBadge(severity: string) {
 }
 
 function typeBadge(type: string) {
-  return 'bg-purple-50 text-purple-700 border-purple-200';
+  return 'bg-slate-100 text-slate-700 border-slate-200';
 }
 
 function severityLabel(severity: string) {
@@ -135,10 +148,11 @@ export default function ErrorsPage() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div>
-        <h2 className="text-xl font-display font-bold text-slate-900">Trung tâm lỗi</h2>
-        <p className="text-sm text-slate-500 mt-0.5">Theo dõi và xử lý lỗi hệ thống</p>
-      </div>
+      <PageHeader
+        icon={AlertTriangle}
+        title="Trung tâm lỗi"
+        subtitle="Theo dõi và xử lý lỗi hệ thống"
+      />
 
       {/* Summary Cards */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
@@ -169,7 +183,7 @@ export default function ErrorsPage() {
       </div>
 
       {/* Filters */}
-      <div className="bg-white rounded-lg shadow-sm border border-slate-100 p-4">
+      <Card padded={false} className="p-4">
         <div className="flex items-center gap-2 mb-3">
           <Filter className="h-4 w-4 text-slate-500" />
           <span className="text-sm font-medium text-slate-700">Bộ lọc</span>
@@ -210,10 +224,10 @@ export default function ErrorsPage() {
             <option value="true">Đã xử lý</option>
           </select>
         </div>
-      </div>
+      </Card>
 
       {/* Error Table */}
-      <div className="bg-white rounded-lg shadow-sm border border-slate-100 overflow-hidden">
+      <Card padded={false} className="overflow-hidden">
         <div className="flex items-center gap-2 p-4 border-b border-slate-100">
           <AlertTriangle className="h-4 w-4 text-orange-500" />
           <h3 className="text-sm font-semibold text-slate-700">
@@ -224,96 +238,94 @@ export default function ErrorsPage() {
           </h3>
           {errorsLoading && <Loader2 className="h-4 w-4 animate-spin text-slate-400 ml-auto" />}
         </div>
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="bg-slate-50 border-b border-slate-100">
-                <th className="w-6 px-4 py-2.5" />
-                <th className="text-left px-4 py-2.5 text-xs font-medium text-slate-500 uppercase tracking-wide">Thời gian</th>
-                <th className="text-left px-4 py-2.5 text-xs font-medium text-slate-500 uppercase tracking-wide">Loại</th>
-                <th className="text-left px-4 py-2.5 text-xs font-medium text-slate-500 uppercase tracking-wide">Mức độ</th>
-                <th className="text-left px-4 py-2.5 text-xs font-medium text-slate-500 uppercase tracking-wide">Thông báo</th>
-                <th className="text-left px-4 py-2.5 text-xs font-medium text-slate-500 uppercase tracking-wide">Endpoint</th>
-                <th className="text-left px-4 py-2.5 text-xs font-medium text-slate-500 uppercase tracking-wide">Trạng thái</th>
-                <th className="px-4 py-2.5" />
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-50">
-              {errorsLoading
-                ? Array.from({ length: 6 }).map((_, i) => (
-                    <tr key={i}>
-                      {Array.from({ length: 7 }).map((_, j) => (
-                        <td key={j} className="px-4 py-3">
-                          <div className="h-4 bg-slate-200 rounded animate-pulse" style={{ width: `${60 + j * 10}%` }} />
-                        </td>
-                      ))}
-                    </tr>
-                  ))
-                : errors.map((err) => (
-                    <>
-                      <tr
-                        key={err.id}
-                        className={cn(
-                          'hover:bg-slate-50/50 transition-colors cursor-pointer',
-                          expandedId === err.id && 'bg-slate-50'
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead className="w-6" />
+              <TableHead>Thời gian</TableHead>
+              <TableHead>Loại</TableHead>
+              <TableHead>Mức độ</TableHead>
+              <TableHead>Thông báo</TableHead>
+              <TableHead>Endpoint</TableHead>
+              <TableHead>Trạng thái</TableHead>
+              <TableHead />
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {errorsLoading
+              ? Array.from({ length: 6 }).map((_, i) => (
+                  <TableRow key={i}>
+                    {Array.from({ length: 7 }).map((_, j) => (
+                      <TableCell key={j}>
+                        <Skeleton className="h-4" style={{ width: `${60 + j * 10}%` }} />
+                      </TableCell>
+                    ))}
+                  </TableRow>
+                ))
+              : errors.map((err) => (
+                  <React.Fragment key={err.id}>
+                    <TableRow
+                      className={cn(
+                        'cursor-pointer',
+                        expandedId === err.id && 'bg-slate-50'
+                      )}
+                      onClick={() => setExpandedId(expandedId === err.id ? null : err.id)}
+                    >
+                      <TableCell>
+                        {expandedId === err.id
+                          ? <ChevronDown className="h-4 w-4 text-slate-400" />
+                          : <ChevronRight className="h-4 w-4 text-slate-300" />}
+                      </TableCell>
+                      <TableCell className="text-xs text-slate-500 whitespace-nowrap">
+                        {formatRelativeTime(err.created_at)}
+                      </TableCell>
+                      <TableCell>
+                        <span className={cn('text-xs px-2 py-0.5 rounded border font-mono', typeBadge(err.error_type))}>
+                          {err.error_type}
+                        </span>
+                      </TableCell>
+                      <TableCell>
+                        <span className={cn('text-xs px-2 py-0.5 rounded border font-medium', severityBadge(err.severity))}>
+                          {severityLabel(err.severity)}
+                        </span>
+                      </TableCell>
+                      <TableCell className="text-slate-700 max-w-xs truncate">{err.message}</TableCell>
+                      <TableCell className="font-mono text-xs text-slate-500 max-w-[150px] truncate">
+                        {err.endpoint ?? '—'}
+                      </TableCell>
+                      <TableCell>
+                        {err.resolved ? (
+                          <span className="flex items-center gap-1 text-xs text-emerald-600">
+                            <CheckCircle2 className="h-3.5 w-3.5" />
+                            Đã xử lý
+                          </span>
+                        ) : (
+                          <span className="text-xs text-orange-500">Chưa xử lý</span>
                         )}
-                        onClick={() => setExpandedId(expandedId === err.id ? null : err.id)}
-                      >
-                        <td className="px-4 py-3">
-                          {expandedId === err.id
-                            ? <ChevronDown className="h-4 w-4 text-slate-400" />
-                            : <ChevronRight className="h-4 w-4 text-slate-300" />}
-                        </td>
-                        <td className="px-4 py-3 text-xs text-slate-500 whitespace-nowrap">
-                          {formatRelativeTime(err.created_at)}
-                        </td>
-                        <td className="px-4 py-3">
-                          <span className={cn('text-xs px-2 py-0.5 rounded border font-mono', typeBadge(err.error_type))}>
-                            {err.error_type}
-                          </span>
-                        </td>
-                        <td className="px-4 py-3">
-                          <span className={cn('text-xs px-2 py-0.5 rounded border font-medium', severityBadge(err.severity))}>
-                            {severityLabel(err.severity)}
-                          </span>
-                        </td>
-                        <td className="px-4 py-3 text-slate-700 max-w-xs truncate">{err.message}</td>
-                        <td className="px-4 py-3 font-mono text-xs text-slate-500 max-w-[150px] truncate">
-                          {err.endpoint ?? '—'}
-                        </td>
-                        <td className="px-4 py-3">
-                          {err.resolved ? (
-                            <span className="flex items-center gap-1 text-xs text-emerald-600">
-                              <CheckCircle2 className="h-3.5 w-3.5" />
-                              Đã xử lý
-                            </span>
-                          ) : (
-                            <span className="text-xs text-orange-500">Chưa xử lý</span>
-                          )}
-                        </td>
-                        <td className="px-4 py-3">
-                          {!err.resolved && (
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                resolveMutation.mutate(err.id);
-                              }}
-                              disabled={resolveMutation.isPending}
-                              className="flex items-center gap-1 px-3 py-1.5 text-xs font-medium bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-lg hover:bg-emerald-100 disabled:opacity-60 transition-colors whitespace-nowrap"
-                            >
-                              {resolveMutation.isPending ? (
-                                <Loader2 className="h-3 w-3 animate-spin" />
-                              ) : (
-                                <CheckCircle2 className="h-3 w-3" />
-                              )}
-                              Đã xử lý
-                            </button>
-                          )}
-                        </td>
-                      </tr>
-                      {expandedId === err.id && (
-                        <tr key={`${err.id}-detail`} className="bg-slate-50">
-                          <td colSpan={8} className="px-6 py-4">
+                      </TableCell>
+                      <TableCell>
+                        {!err.resolved && (
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              resolveMutation.mutate(err.id);
+                            }}
+                            disabled={resolveMutation.isPending}
+                            className="flex items-center gap-1 px-3 py-1.5 text-xs font-medium bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-lg hover:bg-emerald-100 disabled:opacity-60 transition-colors whitespace-nowrap"
+                          >
+                            {resolveMutation.isPending ? (
+                              <Loader2 className="h-3 w-3 animate-spin" />
+                            ) : (
+                              <CheckCircle2 className="h-3 w-3" />
+                            )}
+                            Đã xử lý
+                          </button>
+                        )}
+                      </TableCell>
+                    </TableRow>
+                    {expandedId === err.id && (
+                      <tr className="bg-slate-50">
+                        <td colSpan={8} className="px-6 py-4">
                             <div className="space-y-3">
                               <div>
                                 <p className="text-xs font-medium text-slate-500 uppercase tracking-wide mb-1">Thông báo đầy đủ</p>
@@ -339,14 +351,17 @@ export default function ErrorsPage() {
                           </td>
                         </tr>
                       )}
-                    </>
+                    </React.Fragment>
                   ))}
-            </tbody>
-          </table>
-          {!errorsLoading && errors.length === 0 && (
-            <div className="text-center py-10 text-slate-400 text-sm">Không có lỗi nào</div>
-          )}
-        </div>
+          </TableBody>
+        </Table>
+        {!errorsLoading && errors.length === 0 && (
+          <EmptyState
+            icon={AlertTriangle}
+            heading="Không có lỗi nào"
+            className="py-10"
+          />
+        )}
 
         {/* Pagination */}
         {totalPages > 1 && (
@@ -372,7 +387,7 @@ export default function ErrorsPage() {
             </div>
           </div>
         )}
-      </div>
+      </Card>
     </div>
   );
 }

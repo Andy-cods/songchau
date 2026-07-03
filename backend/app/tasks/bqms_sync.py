@@ -35,6 +35,28 @@ logger = logging.getLogger(__name__)
 BQMS_PDF_DIR = Path(settings.FILES_BASE_PATH) / "bqms" / "po_pdfs"
 
 
+def _split_item_spec(s: Any) -> tuple[str | None, str | None]:
+    """Split a combined '<ItemName>\\n<Spec>' value into (item_name, spec).
+
+    SPLIT RULE (identical across all three write-paths + the SQL backfill):
+      item_name = trim(text BEFORE the first '\\n')
+      spec      = trim(text AFTER  the first '\\n')
+      If there is NO '\\n', item_name is None and spec is the trimmed input.
+
+    Returns (None, None) for an empty/None input.
+    """
+    if s is None:
+        return None, None
+    raw = str(s)
+    if "\n" not in raw:
+        stripped = raw.strip()
+        return None, (stripped or None)
+    head, tail = raw.split("\n", 1)
+    item_name = head.strip() or None
+    spec = tail.strip() or None
+    return item_name, spec
+
+
 # ---------------------------------------------------------------------------
 # Periodic task — 23:30 every day
 # ---------------------------------------------------------------------------
@@ -291,7 +313,7 @@ def _bridge_po_to_deliveries(po_list: list[dict[str, Any]]) -> tuple[int, int]:
                 if not po_number or not bqms_code:
                     continue
 
-                spec = str(po.get("SPECIFICATION") or "")
+                item_name, spec = _split_item_spec(po.get("SPECIFICATION"))
                 qty = po.get("PO_QTY") or po.get("ORDER_QTY") or 0
                 unit = str(po.get("UNIT_CODE") or "EA")
                 unit_price = po.get("UNIT_PRICE") or 0
@@ -339,12 +361,12 @@ def _bridge_po_to_deliveries(po_list: list[dict[str, Any]]) -> tuple[int, int]:
                         # UPDATE chỉ fields từ Samsung — KHÔNG ghi đè fields user sửa
                         cur.execute(
                             """UPDATE bqms_deliveries SET
-                                specification = %s, quantity = %s, unit = %s,
+                                item_name = %s, specification = %s, quantity = %s, unit = %s,
                                 unit_price = %s, amount = %s,
                                 sev_type = %s, buyer_email = %s, recipient_name = %s,
                                 quotation_no = %s, updated_at = NOW()
                             WHERE id = %s""",
-                            (spec, qty, unit, unit_price, amount,
+                            (item_name, spec, qty, unit, unit_price, amount,
                              sev_type, buyer_email, recipient_name,
                              quotation_no, existing["id"]),
                         )
@@ -354,13 +376,13 @@ def _bridge_po_to_deliveries(po_list: list[dict[str, Any]]) -> tuple[int, int]:
                         cur.execute(
                             """INSERT INTO bqms_deliveries
                                 (po_date, po_number, shipping_no, quotation_no, bqms_code,
-                                 specification, quantity, unit, unit_price, amount,
+                                 item_name, specification, quantity, unit, unit_price, amount,
                                  sev_type, buyer_email, recipient_name,
                                  delivery_status, delivery_date, data_source)
-                            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+                            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
                                     'chua_giao'::delivery_status, %s, 'samsung_sync')""",
                             (po_date, po_number, shipping_no, quotation_no, bqms_code,
-                             spec, qty, unit, unit_price, amount,
+                             item_name, spec, qty, unit, unit_price, amount,
                              sev_type, buyer_email, recipient_name,
                              delivery_date),
                         )

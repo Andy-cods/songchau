@@ -12,6 +12,18 @@ import {
 } from 'lucide-react';
 import { api } from '@/lib/api';
 import { cn, formatRelativeTime } from '@/lib/utils';
+import { PageHeader } from '@/components/shared/page-header';
+import { Card } from '@/components/shared/card';
+import { EmptyState } from '@/components/shared/empty-state';
+import { Skeleton } from '@/components/ui/skeleton';
+import {
+  Table,
+  TableHeader,
+  TableBody,
+  TableRow,
+  TableHead,
+  TableCell,
+} from '@/components/shared/table';
 
 // ─── Types ───────────────────────────────────────────────────────
 
@@ -60,7 +72,7 @@ const ACTION_COLORS: Record<string, string> = {
   create: 'bg-emerald-100 text-emerald-700 border-emerald-200',
   update: 'bg-amber-100 text-amber-700 border-amber-200',
   delete: 'bg-red-100 text-red-700 border-red-200',
-  export: 'bg-purple-100 text-purple-700 border-purple-200',
+  export: 'bg-slate-100 text-slate-700 border-slate-200',
   login:  'bg-cyan-100 text-cyan-700 border-cyan-200',
 };
 
@@ -81,12 +93,12 @@ function MiniBarChart({ data }: { data: Array<{ label: string; value: number }> 
     <div className="flex items-end gap-2 h-24">
       {data.map((d) => (
         <div key={d.label} className="flex flex-col items-center gap-1 flex-1">
-          <span className="text-[10px] text-slate-400 font-mono">{d.value}</span>
+          <span className="text-[11px] text-slate-400 font-mono">{d.value}</span>
           <div
             className="w-full bg-brand-500 rounded-t-sm transition-all duration-300"
             style={{ height: `${Math.max(4, (d.value / max) * 72)}px` }}
           />
-          <span className="text-[10px] text-slate-400 truncate w-full text-center">{d.label}</span>
+          <span className="text-[11px] text-slate-400 truncate w-full text-center">{d.label}</span>
         </div>
       ))}
     </div>
@@ -184,12 +196,11 @@ export default function UserActivityPage() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div>
-        <h2 className="text-xl font-display font-bold text-slate-900">Hoạt động người dùng</h2>
-        <p className="text-sm text-slate-500 mt-0.5">
-          Theo dõi hành động và trang xem của toàn bộ người dùng hệ thống
-        </p>
-      </div>
+      <PageHeader
+        icon={MousePointerClick}
+        title="Hoạt động người dùng"
+        subtitle="Theo dõi hành động và trang xem của toàn bộ người dùng hệ thống"
+      />
 
       {/* Summary Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
@@ -205,14 +216,14 @@ export default function UserActivityPage() {
           value={topPage}
           sub={topPages[0] ? `${topPages[0].count} lượt` : undefined}
           icon={Eye}
-          colorClass="bg-blue-50 text-blue-600"
+          colorClass="bg-brand-50 text-brand-600"
           loading={summaryLoading}
         />
         <SummaryCard
           label="Tổng hành động"
           value={totalActions.toLocaleString('vi-VN')}
           icon={MousePointerClick}
-          colorClass="bg-emerald-50 text-emerald-600"
+          colorClass="bg-brand-50 text-brand-600"
           loading={summaryLoading}
         />
       </div>
@@ -220,7 +231,7 @@ export default function UserActivityPage() {
       {/* Chart + Top Pages */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         {/* Action Chart */}
-        <div className="bg-white rounded-lg shadow-sm border border-slate-100 p-4">
+        <Card padded={false} className="p-4">
           <div className="flex items-center gap-2 mb-4">
             <TrendingUp className="h-4 w-4 text-brand-600" />
             <h3 className="text-sm font-semibold text-slate-700">Hành động theo loại</h3>
@@ -233,12 +244,12 @@ export default function UserActivityPage() {
           ) : (
             <MiniBarChart data={chartData} />
           )}
-        </div>
+        </Card>
 
         {/* Top Pages */}
-        <div className="bg-white rounded-lg shadow-sm border border-slate-100 p-4">
+        <Card padded={false} className="p-4">
           <div className="flex items-center gap-2 mb-4">
-            <Eye className="h-4 w-4 text-blue-600" />
+            <Eye className="h-4 w-4 text-brand-600" />
             <h3 className="text-sm font-semibold text-slate-700">Trang phổ biến nhất</h3>
           </div>
           {summaryLoading ? (
@@ -267,7 +278,7 @@ export default function UserActivityPage() {
                       </div>
                       <div className="h-1.5 bg-slate-100 rounded-full">
                         <div
-                          className="h-full bg-blue-400 rounded-full transition-all"
+                          className="h-full bg-brand-400 rounded-full transition-all"
                           style={{ width: `${pct}%` }}
                         />
                       </div>
@@ -277,7 +288,7 @@ export default function UserActivityPage() {
               })}
             </div>
           )}
-        </div>
+        </Card>
       </div>
 
       {/* Filter */}
@@ -315,80 +326,72 @@ export default function UserActivityPage() {
       </div>
 
       {/* Activity Table */}
-      <div className="bg-white rounded-lg shadow-sm border border-slate-100 overflow-hidden">
+      <Card padded={false} className="overflow-hidden">
         <div className="flex items-center gap-2 p-4 border-b border-slate-100">
           <MousePointerClick className="h-4 w-4 text-brand-600" />
           <h3 className="text-sm font-semibold text-slate-700">Nhật ký hoạt động</h3>
           <span className="ml-auto text-xs text-slate-400 font-mono">{total} bản ghi</span>
           {activityLoading && <Loader2 className="h-4 w-4 animate-spin text-slate-400" />}
         </div>
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="bg-slate-50 border-b border-slate-100">
-                <th className="text-left px-4 py-2.5 text-xs font-medium text-slate-500 uppercase tracking-wide">
-                  Thời gian
-                </th>
-                <th className="text-left px-4 py-2.5 text-xs font-medium text-slate-500 uppercase tracking-wide">
-                  Người dùng
-                </th>
-                <th className="text-left px-4 py-2.5 text-xs font-medium text-slate-500 uppercase tracking-wide">
-                  Hành động
-                </th>
-                <th className="text-left px-4 py-2.5 text-xs font-medium text-slate-500 uppercase tracking-wide">
-                  Trang
-                </th>
-                <th className="text-left px-4 py-2.5 text-xs font-medium text-slate-500 uppercase tracking-wide">
-                  Đối tượng
-                </th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-50">
-              {activityLoading
-                ? Array.from({ length: 8 }).map((_, i) => (
-                    <tr key={i}>
-                      {Array.from({ length: 5 }).map((__, j) => (
-                        <td key={j} className="px-4 py-3">
-                          <div className="h-4 bg-slate-200 rounded animate-pulse" />
-                        </td>
-                      ))}
-                    </tr>
-                  ))
-                : items.length === 0
-                  ? (
-                    <tr>
-                      <td colSpan={5} className="text-center py-12 text-slate-400 text-sm">
-                        Chưa có dữ liệu hoạt động
-                      </td>
-                    </tr>
-                  )
-                  : items.map((item, idx) => (
-                      <tr key={item.id ?? idx} className="hover:bg-slate-50/50 transition-colors">
-                        <td className="px-4 py-3 text-xs text-slate-500 whitespace-nowrap font-mono">
-                          {formatRelativeTime(item.created_at)}
-                        </td>
-                        <td className="px-4 py-3 text-xs text-slate-600">
-                          {item.user_name ?? item.user_email ?? (item.user_id ? `User #${item.user_id}` : '—')}
-                        </td>
-                        <td className="px-4 py-3">
-                          <span
-                            className={cn(
-                              'inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium border',
-                              ACTION_COLORS[item.action] ?? 'bg-slate-100 text-slate-600 border-slate-200'
-                            )}
-                          >
-                            {ACTION_LABELS[item.action] ?? item.action}
-                          </span>
-                        </td>
-                        <td className="px-4 py-3 text-xs text-slate-600 font-mono">{item.page}</td>
-                        <td className="px-4 py-3 text-xs text-slate-400">
-                          {item.entity_type ?? '—'}
-                        </td>
-                      </tr>
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Thời gian</TableHead>
+              <TableHead>Người dùng</TableHead>
+              <TableHead>Hành động</TableHead>
+              <TableHead>Trang</TableHead>
+              <TableHead>Đối tượng</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {activityLoading
+              ? Array.from({ length: 8 }).map((_, i) => (
+                  <TableRow key={i}>
+                    {Array.from({ length: 5 }).map((__, j) => (
+                      <TableCell key={j}>
+                        <Skeleton className="h-4 w-full" />
+                      </TableCell>
                     ))}
-            </tbody>
-          </table>
-        </div>
+                  </TableRow>
+                ))
+              : items.length === 0
+                ? (
+                  <tr>
+                    <td colSpan={5}>
+                      <EmptyState
+                        icon={MousePointerClick}
+                        heading="Chưa có dữ liệu hoạt động"
+                        className="py-12"
+                      />
+                    </td>
+                  </tr>
+                )
+                : items.map((item, idx) => (
+                    <TableRow key={item.id ?? idx}>
+                      <TableCell className="text-xs text-slate-500 whitespace-nowrap font-mono">
+                        {formatRelativeTime(item.created_at)}
+                      </TableCell>
+                      <TableCell className="text-xs text-slate-600">
+                        {item.user_name ?? item.user_email ?? (item.user_id ? `User #${item.user_id}` : '—')}
+                      </TableCell>
+                      <TableCell>
+                        <span
+                          className={cn(
+                            'inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium border',
+                            ACTION_COLORS[item.action] ?? 'bg-slate-100 text-slate-600 border-slate-200'
+                          )}
+                        >
+                          {ACTION_LABELS[item.action] ?? item.action}
+                        </span>
+                      </TableCell>
+                      <TableCell className="text-xs text-slate-600 font-mono">{item.page}</TableCell>
+                      <TableCell className="text-xs text-slate-400">
+                        {item.entity_type ?? '—'}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+          </TableBody>
+        </Table>
 
         {/* Pagination */}
         {totalPages > 1 && (
@@ -414,7 +417,7 @@ export default function UserActivityPage() {
             </div>
           </div>
         )}
-      </div>
+      </Card>
     </div>
   );
 }

@@ -110,7 +110,7 @@ export default function PerformancePage() {
             className={cn(
               'px-3 py-1 rounded-full text-sm border transition',
               metric === opt.key
-                ? 'bg-blue-50 border-blue-300 text-blue-700 font-medium'
+                ? 'bg-brand-50 border-brand-300 text-brand-700 font-medium'
                 : 'bg-white border-slate-300 text-slate-600 hover:bg-slate-50'
             )}
           >
@@ -165,7 +165,7 @@ export default function PerformancePage() {
                       onClick={() => setSelectedUser(it.user_id)}
                       className={cn(
                         'cursor-pointer hover:bg-slate-50',
-                        selectedUser === it.user_id && 'bg-blue-50'
+                        selectedUser === it.user_id && 'bg-brand-50'
                       )}
                     >
                       <td className="px-3 py-2.5 text-slate-500">
@@ -302,7 +302,7 @@ function Metric({ label, value, hint }: { label: string; value: string; hint?: s
     <div className="bg-slate-50 rounded-md px-2.5 py-1.5">
       <div className="text-[11px] text-slate-500">{label}</div>
       <div className="font-semibold text-slate-900 text-sm tabular-nums">{value}</div>
-      {hint && <div className="text-[10px] text-slate-400">{hint}</div>}
+      {hint && <div className="text-[11px] text-slate-400">{hint}</div>}
     </div>
   );
 }
@@ -321,12 +321,12 @@ function SparkBar({ series }: { series: KpiTrendPoint[] }) {
             <div
               className={cn(
                 'w-full rounded-t',
-                s.is_final ? 'bg-blue-500' : 'bg-blue-300'
+                s.is_final ? 'bg-brand-500' : 'bg-brand-300'
               )}
               style={{ height: `${h}%` }}
               title={`${s.month}/${s.year}: ${formatVND(s.revenue_vnd)}`}
             />
-            <span className="text-[10px] text-slate-500 tabular-nums">{s.month}/{String(s.year).slice(2)}</span>
+            <span className="text-[11px] text-slate-500 tabular-nums">{s.month}/{String(s.year).slice(2)}</span>
           </div>
         );
       })}

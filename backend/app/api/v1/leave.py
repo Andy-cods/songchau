@@ -34,6 +34,7 @@ from __future__ import annotations
 import json
 import logging
 from datetime import date, datetime, timedelta
+from decimal import Decimal
 from typing import Any, Literal, Optional
 
 import asyncpg
@@ -114,10 +115,18 @@ async def _ensure_balance_row(conn: asyncpg.Connection, user_id: str, year: int)
             "SELECT * FROM leave_policy WHERE role IS NULL AND department IS NULL "
             "AND is_active = true LIMIT 1"
         )
-    annual_total    = float(pol["annual_days"])    if pol else 12.0
-    sick_total      = float(pol["sick_days"])      if pol else 30.0
-    personal_total  = float(pol["personal_days"])  if pol else 3.0
-    maternity_total = float(pol["maternity_days"]) if pol else 180.0
+    # get_leave_policy() có thể trả row TOÀN NULL (không phải zero rows) khi user
+    # chưa có policy riêng → guard TỪNG field, không chỉ `if pol` (nếu không float(None) → 500).
+    def _pv(key: str, default: float) -> Decimal:
+        # leave_balance totals là numeric(4,1) → asyncpg cần Decimal (float bị từ
+        # chối: "a Decimal is required, got float"). Guard từng field (get_leave_policy
+        # có thể trả row toàn NULL).
+        v = pol[key] if pol is not None else None
+        return Decimal(str(v)) if v is not None else Decimal(str(default))
+    annual_total    = _pv("annual_days", 12.0)
+    sick_total      = _pv("sick_days", 30.0)
+    personal_total  = _pv("personal_days", 3.0)
+    maternity_total = _pv("maternity_days", 180.0)
 
     await conn.execute(
         """
@@ -156,10 +165,10 @@ async def _notify_managers_of_dept(
     for r in rows:
         await conn.execute(
             """
-            INSERT INTO notifications (recipient_id, type, title, body, link)
-            VALUES ($1::uuid, $2::notification_type, $3, $4, $5)
+            INSERT INTO notifications (recipient_id, type, title, body, ref_type, metadata)
+            VALUES ($1::uuid, $2::notification_type, $3, $4, 'leave', $5::jsonb)
             """,
-            str(r["id"]), notif_type, title, body, link,
+            str(r["id"]), notif_type, title, body, json.dumps({"link": link}),
         )
         n += 1
     return n
@@ -175,10 +184,10 @@ async def _notify_user(
 ) -> None:
     await conn.execute(
         """
-        INSERT INTO notifications (recipient_id, type, title, body, link)
-        VALUES ($1::uuid, $2::notification_type, $3, $4, $5)
+        INSERT INTO notifications (recipient_id, type, title, body, ref_type, metadata)
+        VALUES ($1::uuid, $2::notification_type, $3, $4, 'leave', $5::jsonb)
         """,
-        user_id, notif_type, title, body, link,
+        user_id, notif_type, title, body, json.dumps({"link": link}),
     )
 
 
@@ -261,7 +270,7 @@ async def create_leave_request(
         RETURNING id, created_at
         """,
         token_data.user_id, dept, body.leave_type,
-        body.start_date, body.end_date, days, body.reason,
+        body.start_date, body.end_date, Decimal(str(days)), body.reason,
         body.half_day_start, body.half_day_end,
     )
 
@@ -454,7 +463,7 @@ async def patch_leave_request(
             reason         = COALESCE($7, reason)
         WHERE id = $8
         """,
-        new_start, new_end, new_hds, new_hde, new_type, new_days, body.reason, leave_id,
+        new_start, new_end, new_hds, new_hde, new_type, Decimal(str(new_days)), body.reason, leave_id,
     )
     return {"data": {"id": leave_id, "days_count": new_days}, "message": "Đã cập nhật đơn."}
 
@@ -488,7 +497,7 @@ async def cancel_leave_request(
             await conn.execute(
                 f"UPDATE leave_balance SET {used_col} = GREATEST(0, {used_col} - $1) "
                 "WHERE user_id = $2::uuid AND period_year = $3",
-                float(row["days_count"]), str(row["user_id"]), year,
+                row["days_count"], str(row["user_id"]), year,
             )
             await conn.execute(
                 """
@@ -583,7 +592,7 @@ async def approve_leave(
         await conn.execute(
             f"UPDATE leave_balance SET {used_col} = {used_col} + $1 "
             "WHERE user_id = $2::uuid AND period_year = $3",
-            days, str(row["user_id"]), year,
+            row["days_count"], str(row["user_id"]), year,
         )
         await conn.execute(
             """
@@ -714,7 +723,7 @@ async def upsert_policy(
             (role, department, annual_days, sick_days, personal_days,
              maternity_days, carry_over_max_days, notes, is_active)
         VALUES ($1::role_enum, $2, $3, $4, $5, $6, $7, $8, $9)
-        ON CONFLICT (COALESCE(role::text, ''), COALESCE(department, ''))
+        ON CONFLICT (role, department)
         DO UPDATE SET
             annual_days         = EXCLUDED.annual_days,
             sick_days           = EXCLUDED.sick_days,
@@ -726,7 +735,8 @@ async def upsert_policy(
         RETURNING id
         """,
         body.role, body.department,
-        body.annual_days, body.sick_days, body.personal_days,
-        body.maternity_days, body.carry_over_max_days, body.notes, body.is_active,
+        Decimal(str(body.annual_days)), Decimal(str(body.sick_days)),
+        Decimal(str(body.personal_days)), Decimal(str(body.maternity_days)),
+        Decimal(str(body.carry_over_max_days)), body.notes, body.is_active,
     )
     return {"data": {"id": row["id"]}, "message": "Đã cập nhật chính sách."}
