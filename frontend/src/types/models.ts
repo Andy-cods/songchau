@@ -7,7 +7,12 @@ export type UserRole =
   | 'accountant'
   | 'warehouse'
   | 'sales'
-  | 'viewer';
+  | 'viewer'
+  // Real DB `role_enum` values (init_v3.sql) actually assigned to users in prod
+  // — were missing from this union, so those users fell into the sidebar's
+  // `default` case (Thang 2026-07-04 gap audit).
+  | 'procurement'
+  | 'staff';
 
 export interface User {
   id: string;
@@ -129,12 +134,16 @@ export interface Delivery {
 
 // ─── Workflow / Approval ────────────────────────────────────────
 
+// Real DB enum `workflow_status` (init_v3.sql, workflow_engine.py) — was
+// 'pending'/'in_review'/'escalated' which never occur in current_status,
+// so the approve/reject buttons never matched (Thang 2026-07-04 gap audit).
 export type WorkflowStatus =
-  | 'pending'
-  | 'in_review'
+  | 'draft'
+  | 'pending_l1'
+  | 'pending_l2'
   | 'approved'
   | 'rejected'
-  | 'escalated';
+  | 'cancelled';
 
 export type WorkflowType =
   | 'po_approval'
@@ -162,7 +171,10 @@ export interface Workflow {
   status: WorkflowStatus;
   steps: WorkflowStep[];
   initiated_by: string;
-  initiator?: User;
+  // Narrowed to what every call site actually reads (`.full_name`) — the
+  // list endpoint only ever returns a joined `creator_name` string, not a
+  // full User record.
+  initiator?: Pick<User, 'full_name'>;
   created_at: string;
   updated_at: string;
 }

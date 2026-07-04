@@ -153,7 +153,7 @@ async def get_rate_history(
 @router.post("", status_code=201)
 async def create_exchange_rate(
     body: ExchangeRateCreateRequest,
-    token_data: TokenData = Depends(require_role("manager", "admin")),
+    token_data: TokenData = Depends(require_role("manager", "admin", "accountant")),
     conn: asyncpg.Connection = Depends(get_db),
 ):
     """Manual rate entry by accountant — upsert for idempotency."""
@@ -197,7 +197,7 @@ async def create_exchange_rate(
 @router.post("/bulk", status_code=201)
 async def bulk_create_rates(
     body: BulkRateRequest,
-    token_data: TokenData = Depends(require_role("manager", "admin")),
+    token_data: TokenData = Depends(require_role("manager", "admin", "accountant")),
     conn: asyncpg.Connection = Depends(get_db),
 ):
     """Create multiple rates for one date in a single request."""

@@ -224,7 +224,7 @@ export default function WorkflowDetailPage() {
 
   const statusCfg = STATUS_CONFIG[workflow.status];
   const isPending =
-    workflow.status === 'pending' || workflow.status === 'in_review';
+    workflow.status === 'pending_l1' || workflow.status === 'pending_l2';
   const amount = (workflow as any).amount as
     | number
     | undefined;

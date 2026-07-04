@@ -47,7 +47,7 @@ function ActionButtons({ workflow }: { workflow: Workflow }) {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['workflows'] }),
   });
 
-  if (workflow.status !== 'pending' && workflow.status !== 'in_review') {
+  if (workflow.status !== 'pending_l1' && workflow.status !== 'pending_l2') {
     return <span className="text-xs text-slate-400">—</span>;
   }
 
@@ -190,11 +190,11 @@ export default function WorkflowsPage() {
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="all">Tất cả</SelectItem>
-            <SelectItem value="pending">Chờ duyệt</SelectItem>
-            <SelectItem value="in_review">Đang xem xét</SelectItem>
+            <SelectItem value="pending_l1">Chờ duyệt cấp 1</SelectItem>
+            <SelectItem value="pending_l2">Chờ duyệt cấp 2</SelectItem>
             <SelectItem value="approved">Đã duyệt</SelectItem>
             <SelectItem value="rejected">Từ chối</SelectItem>
-            <SelectItem value="escalated">Chuyển cấp trên</SelectItem>
+            <SelectItem value="cancelled">Đã hủy</SelectItem>
           </SelectContent>
         </Select>
       </div>

@@ -76,13 +76,14 @@ vendor_prefixes:
 
 # --- "Giá nội bộ" — chặn cả viewer (allow_viewer=False) ----------------------
 # Nguồn: grep allow_viewer=False (price_analytics, analytics_trends,
-# analytics_exports, price_lookup, market_prices). Dùng cho test riêng khẳng
-# định viewer bị 403 kể cả GET.
+# analytics_exports, price_lookup, market_prices, xnk_analytics). Dùng cho test
+# riêng khẳng định viewer bị 403 kể cả GET.
 viewer_deny_prefixes:
   - "/api/v1/price-analytics"
   - "/api/v1/analytics"      # analytics_trends + analytics_exports mount /analytics
   - "/api/v1/price-lookup"
   - "/api/v1/market-prices"
+  - "/api/v1/xnk"            # RBAC-fix 2026-07-04: xnk_analytics allow_viewer=False (nhất quán price_analytics)
 
 # --- Quyền CHI TIẾT từng route (seed các router đã đọc tận code) --------------
 # Các router CHƯA seed sẽ được test hành vi phủ qua introspection require_role
@@ -139,4 +140,99 @@ routes:
   # ---- auth /me (app/api/v1/auth.py) — bất kỳ ai đăng nhập ----
   "GET /api/v1/auth/me":
     auth: any
+    status: verified
+
+  # ---- procurement: POs / deliveries / contracts (app/api/v1/procurement.py, prefix /procurement) ----
+  # RBAC-fix 2026-07-04: thêm 'procurement' vào các GET (đọc) cho khớp quyền GHI
+  # mà procurement ĐÃ có (huỷ PO, xác nhận SL/chất lượng, trạng thái giao hàng =
+  # _WRITE_ROLES; generate/send/activate hợp đồng; + GET .../pdf vốn đã cho
+  # procurement). Vá lệch đọc/ghi — KHÔNG mở quyền mới.
+  "GET /api/v1/procurement/contracts":
+    auth: role
+    roles: [admin, manager, staff, procurement]
+    status: verified
+  "GET /api/v1/procurement/contracts/{contract_id}":
+    auth: role
+    roles: [admin, manager, staff, procurement]
+    status: verified
+  "GET /api/v1/procurement/pos":
+    auth: role
+    roles: [admin, manager, staff, procurement]
+    status: verified
+  "GET /api/v1/procurement/pos/{po_id}":
+    auth: role
+    roles: [admin, manager, staff, procurement]
+    status: verified
+  "GET /api/v1/procurement/deliveries":
+    auth: role
+    roles: [admin, manager, staff, procurement]
+    status: verified
+  "GET /api/v1/procurement/deliveries/{delivery_id}":
+    auth: role
+    roles: [admin, manager, staff, procurement]
+    status: verified
+
+  # ---- invoices (app/api/v1/invoice_management.py, prefix /invoices) ----
+  # RBAC-fix 2026-07-04: thêm 'accountant' vào GET (menu Kế toán hiện mục Hóa đơn
+  # nhưng backend 403). Chỉ đọc — WRITE (auto-generate/send/record-payment) giữ
+  # nguyên manager/admin.
+  "GET /api/v1/invoices":
+    auth: role
+    roles: [staff, manager, admin, accountant]
+    status: verified
+  "GET /api/v1/invoices/overdue":
+    auth: role
+    roles: [staff, manager, admin, accountant]
+    status: verified
+  "GET /api/v1/invoices/{invoice_id}":
+    auth: role
+    roles: [staff, manager, admin, accountant]
+    status: verified
+
+  # ---- exchange-rates (app/api/v1/exchange_rates_api.py, prefix /exchange-rates) ----
+  # RBAC-fix 2026-07-04: thêm 'accountant' vào POST nhập tay (docstring "Manual
+  # rate entry by accountant"). PUT /{currency} giữ admin-only (sửa nhạy cảm).
+  "POST /api/v1/exchange-rates":
+    auth: role
+    roles: [manager, admin, accountant]
+    status: verified
+  "POST /api/v1/exchange-rates/bulk":
+    auth: role
+    roles: [manager, admin, accountant]
+    status: verified
+
+  # ---- xnk analytics (app/api/v1/xnk_analytics.py, prefix /xnk) ----
+  # RBAC-fix 2026-07-04: thêm allow_viewer=False (viewer_deny) cho khớp
+  # price_analytics — chặn viewer đọc giá đơn vị / seller-buyer / tờ khai thô.
+  # 'sales'/'director' là nhánh chết (không có trong role_enum) nhưng GIỮ để khớp
+  # introspection require_role.
+  "GET /api/v1/xnk/analytics/kpi":
+    auth: role
+    roles: [admin, manager, staff, sales, director, procurement]
+    viewer_deny: true
+    status: verified
+  "GET /api/v1/xnk/analytics/hs-distribution":
+    auth: role
+    roles: [admin, manager, staff, sales, director, procurement]
+    viewer_deny: true
+    status: verified
+  "GET /api/v1/xnk/analytics/monthly-trend":
+    auth: role
+    roles: [admin, manager, staff, sales, director, procurement]
+    viewer_deny: true
+    status: verified
+  "GET /api/v1/xnk/analytics/top-sellers":
+    auth: role
+    roles: [admin, manager, staff, sales, director, procurement]
+    viewer_deny: true
+    status: verified
+  "GET /api/v1/xnk/analytics/seller/{seller_name}":
+    auth: role
+    roles: [admin, manager, staff, sales, director, procurement]
+    viewer_deny: true
+    status: verified
+  "GET /api/v1/xnk/analytics/seller/{seller_name}/declarations":
+    auth: role
+    roles: [admin, manager, staff, sales, director, procurement]
+    viewer_deny: true
     status: verified

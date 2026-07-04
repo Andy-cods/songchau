@@ -97,7 +97,7 @@ async def xnk_analytics_kpi(
     seller: str | None = Query(None),
     exclude_outliers: bool = Query(False),
     token_data: TokenData = Depends(
-        require_role("admin", "manager", "staff", "sales", "director", "procurement")
+        require_role("admin", "manager", "staff", "sales", "director", "procurement", allow_viewer=False)
     ),
     conn: asyncpg.Connection = Depends(get_db),
 ):
@@ -184,7 +184,7 @@ async def xnk_hs_distribution(
     bins: int = Query(20, ge=5, le=100),
     exclude_outliers: bool = Query(False),
     token_data: TokenData = Depends(
-        require_role("admin", "manager", "staff", "sales", "director", "procurement")
+        require_role("admin", "manager", "staff", "sales", "director", "procurement", allow_viewer=False)
     ),
     conn: asyncpg.Connection = Depends(get_db),
 ):
@@ -283,7 +283,7 @@ async def xnk_monthly_trend(
     year: int | None = Query(None),
     seller: str | None = Query(None),
     token_data: TokenData = Depends(
-        require_role("admin", "manager", "staff", "sales", "director", "procurement")
+        require_role("admin", "manager", "staff", "sales", "director", "procurement", allow_viewer=False)
     ),
     conn: asyncpg.Connection = Depends(get_db),
 ):
@@ -338,7 +338,7 @@ async def xnk_top_sellers(
     year: int | None = Query(None),
     limit: int = Query(10, ge=1, le=100),
     token_data: TokenData = Depends(
-        require_role("admin", "manager", "staff", "sales", "director", "procurement")
+        require_role("admin", "manager", "staff", "sales", "director", "procurement", allow_viewer=False)
     ),
     conn: asyncpg.Connection = Depends(get_db),
 ):
@@ -392,7 +392,7 @@ async def xnk_seller_drill(
     hs_code: str | None = Query(None, description="Lọc thêm theo HS code (optional)"),
     top_n: int = Query(10, ge=1, le=50, description="Top N cho HS/codes/buyers"),
     token_data: TokenData = Depends(
-        require_role("admin", "manager", "staff", "sales", "director", "procurement")
+        require_role("admin", "manager", "staff", "sales", "director", "procurement", allow_viewer=False)
     ),
     conn: asyncpg.Connection = Depends(get_db),
 ):
@@ -620,7 +620,7 @@ async def xnk_seller_declarations(
         pattern="^(rfq_date_asc|rfq_date_desc|price_usd_asc|price_usd_desc|total_usd_desc)$",
     ),
     token_data: TokenData = Depends(
-        require_role("admin", "manager", "staff", "sales", "director", "procurement")
+        require_role("admin", "manager", "staff", "sales", "director", "procurement", allow_viewer=False)
     ),
     conn: asyncpg.Connection = Depends(get_db),
 ):

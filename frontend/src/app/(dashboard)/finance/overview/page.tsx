@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback, useRef } from 'react';
+import Link from 'next/link';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   TrendingUp,
@@ -14,6 +15,7 @@ import {
   Plus,
   Save,
   Loader2,
+  Scale,
   X,
 } from 'lucide-react';
 import { api } from '@/lib/api';
@@ -589,6 +591,13 @@ export default function FinanceOverviewPage() {
               />
               Tải lại
             </button>
+            <Link
+              href="/finance/reconcile"
+              className="inline-flex items-center gap-2 h-11 px-4 rounded-lg bg-white border border-slate-200 hover:bg-slate-50 hover:border-slate-300 text-slate-700 text-sm font-semibold focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/40 focus-visible:ring-offset-2 transition-colors"
+            >
+              <Scale className="h-4 w-4 text-slate-500" aria-hidden="true" />
+              Đối soát công nợ
+            </Link>
             <button
               type="button"
               onClick={() => setShowCashBookForm(true)}

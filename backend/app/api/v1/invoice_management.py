@@ -181,7 +181,7 @@ async def list_invoices(
     chain_code: str | None = Query(None),
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
-    token_data: TokenData = Depends(require_role("staff", "manager", "admin")),
+    token_data: TokenData = Depends(require_role("staff", "manager", "admin", "accountant")),
     conn: asyncpg.Connection = Depends(get_db),
 ):
     """List invoices with optional filters."""
@@ -438,7 +438,7 @@ async def auto_generate_invoice(
 async def list_overdue_invoices(
     days_overdue: int = Query(0, ge=0, description="Lọc hóa đơn quá hạn ít nhất N ngày"),
     limit: int = Query(50, ge=1, le=200),
-    token_data: TokenData = Depends(require_role("staff", "manager", "admin")),
+    token_data: TokenData = Depends(require_role("staff", "manager", "admin", "accountant")),
     conn: asyncpg.Connection = Depends(get_db),
 ):
     """List overdue invoices sorted by overdue days descending."""
@@ -478,7 +478,7 @@ async def list_overdue_invoices(
 @router.get("/{invoice_id}")
 async def get_invoice(
     invoice_id: int,
-    token_data: TokenData = Depends(require_role("staff", "manager", "admin")),
+    token_data: TokenData = Depends(require_role("staff", "manager", "admin", "accountant")),
     conn: asyncpg.Connection = Depends(get_db),
 ):
     """Get invoice detail with line items."""

@@ -34,6 +34,7 @@ import {
   CreditCard,
   Banknote,
   PieChart,
+  Scale,
   Contact,
   Mail,
   Scan,
@@ -57,11 +58,12 @@ export interface StatusConfig {
 }
 
 export const STATUS_CONFIG: Record<WorkflowStatus, StatusConfig> = {
-  pending: { label: 'Chờ duyệt', variant: 'warning', pulse: true },
-  in_review: { label: 'Đang xem xét', variant: 'info', pulse: true },
+  draft: { label: 'Nháp', variant: 'neutral' },
+  pending_l1: { label: 'Chờ duyệt cấp 1', variant: 'warning', pulse: true },
+  pending_l2: { label: 'Chờ duyệt cấp 2', variant: 'warning', pulse: true },
   approved: { label: 'Đã duyệt', variant: 'success' },
   rejected: { label: 'Từ chối', variant: 'danger' },
-  escalated: { label: 'Chuyển cấp trên', variant: 'warning', pulse: true },
+  cancelled: { label: 'Đã hủy', variant: 'neutral' },
 };
 
 export const PO_STATUS_CONFIG: Record<POStatus, StatusConfig> = {
@@ -146,6 +148,9 @@ const NAV_FINANCE: SidebarItem[] = [
   { key: 'invoices', label: 'Hóa đơn', href: '/finance/invoices', icon: Receipt },
   { key: 'payment-approvals', label: 'Duyệt thanh toán', href: '/finance/payment-approvals', icon: Banknote },
   { key: 'finance-reports', label: 'Báo cáo TC', href: '/finance/reports', icon: PieChart },
+  // Thang 2026-07-04: GET /api/v1/finance/reconcile (đối soát AR/AP) đã có
+  // backend từ lâu nhưng chưa FE nào gọi — thêm trang + mục điều hướng.
+  { key: 'reconcile', label: 'Đối soát công nợ', href: '/finance/reconcile', icon: Scale },
 ];
 
 const NAV_ANALYTICS: SidebarItem[] = [
@@ -233,6 +238,14 @@ export function getSidebarConfig(role: UserRole): SidebarSection[] {
       ];
 
     case 'sales':
+    // 'staff' (nhân viên văn phòng/KD — 6 user thật trong prod, DB role_enum)
+    // có quyền backend giống hệt 'sales' trên mọi route dùng ở dưới đây
+    // (dashboard, file-browser, procurement, crm, bqms, market-prices,
+    // price-trends, sourcing, payment-approvals, hr đều require_role liệt kê
+    // cả 'sales' lẫn 'staff') — tái dùng luôn cấu hình sidebar của sales
+    // thay vì lặp lại (Thang 2026-07-04 gap audit: role 'staff' trước đây rơi
+    // vào nhánh `default`, chỉ thấy Tổng quan + Quản lý tài liệu).
+    case 'staff':
       return [
         {
           title: 'Tổng quan',
@@ -261,6 +274,50 @@ export function getSidebarConfig(role: UserRole): SidebarSection[] {
             { key: 'market-prices', label: 'Tra cứu giá XNK', href: '/market-prices', icon: ClipboardList },
             { key: 'price-trends', label: 'Xu hướng giá', href: '/analytics/price-trends', icon: TrendingUp },
             { key: 'sourcing', label: 'Thư viện nguồn cung', href: '/sourcing', icon: ClipboardList },
+          ],
+        },
+        { title: 'Nhân sự', items: NAV_HR },
+      ];
+
+    case 'procurement':
+      // 5 user thật trong prod (DB role_enum), trước đây rơi vào nhánh
+      // `default`. Menu dưới đây CHỈ gồm route mà backend thực sự cho phép
+      // procurement vào (đối chiếu require_role, Thang 2026-07-04):
+      //   procurement.py, procurement_analytics.py, suppliers.py, imv.py,
+      //   market_prices.py, sourcing.py, leave.py (hr), payment_requests.py
+      //   đều liệt kê "procurement" trong allowed roles.
+      // KHÔNG thêm: file-browser (documents), crm.py, bqms.py, price_analytics.py,
+      // finance.py/finance_management.py — các route này KHÔNG cấp quyền
+      // procurement → sẽ 403 nếu thêm vào đây.
+      return [
+        {
+          title: 'Tổng quan',
+          items: [
+            { key: 'dashboard', label: 'Tổng quan', href: '/dashboard', icon: LayoutDashboard },
+          ],
+        },
+        { title: 'Mua hàng', items: NAV_BUSINESS.filter((item) => item.key === 'procurement') },
+        { title: 'Đấu thầu NCC', items: NAV_VENDOR_BIDDING },
+        { title: 'IMV iMarketVietnam', items: NAV_IMV },
+        {
+          title: 'Phân tích',
+          items: [
+            { key: 'market-prices', label: 'Tra cứu giá XNK', href: '/market-prices', icon: ClipboardList },
+            { key: 'sourcing', label: 'Thư viện nguồn cung', href: '/sourcing', icon: ClipboardList },
+          ],
+        },
+        {
+          title: 'Nhà cung cấp',
+          items: [
+            { key: 'suppliers', label: 'Nhà cung cấp', href: '/suppliers', icon: Building2 },
+          ],
+        },
+        {
+          title: 'Tài chính',
+          // Procurement chỉ thấy đề xuất TT của chính mình (backend auto-filter),
+          // giống sale — payment_requests.py cấp quyền cho cả hai.
+          items: [
+            { key: 'payment-approvals', label: 'Đề xuất TT của tôi', href: '/finance/payment-approvals', icon: Banknote },
           ],
         },
         { title: 'Nhân sự', items: NAV_HR },
@@ -305,6 +362,8 @@ export const ROLE_LABELS: Record<UserRole, string> = {
   warehouse: 'Kho vận',
   sales: 'Kinh doanh',
   viewer: 'Khách (Xem)',
+  procurement: 'Phòng mua hàng',
+  staff: 'Nhân viên',
 };
 
 // ─── Currency Labels ────────────────────────────────────────────

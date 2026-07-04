@@ -5114,7 +5114,7 @@ async def list_contracts(
     vendor_id: int | None = Query(None),
     page: int = Query(1, ge=1),
     limit: int = Query(20, ge=1, le=100),
-    token_data: TokenData = Depends(require_role("admin", "manager", "staff")),
+    token_data: TokenData = Depends(require_role("admin", "manager", "staff", "procurement")),
     conn: asyncpg.Connection = Depends(get_db),
 ):
     """Danh sách hợp đồng NCC."""
@@ -5149,7 +5149,7 @@ async def list_contracts(
 @router.get("/contracts/{contract_id}")
 async def get_contract(
     contract_id: int,
-    token_data: TokenData = Depends(require_role("admin", "manager", "staff")),
+    token_data: TokenData = Depends(require_role("admin", "manager", "staff", "procurement")),
     conn: asyncpg.Connection = Depends(get_db),
 ):
     """Chi tiết hợp đồng + items + linked POs."""
@@ -5690,7 +5690,7 @@ async def list_pos(
     vendor_id: int | None = Query(None),
     page: int = Query(1, ge=1),
     limit: int = Query(20, ge=1, le=100),
-    token_data: TokenData = Depends(require_role("admin", "manager", "staff")),
+    token_data: TokenData = Depends(require_role("admin", "manager", "staff", "procurement")),
     conn: asyncpg.Connection = Depends(get_db),
 ):
     """Danh sách MRO Purchase Orders."""
@@ -5723,7 +5723,7 @@ async def list_pos(
 @router.get("/pos/{po_id}")
 async def get_po(
     po_id: int,
-    token_data: TokenData = Depends(require_role("admin", "manager", "staff")),
+    token_data: TokenData = Depends(require_role("admin", "manager", "staff", "procurement")),
     conn: asyncpg.Connection = Depends(get_db),
 ):
     """Chi tiết PO + items + deliveries."""
@@ -5979,7 +5979,7 @@ async def list_deliveries(
     po_id: int | None = Query(None),
     page: int = Query(1, ge=1),
     limit: int = Query(20, ge=1, le=100),
-    token_data: TokenData = Depends(require_role("admin", "manager", "staff")),
+    token_data: TokenData = Depends(require_role("admin", "manager", "staff", "procurement")),
     conn: asyncpg.Connection = Depends(get_db),
 ):
     """Danh sách giao hàng."""
@@ -6010,7 +6010,7 @@ async def list_deliveries(
 @router.get("/deliveries/{delivery_id}")
 async def get_delivery(
     delivery_id: int,
-    token_data: TokenData = Depends(require_role("admin", "manager", "staff")),
+    token_data: TokenData = Depends(require_role("admin", "manager", "staff", "procurement")),
     conn: asyncpg.Connection = Depends(get_db),
 ):
     """Chi tiết giao hàng + items đã giao."""
