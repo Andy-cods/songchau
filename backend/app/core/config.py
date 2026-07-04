@@ -1,4 +1,15 @@
+from pydantic import model_validator
 from pydantic_settings import BaseSettings
+
+# W4-04 — fail-fast: nếu ai đó copy backend/.env.example -> .env mà quên đổi
+# secret thật, giá trị mẫu luôn chứa chuỗi này (vd "change-me-to-a-random-
+# 64-char-string"). Dùng làm "vân tay" để chặn production khởi động với secret
+# vẫn còn là placeholder chưa đổi. Xem backend/.env.example.
+_PLACEHOLDER_MARKER = "change-me"
+
+
+def _looks_like_placeholder(value: str) -> bool:
+    return _PLACEHOLDER_MARKER in value.lower()
 
 
 class Settings(BaseSettings):
@@ -100,6 +111,62 @@ class Settings(BaseSettings):
     @property
     def sync_database_url(self) -> str:
         return self.async_database_url.replace("+asyncpg", "")
+
+    # ── W4-04 — Fail-fast production config guard ──────────────────────
+    # Khi APP_ENV=production, thiếu/để-mặc-định các biến BẮT BUỘC dưới đây sẽ
+    # RAISE ngay lúc import (Settings() ở cuối file) thay vì âm thầm chạy với
+    # JWT rỗng / DB rỗng / CORS "*" (xem app/main.py _cors_origins — APP_URL
+    # rỗng => CORS wildcard, nguy hiểm khi allow_credentials=True).
+    #
+    # Dev/test KHÔNG bị chặn: chỉ cần APP_ENV != "production" (mặc định của
+    # backend/.env.example là "development"; tests/conftest.py cũng
+    # os.environ.setdefault("APP_ENV", "development") trước khi import app).
+    @model_validator(mode="after")
+    def _validate_production_requirements(self) -> "Settings":
+        if self.APP_ENV != "production":
+            return self
+
+        missing: list[str] = []
+        unsafe: list[str] = []
+
+        if not self.JWT_SECRET_KEY:
+            missing.append("JWT_SECRET_KEY")
+        elif len(self.JWT_SECRET_KEY) < 32:
+            unsafe.append("JWT_SECRET_KEY (< 32 ký tự — quá ngắn/yếu cho production)")
+        elif _looks_like_placeholder(self.JWT_SECRET_KEY):
+            unsafe.append("JWT_SECRET_KEY (vẫn là giá trị mẫu trong .env.example — chưa đổi)")
+
+        if self.DATABASE_URL:
+            if _looks_like_placeholder(self.DATABASE_URL):
+                unsafe.append("DATABASE_URL (vẫn là giá trị mẫu trong .env.example — chưa đổi)")
+        elif not self.POSTGRES_PASSWORD:
+            # async_database_url tự ráp từ POSTGRES_* khi DATABASE_URL rỗng —
+            # nếu password cũng rỗng thì sẽ nối chuỗi kết nối với password="".
+            missing.append("DATABASE_URL (hoặc POSTGRES_PASSWORD)")
+        elif _looks_like_placeholder(self.POSTGRES_PASSWORD):
+            unsafe.append("POSTGRES_PASSWORD (vẫn là giá trị mẫu trong .env.example — chưa đổi)")
+
+        if not self.APP_URL:
+            # Rỗng => app/main.py rơi vào CORS allow_origins=["*"] (kèm
+            # allow_credentials=True) — không an toàn cho production.
+            missing.append("APP_URL")
+
+        if missing or unsafe:
+            lines = [
+                "Cấu hình production KHÔNG HỢP LỆ — dừng khởi động (fail-fast, W4-04).",
+            ]
+            if missing:
+                lines.append("  Thiếu biến bắt buộc: " + ", ".join(missing))
+            if unsafe:
+                lines.append("  Biến đang dùng giá trị KHÔNG AN TOÀN: " + ", ".join(unsafe))
+            lines.append(
+                "  -> Xem backend/.env.example (mục BẮT BUỘC) và "
+                "docs/SECRETS_INVENTORY.md. Nếu đây là môi trường dev/test, đặt "
+                "APP_ENV=development trong .env thay vì production."
+            )
+            raise ValueError("\n".join(lines))
+
+        return self
 
     class Config:
         env_file = ".env"
