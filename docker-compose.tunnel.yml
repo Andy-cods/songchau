@@ -1,0 +1,24 @@
+# V-04: socat sidecar cho vendor tunnel (đích ỔN ĐỊNH thay IP container cứng).
+# Tunnel autossh trên server vendor -L 127.0.0.1:15432/16379 → 2 socat này publish
+# 127.0.0.1 trên host main, forward tới postgres/redis QUA TÊN (Docker DNS resolve
+# MỖI kết nối nhờ ,fork) → sc-postgres/sc-redis recreate đổi IP KHÔNG làm đứt tunnel.
+# Deploy: docker compose -f docker-compose.yml -f docker-compose.prod.yml \
+#         -f docker-compose.tunnel.yml up -d --no-deps tunnel-pg tunnel-redis
+services:
+  tunnel-pg:
+    image: alpine/socat:latest
+    container_name: sc-tunnel-pg
+    restart: always
+    command: TCP-LISTEN:5432,fork,reuseaddr TCP:postgres:5432
+    ports:
+      - "127.0.0.1:15432:5432"
+    networks: [internal]
+
+  tunnel-redis:
+    image: alpine/socat:latest
+    container_name: sc-tunnel-redis
+    restart: always
+    command: TCP-LISTEN:6379,fork,reuseaddr TCP:redis:6379
+    ports:
+      - "127.0.0.1:16379:6379"
+    networks: [internal]

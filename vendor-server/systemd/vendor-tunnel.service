@@ -1,0 +1,16 @@
+[Unit]
+Description=Vendor SSH tunnel new->old (Postgres 15432, Redis 16379)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Environment=AUTOSSH_GATETIME=0
+# V-04: đích -L trỏ 127.0.0.1 (socat sidecar sc-tunnel-pg/redis trên host main
+# publish 127.0.0.1:15432/16379) THAY vì IP container cứng 172.18.0.9/172.18.0.6
+# (postgres recreate là đổi IP → cổng NCC chết). Socat resolve tên qua Docker DNS.
+ExecStart=/usr/bin/autossh -M 0 -N -o ServerAliveInterval=30 -o ServerAliveCountMax=3 -o ExitOnForwardFailure=yes -o StrictHostKeyChecking=no -o BatchMode=yes -i /root/.ssh/id_tunnel -L 172.17.0.1:15432:127.0.0.1:15432 -L 172.17.0.1:16379:127.0.0.1:16379 root@103.56.158.129
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
