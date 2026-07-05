@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import type { ReactNode } from 'react';
+import { PenLine, ChevronRight } from 'lucide-react';
 import { api } from '@/lib/api';
 import { formatMoneyNum } from '@/lib/format';
 import { PageHeader } from '@/components/ui/PageHeader';
@@ -164,12 +165,27 @@ export default function ContractsPage() {
   ];
 
   return (
-    <main className="mx-auto max-w-[1400px] px-6 py-5">
+    <main className="mx-auto max-w-[1400px] px-6 py-6">
       <PageHeader
         title="Hợp đồng"
         count={loading ? undefined : contracts.length}
         subtitle="Hợp đồng Song Châu gửi cho bạn"
       />
+
+      {/* Chờ-ký nudge — clicking sets the status filter to 'sent'. */}
+      {!error && !loading && stats.pendingSign > 0 && (
+        <button
+          type="button"
+          onClick={() => setStatusFilter('sent')}
+          className="mb-4 flex w-full items-center gap-2.5 rounded-lg border border-amber-200 bg-amber-50 px-4 py-2.5 text-left text-sm text-amber-800 transition-colors hover:bg-amber-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400"
+        >
+          <PenLine className="h-4 w-4 shrink-0 text-amber-600" />
+          <span className="font-medium">
+            {stats.pendingSign} hợp đồng đang chờ bạn ký
+          </span>
+          <ChevronRight className="ml-auto h-4 w-4 shrink-0 text-amber-500" />
+        </button>
+      )}
 
       {error ? (
         <div
@@ -189,7 +205,7 @@ export default function ContractsPage() {
       ) : (
         <>
           <StatStrip
-            className="mb-5"
+            className="mb-6"
             items={[
               {
                 label: 'Chờ ký',
@@ -217,7 +233,7 @@ export default function ContractsPage() {
 
           {/* Tìm + lọc — chỉ hiện khi đã có dữ liệu. */}
           {!loading && contracts.length > 0 && (
-            <div className="mb-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <SearchBar
                 value={q}
                 onChange={setQ}

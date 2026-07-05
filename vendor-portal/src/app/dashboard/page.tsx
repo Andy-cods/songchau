@@ -1,10 +1,12 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
+import type { ReactNode } from 'react';
 import { useRouter } from 'next/navigation';
-import { Inbox, FileText, Trophy, Wallet } from 'lucide-react';
+import { Inbox, FileText, Trophy, Wallet, Clock, Eye, FileEdit, ListChecks, ChevronRight } from 'lucide-react';
 import { api } from '@/lib/api';
 import { formatDate, formatMoneyNum } from '@/lib/format';
+import { cn } from '@/lib/cn';
 import type { InvitedBatch, MyQuoteRow } from '@/lib/types';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { StatStrip } from '@/components/ui/StatStrip';
@@ -19,6 +21,31 @@ import { DDay } from '@/components/ui/DDay';
 // card used) so the StatusChip + "đang mời" KPI stay consistent.
 function resolveInvStatus(b: InvitedBatch): string {
   return b.inv_status ?? (b.quoted_at ? 'submitted' : b.viewed_at ? 'viewed' : 'invited');
+}
+
+// Hours until an ISO deadline (negative = past). Purely for the "sắp hết hạn"
+// signal + amber row tint — no data is fetched or changed.
+function hoursUntil(iso?: string | null, now: number = Date.now()): number | null {
+  if (!iso) return null;
+  const t = new Date(iso).getTime();
+  if (isNaN(t)) return null;
+  return (t - now) / 3_600_000;
+}
+
+// Icon-pill tint per urgency tone for the "Việc cần làm" panel (functional
+// palette only — no new hues).
+const TODO_PILL: Record<'sky' | 'amber', string> = {
+  sky: 'bg-sky-50 text-sky-600',
+  amber: 'bg-amber-50 text-amber-600',
+};
+
+interface TodoRow {
+  key: string;
+  count: number;
+  label: string;
+  icon: ReactNode;
+  tone: keyof typeof TODO_PILL;
+  href: string;
 }
 
 export default function VendorDashboard() {
@@ -62,6 +89,53 @@ export default function VendorDashboard() {
 
   // Tổng giá trị đã chào = sum of total_amount across every quote row.
   const totalQuoted = quotes.reduce((sum, q) => sum + (Number(q.total_amount) || 0), 0);
+
+  // ── "Việc cần làm" — up to 3 urgent lines, built ONLY from already-fetched
+  // data (no extra requests). Each line links to the most relevant entity.
+  const todos = useMemo<TodoRow[]>(() => {
+    const now = Date.now();
+    const unviewed = batches.filter(b => resolveInvStatus(b) === 'invited');
+    const closingSoon = batches.filter(b => {
+      const s = resolveInvStatus(b);
+      if (s !== 'invited' && s !== 'viewed') return false;
+      const h = hoursUntil(b.bid_deadline, now);
+      return h != null && h >= 0 && h <= 48;
+    });
+    const drafts = quotes.filter(q => q.status === 'draft');
+
+    const rows: TodoRow[] = [];
+    if (unviewed.length > 0) {
+      rows.push({
+        key: 'unviewed',
+        count: unviewed.length,
+        label: 'đợt mời chưa xem',
+        icon: <Eye className="h-4 w-4" />,
+        tone: 'sky',
+        href: `/rfq/${unviewed[0].id}`,
+      });
+    }
+    if (closingSoon.length > 0) {
+      rows.push({
+        key: 'closing',
+        count: closingSoon.length,
+        label: 'đợt sắp hết hạn (≤48h)',
+        icon: <Clock className="h-4 w-4" />,
+        tone: 'amber',
+        href: `/rfq/${closingSoon[0].id}`,
+      });
+    }
+    if (drafts.length > 0) {
+      rows.push({
+        key: 'draft',
+        count: drafts.length,
+        label: 'báo giá nháp chưa gửi',
+        icon: <FileEdit className="h-4 w-4" />,
+        tone: 'amber',
+        href: `/rfq/${drafts[0].batch_id}`,
+      });
+    }
+    return rows;
+  }, [batches, quotes]);
 
   // ── Client-side filter (batch_code / title) ────────────────────────────────
   const filteredBatches = useMemo(() => {
@@ -176,6 +250,49 @@ export default function VendorDashboard() {
         subtitle="Theo dõi đợt được mời, báo giá đã gửi và kết quả trúng thầu"
       />
 
+      {/* Việc cần làm — action panel above the KPI strip */}
+      <section className="mb-6 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+        <div className="flex items-center gap-2 border-b border-slate-100 px-4 py-2.5">
+          <ListChecks className="h-4 w-4 text-brand-600" />
+          <h2 className="text-sm font-semibold text-slate-800">Việc cần làm</h2>
+        </div>
+        {loading ? (
+          <div className="space-y-2 p-3">
+            <div className="h-8 animate-pulse rounded-lg bg-slate-100" />
+            <div className="h-8 w-2/3 animate-pulse rounded-lg bg-slate-100" />
+          </div>
+        ) : todos.length === 0 ? (
+          <p className="px-4 py-5 text-center text-sm text-slate-400">
+            Bạn không có việc cần xử lý
+          </p>
+        ) : (
+          <ul className="p-2">
+            {todos.map(t => (
+              <li key={t.key}>
+                <button
+                  type="button"
+                  onClick={() => router.push(t.href)}
+                  className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left transition-colors hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-400"
+                >
+                  <span
+                    className={cn(
+                      'inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg',
+                      TODO_PILL[t.tone],
+                    )}
+                  >
+                    {t.icon}
+                  </span>
+                  <span className="text-sm text-slate-700">
+                    <span className="font-bold tabular-nums text-slate-900">{t.count}</span> {t.label}
+                  </span>
+                  <ChevronRight className="ml-auto h-4 w-4 shrink-0 text-slate-300" />
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+
       {/* KPI strip */}
       <StatStrip
         className="mb-6"
@@ -229,7 +346,7 @@ export default function VendorDashboard() {
       )}
 
       {/* Invited batches */}
-      <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
         <h2 className="flex items-baseline gap-2 text-base font-bold text-slate-800">
           RFQ được mời
           {!loading && (
@@ -249,6 +366,16 @@ export default function VendorDashboard() {
         rows={filteredBatches}
         loading={loading}
         onRowClick={b => router.push(`/rfq/${b.id}`)}
+        // Amber action-signal tint: still-actionable invitations whose bid
+        // window closes within 48h.
+        getRowClassName={b => {
+          const s = resolveInvStatus(b);
+          if (s !== 'invited' && s !== 'viewed') return undefined;
+          const h = hoursUntil(b.bid_deadline);
+          return h != null && h >= 0 && h <= 48
+            ? 'bg-amber-50/40 hover:bg-amber-50/70'
+            : undefined;
+        }}
         emptyLabel={
           query.trim()
             ? 'Không có RFQ khớp với từ khóa'

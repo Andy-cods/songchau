@@ -10,7 +10,18 @@ import { StatStrip } from '@/components/ui/StatStrip';
 import { SearchBar } from '@/components/ui/SearchBar';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { StatusChip } from '@/components/ui/StatusChip';
+import { Deadline } from '@/components/ui/Deadline';
+import { DDay } from '@/components/ui/DDay';
 import type { MyQuoteRow } from '@/lib/types';
+
+// Hours until an ISO deadline (negative = past). Used only to tint rows whose
+// bid window is closing soon — no data is fetched or mutated.
+function hoursUntil(iso?: string | null): number | null {
+  if (!iso) return null;
+  const t = new Date(iso).getTime();
+  if (isNaN(t)) return null;
+  return (t - Date.now()) / 3_600_000;
+}
 
 // Batch-level status (open/closed for new quotes) → dense VN chip. Kept local:
 // this is the bidding-window state of the *batch*, distinct from the vendor's
@@ -173,10 +184,12 @@ export default function QuotesPage() {
     {
       key: 'bid_deadline' as keyof MyQuoteRow,
       header: 'Hạn nộp',
-      w: 104,
-      align: 'right',
+      w: 200,
       render: row => (
-        <span className="font-mono tabular-nums text-slate-500">{row.bid_deadline ? formatDate(row.bid_deadline) : '—'}</span>
+        <span className="inline-flex items-center gap-1.5">
+          <Deadline date={row.bid_deadline ?? null} relative={false} />
+          <DDay date={row.bid_deadline ?? null} />
+        </span>
       ),
     },
     {
@@ -191,7 +204,7 @@ export default function QuotesPage() {
   ];
 
   return (
-    <main className="mx-auto max-w-[1400px] px-6 py-5">
+    <main className="mx-auto max-w-[1400px] px-6 py-6">
       <PageHeader
         title="Báo giá của tôi"
         count={quotes.length}
@@ -207,7 +220,7 @@ export default function QuotesPage() {
       />
 
       <StatStrip
-        className="mb-5"
+        className="mb-6"
         items={[
           {
             label: 'Đã gửi',
@@ -256,6 +269,18 @@ export default function QuotesPage() {
             loading={loading}
             // PRESERVED nav — row click → /rfq/{batch_id}.
             onRowClick={row => router.push(`/rfq/${row.batch_id}`)}
+            // Action-signal tint: drafts (need submitting) + submitted rows whose
+            // bid window closes ≤48h (need revising) glow amber.
+            getRowClassName={row => {
+              const st = (row.status ?? '').toLowerCase();
+              const draft = /nháp|draft/.test(st);
+              const submitted = /gửi|submitted/.test(st);
+              const h = hoursUntil(row.bid_deadline);
+              const soon = h != null && h >= 0 && h <= 48;
+              return draft || (submitted && soon)
+                ? 'bg-amber-50/40 hover:bg-amber-50/70'
+                : undefined;
+            }}
             emptyIcon={<FileText className="h-8 w-8" />}
             emptyLabel={
               query

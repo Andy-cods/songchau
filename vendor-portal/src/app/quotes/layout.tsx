@@ -1,10 +1,5 @@
-import PortalNav from '@/components/PortalNav';
+import PortalShell from '@/components/PortalShell';
 
 export default function QuotesLayout({ children }: { children: React.ReactNode }) {
-  return (
-    <div className="min-h-screen bg-slate-50">
-      <PortalNav />
-      {children}
-    </div>
-  );
+  return <PortalShell>{children}</PortalShell>;
 }

@@ -43,6 +43,12 @@ export interface DataTableProps<T> {
   stickyHeader?: boolean;
   /** Skeleton row count while loading. Default 6. */
   skeletonRows?: number;
+  /**
+   * Tailwind max-height class that caps the vertical scroll region so the
+   * sticky <thead> actually pins. Default keeps the table under the viewport.
+   * Pass '' to opt out of the cap (table grows to its natural height).
+   */
+  maxHeightClass?: string;
 }
 
 const ALIGN_CLASS: Record<ColumnAlign, string> = {
@@ -93,11 +99,17 @@ export function DataTable<T>({
   emptyLabel = 'Không có dữ liệu',
   stickyHeader = true,
   skeletonRows = 6,
+  maxHeightClass = 'max-h-[calc(100vh-260px)]',
 }: DataTableProps<T>): JSX.Element {
   const clickable = Boolean(onRowClick);
 
   return (
-    <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-sm">
+    <div
+      className={cn(
+        'overflow-auto rounded-xl border border-slate-200 bg-white shadow-sm',
+        stickyHeader && maxHeightClass,
+      )}
+    >
       <table className="w-full border-collapse text-[11px]">
         <thead
           className={cn(
@@ -115,6 +127,11 @@ export function DataTable<T>({
                   style={w.style}
                   className={cn(
                     'px-3 py-2 text-[10px] font-semibold uppercase tracking-wider whitespace-nowrap',
+                    // Hairline + soft shadow under the pinned header. Applied on
+                    // the <th> (not <thead>) so it survives border-collapse while
+                    // the header is stuck. Border-b on the row can scroll away.
+                    stickyHeader &&
+                      'shadow-[0_1px_0_0_rgb(226_232_240),0_3px_5px_-3px_rgba(15,23,42,0.12)]',
                     ALIGN_CLASS[col.align ?? 'left'],
                     w.className,
                   )}

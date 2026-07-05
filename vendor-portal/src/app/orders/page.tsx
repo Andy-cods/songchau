@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { PackageOpen, Truck, CheckCircle2 } from 'lucide-react';
+import { PackageOpen, Truck, CheckCircle2, AlertTriangle } from 'lucide-react';
 import { api } from '@/lib/api';
 import { formatMoneyNum } from '@/lib/format';
 import { DataTable, type Column } from '@/components/ui/DataTable';
@@ -30,6 +30,25 @@ function pct(v?: number | null): number {
   const n = typeof v === 'string' ? parseFloat(v) : v ?? 0;
   if (n == null || isNaN(n)) return 0;
   return Math.max(0, Math.min(100, Math.round(n)));
+}
+
+// Calendar-day delta to a delivery date (negative = overdue). Day-granular to
+// match the coarse requested_delivery_date. Purely for urgency tinting/KPI — no
+// data is fetched or changed.
+function daysUntilDate(iso?: string | null): number | null {
+  if (!iso) return null;
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return null;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const t = new Date(d);
+  t.setHours(0, 0, 0, 0);
+  return Math.round((t.getTime() - today.getTime()) / 86_400_000);
+}
+
+// A PO still awaiting delivery — only these get overdue/due-soon urgency signals.
+function isActivePo(status: string): boolean {
+  return status === 'open' || status === 'partially_delivered';
 }
 
 // "X/Y mục — N%" progress cell derived from item_count + delivered_pct. Reads
@@ -89,7 +108,13 @@ export default function OrdersPage() {
     const open = pos.filter(p => p.status === 'open').length;
     const partial = pos.filter(p => p.status === 'partially_delivered').length;
     const done = pos.filter(p => p.status === 'delivered' || p.status === 'closed').length;
-    return { open, partial, done };
+    // Đơn còn phải giao mà đã quá hạn giao (cần giao gấp).
+    const overdue = pos.filter(p => {
+      if (!isActivePo(p.status)) return false;
+      const n = daysUntilDate(p.requested_delivery_date);
+      return n != null && n < 0;
+    }).length;
+    return { open, partial, done, overdue };
   }, [pos]);
 
   // Số lượng cho từng chip (tính 1 lần trên toàn danh sách).
@@ -187,7 +212,7 @@ export default function OrdersPage() {
   ];
 
   return (
-    <main className="mx-auto max-w-[1400px] px-6 py-5">
+    <main className="mx-auto max-w-[1400px] px-6 py-6">
       <PageHeader
         title="Đơn hàng"
         count={pos.length}
@@ -195,7 +220,7 @@ export default function OrdersPage() {
       />
 
       <StatStrip
-        className="mb-5"
+        className="mb-6"
         items={[
           {
             label: 'Đang mở',
@@ -218,6 +243,13 @@ export default function OrdersPage() {
             icon: <CheckCircle2 className="h-4 w-4" />,
             tone: 'emerald',
           },
+          {
+            label: 'Quá hạn giao',
+            value: stats.overdue,
+            hint: 'đơn cần giao gấp',
+            icon: <AlertTriangle className="h-4 w-4" />,
+            tone: 'rose',
+          },
         ]}
       />
 
@@ -233,7 +265,7 @@ export default function OrdersPage() {
         <>
           {/* Tìm + lọc — chỉ hiện khi đã có dữ liệu (không che skeleton/empty). */}
           {!loading && pos.length > 0 && (
-            <div className="mb-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <SearchBar
                 value={q}
                 onChange={setQ}
@@ -273,6 +305,16 @@ export default function OrdersPage() {
             loading={loading}
             // PRESERVED nav — row click → /orders/{id}.
             onRowClick={row => router.push(`/orders/${row.id}`)}
+            // Urgency tint on still-active POs: overdue delivery = rose,
+            // due within 3 days = amber. Delivered/closed/cancelled stay neutral.
+            getRowClassName={row => {
+              if (!isActivePo(row.status)) return undefined;
+              const n = daysUntilDate(row.requested_delivery_date);
+              if (n == null) return undefined;
+              if (n < 0) return 'bg-rose-50/40 hover:bg-rose-50/70';
+              if (n <= 3) return 'bg-amber-50/40 hover:bg-amber-50/70';
+              return undefined;
+            }}
             emptyIcon={<PackageOpen className="h-8 w-8" />}
             emptyLabel={
               pos.length > 0

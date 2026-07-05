@@ -613,6 +613,7 @@ export default function OrderDetailPage() {
           columns={itemColumns}
           rows={po.items}
           emptyLabel="Không có mục nào"
+          stickyHeader={false}
         />
         <div className="mt-2 flex items-center justify-end gap-3 px-1">
           <span className="text-xs font-semibold text-slate-500">Tổng cộng:</span>
@@ -632,6 +633,7 @@ export default function OrderDetailPage() {
           columns={deliveryColumns}
           rows={po.deliveries}
           emptyLabel="Chưa có lần giao hàng nào"
+          stickyHeader={false}
         />
       </div>
 
