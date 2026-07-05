@@ -50,4 +50,7 @@ Biến cổng NCC `vendor.songchau.vn` thành cổng **CHÍNH THỨC 7 NCC activ
 - [x] **V-06 LIVE 05/07** — deps.py fail-closed 403 suspended (trước nhánh legacy-or) + login vendor kiểm suspended vô điều kiện + list_vendor_accounts/invite loại suspended. Harness 381 + verify có kiểm soát (suspended+is_active=true → login 403 "đã bị tạm khoá"). 11 demo suspended đều e2e, is_active đã=false.
 - [x] **V-04 LIVE 05/07** — 2 socat sidecar (docker-compose.tunnel.yml) publish 127.0.0.1:15432/16379 → postgres/redis qua Docker DNS; vendor-tunnel -L → 127.0.0.1; health hồi ~4s; safe test restart socat → tự hồi ~3s. **CÒN test-ác restart sc-postgres (chờ Thang duyệt ~30s ERP blip)**.
 - [x] **V-07 LIVE 05/07** — default.conf block /ncc → `301 strip-prefix` vendor.songchau.vn; vendor.conf→.off; nginx -t OK + reload; sc-vendor-portal stop + restart=no; verify /ncc/login→301, ERP+vendor=200, RAM giải phóng. **CÒN compose cleanup 8080+vendor-portal service (recreate nginx giờ vắng)**.
-- [ ] V-08 (P1 — UI admin mời NCC) · [ ] V-09..V-13 (P2)
+- [x] **V-08 LIVE 05/07** — modal "Mời NCC" (InviteVendorModal) ở VendorsTab vendor-bidding: form công ty/liên hệ/email → POST /vendors/invite → hiện activation_link (domain vendor.songchau.vn nhờ V-03) + nút Sao chép. tsc 0 lỗi, build+deploy main frontend. ⚠️ **BÀI HỌC**: recreate sc-frontend đổi IP → nginx cache upstream cũ → 502 ~1' → PHẢI `docker exec sc-nginx nginx -s reload` sau mỗi lần recreate frontend (nginx không có resolver).
+
+### ✅ P1 (V-04..V-08) HOÀN THÀNH 05/07. Còn P2 + 2 việc hoãn (test-ác postgres V-04, compose cleanup V-07).
+- [ ] V-09..V-13 (P2): fix inv_status, chống cắt list=20, vendor_alerts.sh, vendor_backup.sh, E2E smoke
