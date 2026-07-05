@@ -71,3 +71,7 @@ Commits P2: 2e47015 (V-09/10) + c89c4fc (V-11/12).
 - **Tài khoản demo**: `demo-ncc@songchau.vn` / `Demo@2026` (vendor_account id=23, active, "Công ty TNHH Cơ Khí Demo Song Châu"). idempotent seed (scope `DEMO-V-%`).
 - **2 đợt seed**: `DEMO-V-CK0725` (Vật tư cơ khí, published, 4 mã, **ĐANG MỞ** hạn +10d — Thang có thể GỬI báo giá) + `DEMO-V-DE0625` (Linh kiện điện, published, 3 mã, **ĐÃ báo giá** total 3.350.000 VND/3 dòng → hiện ở "Báo giá của tôi").
 - **Verify**: login THẬT qua domain → token → GET /batches=200 thấy 2 đợt (total=2); detail cả 2 render đủ mã + my_quote; **target_price (giá đích bên mua) KHÔNG rò** ra cổng NCC. Script: scratchpad/run_demo_seed.py + demo_seed.sql + verify_detail.py.
+- **DEMO phần 2 (Hợp đồng + Đơn hàng)** — scratchpad/demo_seed2.sql (idempotent, scope `HD-DEMO-V-%`/`PO-DEMO-V-%`/`DEMO-V-DEL%`):
+  - **3 Hợp đồng**: `HD-DEMO-V-01` (sent — NCC **KÝ điện tử được**), `HD-DEMO-V-02` (signed), `HD-DEMO-V-03` (active). 7 dòng HĐ.
+  - **3 Đơn hàng (PO)**: `PO-DEMO-V-01` (open — NCC **Xác nhận đơn + Gửi giao hàng được**), `PO-DEMO-V-02` (partially_delivered, 1 lô giao 30/50 trục), `PO-DEMO-V-03` (delivered, giao đủ). 6 dòng PO + 2 lô giao (`DEMO-V-DEL01/02` status received).
+  - Lưu ý schema: `procurement_contracts.batch_id` NOT NULL (nối batch demo); `*_items.total_price` là **GENERATED column** (không insert được — tự tính qty×price). Verify end-to-end: contracts=200/3, pos=200/3, deliveries=200/2; detail PO open 0 ack (xác nhận được), HĐ sent (ký được).
