@@ -251,13 +251,10 @@ def _portal_base() -> str:
     Dùng để build link kích hoạt / đặt lại mật khẩu. Khớp chuẩn activate-link
     hiện tại (``{base}/activate/{token}``) để format nhất quán.
     """
+    # V-03: field Settings VENDOR_PORTAL_URL (env-driven); fallback domain riêng.
     return (
-        getattr(settings, "VENDOR_PORTAL_URL", None)
-        or getattr(settings, "PUBLIC_BASE_URL", None)
-        # Cổng NCC hiện phục vụ tại erp.songchau.vn/ncc (basePath '/ncc', tạm tới
-        # khi có domain riêng — next.config.mjs). Khi gán domain riêng: set env
-        # VENDOR_PORTAL_URL=https://ncc.songchau.vn.
-        or "https://erp.songchau.vn/ncc"
+        settings.VENDOR_PORTAL_URL
+        or "https://vendor.songchau.vn"
     ).rstrip("/")
 
 
@@ -272,9 +269,12 @@ async def vendor_forgot_password(
     CHỐNG DÒ EMAIL: luôn trả 200 generic, KHÔNG tiết lộ email có tồn tại hay
     không. Token chỉ thực sự được tạo khi email khớp 1 tài khoản vendor.
 
-    EMAIL CHƯA LIVE (M365 trống): thử gửi email best-effort; nếu chưa gửi được
-    thì TRẢ VỀ `reset_link` để admin relay tay. Khi M365 live + gửi thành công
-    → KHÔNG trả link (bảo mật hơn). Rate-limit bằng auth_rate_limit (5/60s).
+    BẢO MẬT (V-01 05/07): endpoint CÔNG KHAI này KHÔNG BAO GIỜ trả reset_link
+    trong response — trước đây khi email M365 fail (mà M365 trống nên LUÔN fail)
+    thì lộ link cho bất kỳ ai biết email NCC → chiếm tài khoản. Nay: chỉ thử gửi
+    email best-effort; khi M365 chưa live, admin lấy link qua endpoint ADMIN-ONLY
+    POST /api/v1/procurement/vendors/{id}/reset-link (relay tay có kiểm soát).
+    CHỐNG DÒ EMAIL: luôn trả 200 generic. Rate-limit auth_rate_limit (5/60s).
     """
     email = (body.get("email") or "").strip().lower()
     if not email:
@@ -302,7 +302,6 @@ async def vendor_forgot_password(
     )
 
     reset_link = f"{_portal_base()}/reset-password/{token}"
-    email_sent = False
     try:
         await send_email(
             [email],
@@ -310,15 +309,12 @@ async def vendor_forgot_password(
             f'<p>Nhấn để đặt lại mật khẩu (hết hạn sau 30 phút):</p>'
             f'<p><a href="{reset_link}">{reset_link}</a></p>',
         )
-        email_sent = True
     except Exception as exc:  # noqa: BLE001 — email best-effort
+        # Không gửi được (M365 chưa live) → KHÔNG lộ link ra response công khai.
+        # NCC nhờ admin lấy link qua endpoint admin-only (xem docstring).
         logger.warning("Reset email NCC %s thất bại (best-effort): %s", email, exc)
 
-    result["email_sent"] = email_sent
-    if not email_sent:
-        # Email chưa gửi được → lộ link cho admin relay (đánh đổi Đợt 1). Khi
-        # gửi được thì KHÔNG trả link.
-        result["reset_link"] = reset_link
+    # Response LUÔN generic — không kèm reset_link, không lộ email_sent.
     return result
 
 

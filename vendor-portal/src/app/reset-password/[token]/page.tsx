@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { useParams } from 'next/navigation';
 import { api } from '@/lib/api';
+import { BP } from '@/lib/base-path';
 import Link from 'next/link';
 
 export default function ResetPasswordPage() {
@@ -41,7 +42,7 @@ export default function ResetPasswordPage() {
       await api.post('/api/vendor/auth/reset-password', { token, password });
       setDone(true);
       setTimeout(() => {
-        window.location.href = '/ncc/login';
+        window.location.href = `${BP}/login`;
       }, 1600);
     } catch (err: any) {
       setError(err?.detail ?? 'Đặt lại mật khẩu thất bại. Link có thể đã hết hạn — hãy yêu cầu lại.');

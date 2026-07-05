@@ -37,6 +37,11 @@ class Settings(BaseSettings):
     # App
     APP_ENV: str = "production"
     APP_URL: str = ""
+    # V-03: URL cổng NCC (link kích hoạt/reset/hợp đồng ERP sinh cho NCC). PHẢI
+    # khai báo ở đây — pydantic-settings IGNORE env var không khai báo, nên
+    # thiếu field này thì set VENDOR_PORTAL_URL trong .env sẽ vô tác dụng. Rỗng
+    # (falsy) → helper _vendor_portal_base/_portal_base dùng fallback domain mới.
+    VENDOR_PORTAL_URL: str = ""
     DEBUG: bool = False
     LOG_LEVEL: str = "INFO"
     PO_APPROVAL_THRESHOLD: int = 50_000_000

@@ -6,6 +6,9 @@ COPY . .
 # basePath build-time (W2-05): default '/ncc' cho main server; domain riêng build --build-arg APP_BASE_PATH=""
 ARG APP_BASE_PATH=/ncc
 ENV APP_BASE_PATH=$APP_BASE_PATH
+# V-02: cùng giá trị cho FE đọc qua process.env (lib/base-path.ts) — dùng cho các
+# redirect tuyệt đối window.location.href/redirect() mà Next không tự chèn basePath.
+ENV NEXT_PUBLIC_BASE_PATH=$APP_BASE_PATH
 RUN npm run build
 
 FROM node:20-alpine AS runner

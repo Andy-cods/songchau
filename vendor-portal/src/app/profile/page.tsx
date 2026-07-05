@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { api } from '@/lib/api';
+import { BP } from '@/lib/base-path';
 import { Badge } from '@/components/Badge';
 import { FieldGrid } from '@/components/ui/FieldGrid';
 import { PageHeader } from '@/components/ui/PageHeader';
@@ -202,7 +203,7 @@ export default function ProfilePage() {
       setPwSuccess('Đổi mật khẩu thành công — đang đăng xuất...');
       localStorage.removeItem('vendor_token');
       localStorage.removeItem('vendor_user');
-      window.location.href = '/ncc/login';
+      window.location.href = `${BP}/login`;
     } catch (err: any) {
       setPwError(err?.detail ?? 'Đổi mật khẩu thất bại, vui lòng thử lại');
     } finally {

@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { LogOut } from 'lucide-react';
 import { api } from '@/lib/api';
+import { BP } from '@/lib/base-path';
 import type { NotificationsResponse } from '@/lib/types';
 
 interface UserInfo {
@@ -71,7 +72,7 @@ export default function PortalNav() {
   const handleLogout = () => {
     localStorage.removeItem('vendor_token');
     localStorage.removeItem('vendor_user');
-    window.location.href = '/ncc/login';
+    window.location.href = `${BP}/login`;
   };
 
   const renderLink = (link: (typeof NAV_LINKS)[number], mobile: boolean) => {

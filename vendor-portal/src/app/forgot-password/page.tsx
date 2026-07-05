@@ -4,14 +4,12 @@ import { useState } from 'react';
 import { api } from '@/lib/api';
 import Link from 'next/link';
 
-// Shape of POST /api/vendor/auth/forgot-password (BE-3). The endpoint always
-// returns a generic 200 (chống dò email). While M365 email is not live it ALSO
-// returns `reset_link` so an admin can relay it manually; once email works the
-// backend stops returning the link (email_sent=true) for security.
+// Shape of POST /api/vendor/auth/forgot-password. BẢO MẬT (V-01): endpoint LUÔN
+// trả 200 generic (chống dò email) và KHÔNG BAO GIỜ trả reset_link — trước đây lộ
+// link cho người gọi ẩn danh khi email chưa gửi được (lỗ chiếm tài khoản). Khi
+// M365 chưa live, admin cấp link qua trang quản trị (endpoint admin-only).
 interface ForgotResponse {
   message?: string;
-  email_sent?: boolean;
-  reset_link?: string;
 }
 
 export default function VendorForgotPasswordPage() {
@@ -19,7 +17,6 @@ export default function VendorForgotPasswordPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [result, setResult] = useState<ForgotResponse | null>(null);
-  const [copied, setCopied] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -32,17 +29,6 @@ export default function VendorForgotPasswordPage() {
       setError(err?.detail ?? 'Không gửi được yêu cầu, vui lòng thử lại');
     } finally {
       setLoading(false);
-    }
-  };
-
-  const copyLink = async () => {
-    if (!result?.reset_link) return;
-    try {
-      await navigator.clipboard.writeText(result.reset_link);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    } catch {
-      /* clipboard blocked — user can still select the text manually */
     }
   };
 
@@ -75,32 +61,10 @@ export default function VendorForgotPasswordPage() {
                 </p>
               </div>
 
-              {/* Email chưa cấu hình → backend trả về link để admin gửi tay. */}
-              {result.reset_link && (
-                <div className="rounded-lg border border-amber-200 bg-amber-50 p-3">
-                  <p className="text-xs font-semibold text-amber-800">
-                    Email tự động chưa được bật — gửi link này cho nhà cung cấp:
-                  </p>
-                  <div className="mt-2 flex items-stretch gap-2">
-                    <code className="flex-1 break-all rounded-md bg-white px-2.5 py-2 text-[11px] text-slate-700 ring-1 ring-inset ring-amber-200">
-                      {result.reset_link}
-                    </code>
-                    <button
-                      type="button"
-                      onClick={copyLink}
-                      className="shrink-0 rounded-md bg-amber-600 px-3 text-xs font-semibold text-white transition-colors hover:bg-amber-700"
-                    >
-                      {copied ? 'Đã chép' : 'Sao chép'}
-                    </button>
-                  </div>
-                </div>
-              )}
-
-              {result.email_sent && !result.reset_link && (
-                <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
-                  Đã gửi email — vui lòng kiểm tra hộp thư (kể cả mục spam).
-                </div>
-              )}
+              <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5 text-xs text-slate-600">
+                Nếu chưa nhận được email trong ít phút, vui lòng liên hệ quản trị viên
+                Song Châu để được cấp lại link đặt lại mật khẩu.
+              </div>
 
               <Link href="/login" className="inline-block text-sm font-medium text-brand-600 hover:underline">
                 ← Quay lại đăng nhập

@@ -1,3 +1,5 @@
+import { BP } from './base-path';
+
 const BASE = '';
 
 function getToken(): string | null {
@@ -18,7 +20,7 @@ async function request<T>(endpoint: string, opts: RequestInit = {}): Promise<T> 
   if (res.status === 401) {
     localStorage.removeItem('vendor_token');
     localStorage.removeItem('vendor_user');
-    if (typeof window !== 'undefined') window.location.href = '/ncc/login';
+    if (typeof window !== 'undefined') window.location.href = `${BP}/login`;
     throw { detail: 'Phiên đăng nhập hết hạn', status_code: 401 };
   }
 
@@ -45,7 +47,7 @@ async function requestBlob(endpoint: string): Promise<Blob> {
   if (res.status === 401) {
     localStorage.removeItem('vendor_token');
     localStorage.removeItem('vendor_user');
-    if (typeof window !== 'undefined') window.location.href = '/ncc/login';
+    if (typeof window !== 'undefined') window.location.href = `${BP}/login`;
     throw { detail: 'Phiên đăng nhập hết hạn', status_code: 401 };
   }
 

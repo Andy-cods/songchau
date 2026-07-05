@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { api } from '@/lib/api';
+import { BP } from '@/lib/base-path';
 import Link from 'next/link';
 
 export default function VendorLoginPage() {
@@ -18,7 +19,7 @@ export default function VendorLoginPage() {
       const res = await api.post<any>('/api/vendor/auth/login', { email, password });
       localStorage.setItem('vendor_token', res.access_token);
       localStorage.setItem('vendor_user', JSON.stringify(res.user));
-      window.location.href = '/ncc/dashboard';
+      window.location.href = `${BP}/dashboard`;
     } catch (err: any) {
       setError(err?.detail ?? 'Đăng nhập thất bại');
     } finally {

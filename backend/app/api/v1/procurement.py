@@ -286,13 +286,11 @@ def _coerce_num(raw: Any):
 
 
 def _vendor_portal_base() -> str:
-    """Base URL of the supplier LOGIN portal (ncc.songchau.vn)."""
+    """Base URL cổng NCC (domain riêng vendor.songchau.vn). V-03: đọc field
+    Settings VENDOR_PORTAL_URL (env-driven); fallback = domain riêng mới."""
     return (
-        getattr(settings, "VENDOR_PORTAL_URL", None)
-        or getattr(settings, "PUBLIC_BASE_URL", None)
-        # Cổng NCC hiện phục vụ tại erp.songchau.vn/ncc (basePath '/ncc', tạm tới
-        # khi có domain riêng). Set env VENDOR_PORTAL_URL khi có domain riêng.
-        or "https://erp.songchau.vn/ncc"
+        settings.VENDOR_PORTAL_URL
+        or "https://vendor.songchau.vn"
     ).rstrip("/")
 
 
@@ -500,6 +498,38 @@ async def reject_vendor(
         vendor_id,
     )
     return {"message": "Đã từ chối nhà cung cấp"}
+
+
+@router.post("/vendors/{vendor_id}/reset-link")
+async def admin_generate_vendor_reset_link(
+    vendor_id: int,
+    token_data: TokenData = Depends(require_role("admin")),
+    conn: asyncpg.Connection = Depends(get_db),
+):
+    """V-01: Admin sinh link đặt lại mật khẩu cho 1 NCC (relay tay khi M365 chưa
+    live). THAY cho việc forgot-password công khai trả link (đã bịt lỗ chiếm tài
+    khoản). Admin-only, token TTL 30 phút, ghi vào vendor_accounts.reset_token
+    (NCC dùng link trên cổng vendor.songchau.vn để đặt lại)."""
+    va = await conn.fetchrow(
+        "SELECT va.id, u.email FROM vendor_accounts va "
+        "JOIN users u ON u.id = va.user_id "
+        "WHERE va.id = $1 AND u.role = 'vendor'::role_enum",
+        vendor_id,
+    )
+    if not va:
+        raise HTTPException(status_code=404, detail="Nhà cung cấp không tồn tại")
+    token = secrets.token_urlsafe(32)
+    expires = datetime.now(timezone.utc) + timedelta(minutes=30)
+    await conn.execute(
+        "UPDATE vendor_accounts SET reset_token = $1, reset_expires = $2, "
+        "updated_at = NOW() WHERE id = $3",
+        token, expires, va["id"],
+    )
+    reset_link = f"{_vendor_portal_base()}/reset-password/{token}"
+    return {
+        "data": {"reset_link": reset_link, "email": va["email"], "expires_in_minutes": 30},
+        "message": "Đã tạo link đặt lại mật khẩu (hết hạn 30 phút) — gửi cho NCC.",
+    }
 
 
 # ---------------------------------------------------------------------------

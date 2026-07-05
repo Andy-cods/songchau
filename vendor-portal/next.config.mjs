@@ -7,14 +7,9 @@ const bp = process.env.APP_BASE_PATH ?? '/ncc';
 const nextConfig = {
   output: 'standalone',
   ...(bp ? { basePath: bp } : {}),
-  async rewrites() {
-    return [
-      {
-        source: '/api/:path*',
-        destination: 'http://api:8000/api/:path*',
-      },
-    ];
-  },
+  // A1-07: bỏ rewrite /api → http://api:8000 (dead-code) — nginx ở CẢ 2 deploy đã
+  // proxy /api trực tiếp tới backend TRƯỚC khi request tới Next, và service 'api'
+  // không tồn tại trên stack vendor. api.ts gọi same-origin (BASE='') qua nginx.
 };
 
 export default nextConfig;
