@@ -92,6 +92,8 @@ services:
     volumes:
       - ./data/files:/data/files
       - /data/onedrive-staging:/data/onedrive-staging
+      - /data/quote-overrides:/data/quote-overrides
+      - /data/bqms-push-evidence:/data/bqms-push-evidence
       - /var/run/docker.sock:/var/run/docker.sock
     networks: [internal]
     depends_on:
@@ -137,17 +139,16 @@ services:
     ports:
       - "80:80"
       - "443:443"
-      - "8080:8080"
     volumes:
       - ./nginx/conf.d:/etc/nginx/conf.d:ro
       - ./data/files:/data/files:ro
+      - ./onlyoffice-override.json:/etc/onlyoffice/documentserver/local-production-linux.json:ro
       - /var/www/certbot:/var/www/certbot:ro
       - /etc/letsencrypt:/etc/letsencrypt:ro
     networks: [internal, public]
     depends_on:
       - api
       - frontend
-      - vendor-portal
     deploy:
       resources:
         limits:
@@ -155,19 +156,8 @@ services:
         reservations:
           memory: 32M
 
-  vendor-portal:
-    build:
-      context: ./vendor-portal
-      dockerfile: Dockerfile
-    container_name: sc-vendor-portal
-    restart: unless-stopped
-    networks: [internal]
-    deploy:
-      resources:
-        limits:
-          memory: 256M
-        reservations:
-          memory: 128M
+  # V-07 (Đợt V cutover): cổng NCC đã tách sang server riêng vendor.songchau.vn
+  # (SC_ROLE=vendor). Portal cũ + nginx :8080 ĐÃ GỠ — /ncc nay 301 sang domain vendor.
 
   procrastinate-worker:
     build:
@@ -181,7 +171,10 @@ services:
       REDIS_URL: redis://redis:6379/0
     volumes:
       - ./data/files:/data/files
-      - /data/onedrive-staging:/data/onedrive-staging:ro
+      - ./onlyoffice-override.json:/etc/onlyoffice/documentserver/local-production-linux.json:ro
+      - /data/onedrive-staging:/data/onedrive-staging
+      - /data/quote-overrides:/data/quote-overrides
+      - /data/bqms-push-evidence:/data/bqms-push-evidence
     command: python -m procrastinate --app=app.core.procrastinate_app.app worker --concurrency=5
     networks: [internal]
     depends_on:
@@ -224,6 +217,7 @@ services:
       - JWT_ENABLED=false
     volumes:
       - ./data/files:/data/files
+      - ./onlyoffice-override.json:/etc/onlyoffice/documentserver/local-production-linux.json:ro
     deploy:
       resources:
         limits:
@@ -248,7 +242,10 @@ services:
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
     volumes:
       - ./data/files:/data/files
-      - /data/onedrive-staging:/data/onedrive-staging:ro
+      - ./onlyoffice-override.json:/etc/onlyoffice/documentserver/local-production-linux.json:ro
+      - /data/onedrive-staging:/data/onedrive-staging
+      - /data/quote-overrides:/data/quote-overrides
+      - /data/bqms-push-evidence:/data/bqms-push-evidence
     command: python -m procrastinate --app=app.core.procrastinate_app.app worker --concurrency=1 --listen-notify
     networks: [internal]
     depends_on:

@@ -62,6 +62,12 @@ Biến cổng NCC `vendor.songchau.vn` thành cổng **CHÍNH THỨC 7 NCC activ
 
 Commits P2: 2e47015 (V-09/10) + c89c4fc (V-11/12).
 
-## 🎉 ĐỢT V HOÀN THÀNH 13/13 (05/07). CÒN 2 việc HOÃN chờ Thang duyệt giờ vắng:
-- **V-04 test-ác**: `docker restart sc-postgres` → chứng minh vendor tự hồi khi postgres đổi IP (~30s ERP blip). Cơ chế đã proven qua restart socat.
-- **V-07 compose cleanup**: bỏ `ports 8080` + service `vendor-portal` khỏi docker-compose.yml (recreate sc-nginx ~2s). Hiện portal cũ đã stop + restart=no nên vô hại.
+## 🎉 ĐỢT V HOÀN THÀNH 13/13 (05/07). 2 việc HOÃN nay ĐÃ XONG (Thang duyệt "làm luôn cả 2"):
+- [x] **V-04 test-ác** (05/07): `docker restart sc-postgres` (gate=0, Chủ nhật vắng) → **main ERP + vendor tự hồi ~11.6/11.8s** (đúng lúc postgres healthy @~11.4s), KHÔNG restart tay; data bền (users 52, batches 9 giữ nguyên); socat sc-tunnel-pg up. Ghi chú: `docker restart` GIỮ IP (172.18.0.9) nên đây là chứng minh reconnect pool full-chain; phòng-vệ IP-đổi đã proven riêng ở V-13 (restart socat re-resolve DNS ~3s). Script: scratchpad/v04_postgres_chaos.py.
+- [x] **V-07 compose cleanup** (05/07): gỡ `ports 8080` + service `vendor-portal` khỏi `/opt/erp/docker-compose.yml` (**edit surgical GIỮ mount server-drift** quote-overrides/bqms-push-evidence/onlyoffice; backup .bak-v07cleanup) + `docker rm -f sc-vendor-portal` + recreate nginx. Verify: 8080 CLOSED, erp health/login=200, /ncc→301→vendor, vendor login=200, **KHÔNG outage** (reload đúng). Repo docker-compose.yml đã reconcile khớp prod.
+
+## 🧪 DEMO cho Thang (05/07) — tài khoản + dữ liệu đấu thầu sống, verify end-to-end:
+- **Link cổng đấu thầu NCC**: https://vendor.songchau.vn
+- **Tài khoản demo**: `demo-ncc@songchau.vn` / `Demo@2026` (vendor_account id=23, active, "Công ty TNHH Cơ Khí Demo Song Châu"). idempotent seed (scope `DEMO-V-%`).
+- **2 đợt seed**: `DEMO-V-CK0725` (Vật tư cơ khí, published, 4 mã, **ĐANG MỞ** hạn +10d — Thang có thể GỬI báo giá) + `DEMO-V-DE0625` (Linh kiện điện, published, 3 mã, **ĐÃ báo giá** total 3.350.000 VND/3 dòng → hiện ở "Báo giá của tôi").
+- **Verify**: login THẬT qua domain → token → GET /batches=200 thấy 2 đợt (total=2); detail cả 2 render đủ mã + my_quote; **target_price (giá đích bên mua) KHÔNG rò** ra cổng NCC. Script: scratchpad/run_demo_seed.py + demo_seed.sql + verify_detail.py.
