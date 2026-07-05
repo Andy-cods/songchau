@@ -52,5 +52,16 @@ Biến cổng NCC `vendor.songchau.vn` thành cổng **CHÍNH THỨC 7 NCC activ
 - [x] **V-07 LIVE 05/07** — default.conf block /ncc → `301 strip-prefix` vendor.songchau.vn; vendor.conf→.off; nginx -t OK + reload; sc-vendor-portal stop + restart=no; verify /ncc/login→301, ERP+vendor=200, RAM giải phóng. **CÒN compose cleanup 8080+vendor-portal service (recreate nginx giờ vắng)**.
 - [x] **V-08 LIVE 05/07** — modal "Mời NCC" (InviteVendorModal) ở VendorsTab vendor-bidding: form công ty/liên hệ/email → POST /vendors/invite → hiện activation_link (domain vendor.songchau.vn nhờ V-03) + nút Sao chép. tsc 0 lỗi, build+deploy main frontend. ⚠️ **BÀI HỌC**: recreate sc-frontend đổi IP → nginx cache upstream cũ → 502 ~1' → PHẢI `docker exec sc-nginx nginx -s reload` sau mỗi lần recreate frontend (nginx không có resolver).
 
-### ✅ P1 (V-04..V-08) HOÀN THÀNH 05/07. Còn P2 + 2 việc hoãn (test-ác postgres V-04, compose cleanup V-07).
-- [ ] V-09..V-13 (P2): fix inv_status, chống cắt list=20, vendor_alerts.sh, vendor_backup.sh, E2E smoke
+### ✅ P1 (V-04..V-08) HOÀN THÀNH 05/07.
+### ✅ P2 (V-09..V-13) HOÀN THÀNH 05/07 (dùng 2 Cook agent + orchestrator điều phối):
+- [x] **V-09** (Cook B) — batches.py trả inv_status/declined_at/withdrawn... + quotes.py 409 khi declined. Harness 381.
+- [x] **V-10** (Cook B) — quotes.py /my cap le=50 + total; 4 trang vendor-portal ?limit=50 + "Hiển thị X/total". Deploy BE 2 server + FE vendor-portal.
+- [x] **V-11** (Cook A) — vendor_alerts.sh 5-check (health/tunnel/canary-mount self-heal/disk/cert) + cron */5 + mirror log MAIN /data/logs. Verify: im khi khỏe + self-heal/critical branch OK.
+- [x] **V-12** (Cook A) — vendor_backup.sh tar 4 stateful (letsencrypt/.env/units/ssh-key) → MAIN /data/backups tuần; verify tar 4 nhóm 0600. **Sửa topology: /opt/erp/data ≠ /mnt/erp-data (sshfs = MAIN /data)**.
+- [x] **V-13** — E2E smoke **16 PASS/0 FAIL**: public (login/activate/reset/forgot 200, V-01 no-leak, cô lập 404) + authenticated (login thật→token→batches/notifications/quotes 200 qua tunnel, V-10 total) + chaos (V-04 socat hồi ~3s, V-05 sshfs self-heal).
+
+Commits P2: 2e47015 (V-09/10) + c89c4fc (V-11/12).
+
+## 🎉 ĐỢT V HOÀN THÀNH 13/13 (05/07). CÒN 2 việc HOÃN chờ Thang duyệt giờ vắng:
+- **V-04 test-ác**: `docker restart sc-postgres` → chứng minh vendor tự hồi khi postgres đổi IP (~30s ERP blip). Cơ chế đã proven qua restart socat.
+- **V-07 compose cleanup**: bỏ `ports 8080` + service `vendor-portal` khỏi docker-compose.yml (recreate sc-nginx ~2s). Hiện portal cũ đã stop + restart=no nên vô hại.
