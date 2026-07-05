@@ -17,9 +17,14 @@ services:
     restart: unless-stopped
     env_file: .env               # .env COPY từ server cũ — GIỮ NGUYÊN SECRET_KEY/JWT
     environment:
-      # Postgres/Redis của server CŨ qua tunnel (host new bind docker gateway).
-      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@erp-tunnel:15432/${POSTGRES_DB}
-      REDIS_URL: redis://erp-tunnel:16379/0
+      # Postgres/Redis của server CŨ qua tunnel. Dùng IP docker gateway TRỰC TIẾP
+      # (172.17.0.1) — KHÔNG dùng hostname 'erp-tunnel' vì uvloop (asyncpg) KHÔNG
+      # đọc /etc/hosts → không resolve được extra_hosts. database.py đọc
+      # POSTGRES_HOST/PORT (asyncpg); cache.py đọc REDIS_URL.
+      POSTGRES_HOST: "172.17.0.1"
+      POSTGRES_PORT: "15432"
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@172.17.0.1:15432/${POSTGRES_DB}
+      REDIS_URL: redis://172.17.0.1:16379/0
       # Chỉ bật router vendor (không chạy scraper/worker BQMS ở máy này).
       SC_ROLE: vendor
     extra_hosts:
@@ -45,11 +50,14 @@ services:
     build:
       context: ../vendor-portal
       dockerfile: Dockerfile
+      args:
+        APP_BASE_PATH: ""          # domain riêng → bỏ basePath /ncc, phục vụ tại root '/'
     container_name: sc-vendor-portal
     restart: unless-stopped
     environment:
       NEXT_PUBLIC_API_URL: /api    # nginx proxy /api -> vendor-api
       NODE_ENV: production
+      PORT: "3000"                 # image bake PORT=3001 → ép 3000 cho khớp nginx upstream
     networks: [vnet]
     depends_on: [vendor-api]
     deploy:

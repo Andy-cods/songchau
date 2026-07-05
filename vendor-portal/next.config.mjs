@@ -1,10 +1,12 @@
 /** @type {import('next').NextConfig} */
+// basePath env-driven (W2-05):
+//   - Main server erp.songchau.vn build KHÔNG set APP_BASE_PATH → default '/ncc'
+//     (giữ nguyên bản xem-trước /ncc, non-breaking).
+//   - Server domain riêng vendor.songchau.vn build với APP_BASE_PATH="" → root '/'.
+const bp = process.env.APP_BASE_PATH ?? '/ncc';
 const nextConfig = {
   output: 'standalone',
-  // TẠM (Thang 2026-06-23): phục vụ cổng NCC tại https://erp.songchau.vn/ncc/
-  // để xem trước khi có domain riêng. REVERT (bỏ basePath + 6 redirect /ncc)
-  // khi đã gán domain ncc.songchau.vn.
-  basePath: '/ncc',
+  ...(bp ? { basePath: bp } : {}),
   async rewrites() {
     return [
       {

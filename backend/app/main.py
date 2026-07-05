@@ -303,8 +303,17 @@ async def security_headers(request: Request, call_next):
 
 
 # Routers
+import os as _os
+_SC_ROLE = _os.getenv("SC_ROLE", "").strip().lower()
+
 app.include_router(health_router)
-app.include_router(v1_router, prefix="/api/v1")
+
+# W2-05: server cổng NCC riêng (45.124.95.32) chạy SC_ROLE=vendor → CHỈ mount
+# vendor_router + health, KHÔNG mount /api/v1 (nội bộ ERP: giá, khách hàng, đấu
+# thầu admin, BQMS...). Server ERP chính (SC_ROLE trống/khác) mount đầy đủ như cũ.
+# → trên server vendor, mọi /api/v1/* trả 404 (cô lập dữ liệu nội bộ khỏi NCC).
+if _SC_ROLE != "vendor":
+    app.include_router(v1_router, prefix="/api/v1")
 
 # Vendor Portal API (separate prefix — vendors cannot access /api/v1)
 from app.api.vendor import vendor_router
