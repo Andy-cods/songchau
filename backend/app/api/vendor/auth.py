@@ -113,14 +113,17 @@ async def vendor_login(
     if not verify_password(password, user["hashed_password"]):
         raise HTTPException(401, "Email hoặc mật khẩu không đúng")
 
+    # V-06: kiểm 'suspended' VÔ ĐIỀU KIỆN (fetch 1 lần) — không nấp sau is_active,
+    # để NCC bị khoá bị chặn login dù is_active còn sót true.
+    va = await conn.fetchrow(
+        "SELECT status, is_approved FROM vendor_accounts WHERE user_id = $1", user["id"]
+    )
+    if va and str(va["status"]) == "suspended":
+        raise HTTPException(403, "Tài khoản đã bị tạm khoá. Liên hệ Song Châu.")
+
     if not user["is_active"]:
         # Check account status (transition-safe: new status OR legacy is_approved)
-        va = await conn.fetchrow(
-            "SELECT status, is_approved FROM vendor_accounts WHERE user_id = $1", user["id"]
-        )
         approved = va and (str(va["status"]) == "active" or va["is_approved"])
-        if str(va["status"] if va else "") == "suspended":
-            raise HTTPException(403, "Tài khoản đã bị tạm khoá. Liên hệ Song Châu.")
         if not approved:
             raise HTTPException(403, "Tài khoản chưa được duyệt. Vui lòng liên hệ Song Châu.")
         # Approved but inactive — activate

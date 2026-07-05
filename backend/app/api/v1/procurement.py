@@ -449,7 +449,9 @@ async def list_vendor_accounts(
     if status == "pending":
         where = "va.is_approved = false"
     elif status == "approved":
-        where = "va.is_approved = true"
+        # V-06: loại NCC bị khoá khỏi danh sách "đã duyệt" (nguồn của picker mời)
+        # để không mời phải tài khoản không login được → invitation chết gây nhiễu.
+        where = "va.is_approved = true AND va.status <> 'suspended'"
 
     rows = await conn.fetch(
         f"""
@@ -2607,9 +2609,12 @@ async def invite_vendors(
         if not va:
             failures.append({"vendor_id": vid, "error": "Tài khoản NCC không tồn tại"})
             continue
-        is_active = str(va["status"]) == "active" or va["is_approved"] is True
+        # V-06: NCC 'suspended' KHÔNG được mời dù is_approved còn true.
+        is_active = str(va["status"]) != "suspended" and (
+            str(va["status"]) == "active" or va["is_approved"] is True
+        )
         if not is_active:
-            failures.append({"vendor_id": vid, "error": "Tài khoản NCC chưa active"})
+            failures.append({"vendor_id": vid, "error": "Tài khoản NCC chưa active hoặc đã bị khoá"})
             continue
 
         # Idempotent upsert — ON CONFLICT (batch_id,vendor_id,round_number) DO NOTHING

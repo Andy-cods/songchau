@@ -1,0 +1,15 @@
+[Unit]
+Description=SSHFS mount old:/data at /mnt/erp-data
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStartPre=/bin/mkdir -p /mnt/erp-data
+ExecStart=/usr/bin/sshfs -f -o IdentityFile=/root/.ssh/id_tunnel,StrictHostKeyChecking=no,reconnect,ServerAliveInterval=15,ServerAliveCountMax=3,allow_other,default_permissions root@103.56.158.129:/data /mnt/erp-data
+ExecStop=/bin/fusermount -u /mnt/erp-data
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

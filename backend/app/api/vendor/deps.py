@@ -38,6 +38,11 @@ async def resolve_vendor(
     )
     if not row:
         raise HTTPException(403, "Tài khoản nhà cung cấp không tồn tại")
+    # V-06 fail-closed: 'suspended' CHẶN CỨNG trước nhánh legacy-or. Trước đây
+    # (status='suspended' OR is_approved=true) → NCC bị khoá vẫn qua mọi endpoint
+    # nếu is_approved còn true (khoá bằng SQL tay thường chỉ đổi status).
+    if str(row["status"]) == "suspended":
+        raise HTTPException(403, "Tài khoản nhà cung cấp đã bị khoá")
     is_active = str(row["status"]) == "active" or row["is_approved"] is True
     if not is_active:
         raise HTTPException(403, "Tài khoản chưa được kích hoạt / duyệt")

@@ -46,4 +46,6 @@ Biến cổng NCC `vendor.songchau.vn` thành cổng **CHÍNH THỨC 7 NCC activ
 - [x] **V-01 LIVE 05/07** — forgot-password trả generic (không lộ reset_link, verify prod); endpoint admin-only `POST /vendors/{id}/reset-link`; FE forgot-password dọn ô link; rà log: chỉ thấy 1 call = test của tôi (log xoay vòng, không phủ hết cửa sổ → khuyến nghị reset 7 NCC phòng ngừa).
 - [x] **V-02 LIVE 05/07** — 8 hardcode /ncc → `NEXT_PUBLIC_BASE_PATH`; rebuild vendor-portal; verify: /login /dashboard /forgot-password=200, /ncc/login=404, **bundle 0 tham chiếu /ncc**; + dọn A1-07 rewrite chết.
 - [x] **V-03 LIVE 05/07** — `VENDOR_PORTAL_URL` field Settings + fallback→vendor.songchau.vn; deploy 2 server; verify `_vendor_portal_base()`/`_portal_base()` = https://vendor.songchau.vn. Harness 381 pass, tsc 0 lỗi.
-- [ ] V-04..V-08 (P1) · [ ] V-09..V-13 (P2)
+- [x] **V-05 LIVE 05/07** — systemd drop-in `erp-data.service.d/10-restart-vendor-api.conf` (ExecStartPost chờ mountpoint + docker restart sc-vendor-api). Replay T3: restart erp-data → tự hồi ~50s (container thấy đủ file, health 200) KHÔNG restart tay. Units commit vào vendor-server/systemd/.
+- [x] **V-06 LIVE 05/07** — deps.py fail-closed 403 suspended (trước nhánh legacy-or) + login vendor kiểm suspended vô điều kiện + list_vendor_accounts/invite loại suspended. Harness 381 + verify có kiểm soát (suspended+is_active=true → login 403 "đã bị tạm khoá"). 11 demo suspended đều e2e, is_active đã=false.
+- [ ] V-04 (socat tunnel — cần Thang duyệt giờ test-ác restart postgres) · V-07 · V-08 (P1) · [ ] V-09..V-13 (P2)
