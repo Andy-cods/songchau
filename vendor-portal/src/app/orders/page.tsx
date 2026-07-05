@@ -65,16 +65,21 @@ function DeliveryProgress({ po }: { po: VendorPo }) {
 export default function OrdersPage() {
   const router = useRouter();
   const [pos, setPos] = useState<VendorPo[]>([]);
+  const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [q, setQ] = useState('');
   const [statusFilter, setStatusFilter] = useState<PoFilter>('all');
 
-  // PRESERVED fetch — GET /api/vendor/pos, unchanged.
+  // GET /api/vendor/pos — ?limit=50 nới trần cắt ngầm 20 dòng; `total` (BE trả
+  // sẵn) để hiển thị "Hiển thị X/total".
   useEffect(() => {
     api
-      .get<{ data: VendorPo[] }>('/api/vendor/pos')
-      .then(res => setPos(res.data || []))
+      .get<{ data: VendorPo[]; total?: number }>('/api/vendor/pos?limit=50')
+      .then(res => {
+        setPos(res.data || []);
+        setTotal(res.total ?? (res.data || []).length);
+      })
       .catch(() => setError('Không tải được danh sách đơn hàng'))
       .finally(() => setLoading(false));
   }, []);
@@ -275,6 +280,11 @@ export default function OrdersPage() {
                 : 'Chưa có đơn hàng nào — đơn đặt hàng sẽ xuất hiện sau khi Song Châu tạo P/O'
             }
           />
+          {!loading && total > 0 && (
+            <p className="mt-2 text-right text-xs text-slate-400">
+              Hiển thị {pos.length}/{total} đơn hàng
+            </p>
+          )}
         </>
       )}
     </main>

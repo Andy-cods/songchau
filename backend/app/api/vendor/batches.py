@@ -92,7 +92,8 @@ async def get_invited_batch_detail(
     """
     inv = await conn.fetchrow(
         """
-        SELECT id, round_number, status
+        SELECT id, round_number, status,
+               declined_at, decline_reason, invited_at, viewed_at
           FROM procurement_rfq_invitations
          WHERE batch_id = $1 AND vendor_id = $2
          ORDER BY round_number DESC NULLS LAST, invited_at DESC NULLS LAST
@@ -151,7 +152,7 @@ async def get_invited_batch_detail(
         """
         SELECT id, currency, total_amount, status, round_number, submitted_at,
                lead_time_days, moq_notes, notes, valid_until,
-               attachment_path, external_url
+               attachment_path, external_url, withdrawn_at, withdraw_reason
           FROM vendor_quotes
          WHERE batch_id = $1 AND vendor_id = $2
          ORDER BY round_number DESC NULLS LAST, submitted_at DESC NULLS LAST
@@ -194,6 +195,14 @@ async def get_invited_batch_detail(
     return {
         "data": {
             **dict(batch),
+            # Invitation state (per-vendor) — FE reads inv_status to show the
+            # "đã từ chối" banner and hide the quote form. inv is guaranteed to
+            # exist here (404 raised above otherwise).
+            "inv_status": inv["status"],
+            "declined_at": inv["declined_at"],
+            "decline_reason": inv["decline_reason"],
+            "invited_at": inv["invited_at"],
+            "viewed_at": inv["viewed_at"],
             "items": [{**dict(i), "shared_files": shared_by_item.get(i["id"], [])} for i in items],
             "my_quote": my_quote,
         }

@@ -34,15 +34,20 @@ function BatchStatusChip({ status }: { status?: string | null }) {
 export default function QuotesPage() {
   const router = useRouter();
   const [quotes, setQuotes] = useState<MyQuoteRow[]>([]);
+  const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [query, setQuery] = useState('');
 
-  // PRESERVED fetch — GET /api/vendor/quotes/my, unchanged.
+  // GET /api/vendor/quotes/my — ?limit=50 nới trần cắt ngầm 20 dòng; `total`
+  // (BE trả sẵn) để hiển thị "Hiển thị X/total".
   useEffect(() => {
     api
-      .get<{ data: MyQuoteRow[] }>('/api/vendor/quotes/my')
-      .then(res => setQuotes(res.data || []))
+      .get<{ data: MyQuoteRow[]; total?: number }>('/api/vendor/quotes/my?limit=50')
+      .then(res => {
+        setQuotes(res.data || []);
+        setTotal(res.total ?? (res.data || []).length);
+      })
       .catch(() => setError('Không tải được danh sách báo giá'))
       .finally(() => setLoading(false));
   }, []);
@@ -244,19 +249,26 @@ export default function QuotesPage() {
           <p>{error}</p>
         </div>
       ) : (
-        <DataTable<MyQuoteRow>
-          columns={columns}
-          rows={filtered}
-          loading={loading}
-          // PRESERVED nav — row click → /rfq/{batch_id}.
-          onRowClick={row => router.push(`/rfq/${row.batch_id}`)}
-          emptyIcon={<FileText className="h-8 w-8" />}
-          emptyLabel={
-            query
-              ? 'Không tìm thấy báo giá phù hợp'
-              : 'Chưa có báo giá nào — truy cập Dashboard để gửi báo giá'
-          }
-        />
+        <>
+          <DataTable<MyQuoteRow>
+            columns={columns}
+            rows={filtered}
+            loading={loading}
+            // PRESERVED nav — row click → /rfq/{batch_id}.
+            onRowClick={row => router.push(`/rfq/${row.batch_id}`)}
+            emptyIcon={<FileText className="h-8 w-8" />}
+            emptyLabel={
+              query
+                ? 'Không tìm thấy báo giá phù hợp'
+                : 'Chưa có báo giá nào — truy cập Dashboard để gửi báo giá'
+            }
+          />
+          {!loading && total > 0 && (
+            <p className="mt-2 text-right text-xs text-slate-400">
+              Hiển thị {quotes.length}/{total} báo giá
+            </p>
+          )}
+        </>
       )}
     </main>
   );

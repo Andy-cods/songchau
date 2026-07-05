@@ -48,15 +48,21 @@ function ContractsIcon({ className }: { className?: string }) {
 export default function ContractsPage() {
   const router = useRouter();
   const [contracts, setContracts] = useState<ContractRow[]>([]);
+  const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [q, setQ] = useState('');
   const [statusFilter, setStatusFilter] = useState<ContractFilter>('all');
 
+  // GET /api/vendor/contracts — ?limit=50 nới trần cắt ngầm 20 dòng; `total`
+  // (BE trả sẵn) để hiển thị "Hiển thị X/total".
   useEffect(() => {
     api
-      .get<{ data: ContractRow[] }>('/api/vendor/contracts')
-      .then(res => setContracts(res.data || []))
+      .get<{ data: ContractRow[]; total?: number }>('/api/vendor/contracts?limit=50')
+      .then(res => {
+        setContracts(res.data || []);
+        setTotal(res.total ?? (res.data || []).length);
+      })
       .catch(() => setError('Không tải được danh sách hợp đồng'))
       .finally(() => setLoading(false));
   }, []);
@@ -260,6 +266,11 @@ export default function ContractsPage() {
                 : 'Chưa có hợp đồng nào — sẽ xuất hiện sau khi Song Châu gửi cho bạn'
             }
           />
+          {!loading && total > 0 && (
+            <p className="mt-2 text-right text-xs text-slate-400">
+              Hiển thị {contracts.length}/{total} hợp đồng
+            </p>
+          )}
         </>
       )}
     </main>

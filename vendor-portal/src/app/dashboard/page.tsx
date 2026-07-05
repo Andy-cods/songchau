@@ -25,19 +25,22 @@ export default function VendorDashboard() {
   const router = useRouter();
   const [batches, setBatches] = useState<InvitedBatch[]>([]);
   const [quotes, setQuotes] = useState<MyQuoteRow[]>([]);
+  const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [query, setQuery] = useState('');
 
-  // PRESERVED: identical dual-fetch (GET /api/vendor/batches + /quotes/my).
+  // Dual-fetch (GET /api/vendor/batches + /quotes/my). ?limit=50 nới trần cắt
+  // ngầm 20 dòng; `total` (BE trả sẵn) để hiển thị "Hiển thị X/total".
   useEffect(() => {
     Promise.all([
-      api.get<{ data: InvitedBatch[] }>('/api/vendor/batches'),
-      api.get<{ data: MyQuoteRow[] }>('/api/vendor/quotes/my'),
+      api.get<{ data: InvitedBatch[]; total?: number }>('/api/vendor/batches?limit=50'),
+      api.get<{ data: MyQuoteRow[] }>('/api/vendor/quotes/my?limit=50'),
     ])
       .then(([batchRes, quoteRes]) => {
         setBatches(batchRes.data || []);
         setQuotes(quoteRes.data || []);
+        setTotal(batchRes.total ?? (batchRes.data || []).length);
       })
       .catch(() => setError('Không tải được dữ liệu tổng quan. Vui lòng thử lại.'))
       .finally(() => setLoading(false));
@@ -262,6 +265,12 @@ export default function VendorDashboard() {
           </svg>
         }
       />
+
+      {!loading && total > 0 && (
+        <p className="mt-2 text-right text-xs text-slate-400">
+          Hiển thị {batches.length}/{total} đợt được mời
+        </p>
+      )}
     </main>
   );
 }

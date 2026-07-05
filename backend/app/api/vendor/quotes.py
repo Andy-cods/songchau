@@ -28,7 +28,7 @@ from pathlib import Path
 from typing import Any
 
 import asyncpg
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, Query
 
 from app.api.vendor.deps import resolve_vendor
 from app.core.database import get_db
@@ -257,6 +257,13 @@ async def _persist_quote(
     if not inv:
         raise HTTPException(
             404, f"Không tìm thấy lời mời báo giá cho vòng {round_number} của đợt này"
+        )
+    # Đã TỪ CHỐI lời mời (vòng này) thì KHÔNG cho gửi / lưu nháp báo giá — chặn mâu
+    # thuẫn A1-05 (admin thấy 'declined' nhưng NCC vẫn gửi được). 409 Conflict =
+    # trạng thái lời mời không cho phép hành động này.
+    if inv["status"] == "declined":
+        raise HTTPException(
+            409, "Bạn đã từ chối lời mời báo giá cho đợt này — không thể gửi báo giá."
         )
 
     currency = body.get("currency", "USD")
@@ -686,12 +693,20 @@ async def round_prefill(
 
 @router.get("/my")
 async def my_quotes(
-    page: int = 1,
-    limit: int = 20,
+    page: int = Query(1, ge=1),
+    limit: int = Query(20, ge=1, le=50),
     vendor_id: int = Depends(resolve_vendor),
     conn: asyncpg.Connection = Depends(get_db),
 ):
-    """Lịch sử báo giá của tôi (kèm round_number + trạng thái lời mời)."""
+    """Lịch sử báo giá của tôi (kèm round_number + trạng thái lời mời).
+
+    Trả kèm `total` (tổng số báo giá của NCC) như các router list khác
+    (batches/pos/contracts) để FE hiển thị "Hiển thị X/total" và biết khi danh
+    sách bị cắt ở `limit`.
+    """
+    total = await conn.fetchval(
+        "SELECT COUNT(*) FROM vendor_quotes WHERE vendor_id = $1", vendor_id
+    )
     rows = await conn.fetch(
         """
         SELECT vq.id, vq.batch_id, vq.currency, vq.total_amount, vq.status,
@@ -715,7 +730,7 @@ async def my_quotes(
         vendor_id, limit, (page - 1) * limit,
     )
 
-    return {"data": [dict(r) for r in rows]}
+    return {"data": [dict(r) for r in rows], "total": total}
 
 
 @router.post("/upload-file")
