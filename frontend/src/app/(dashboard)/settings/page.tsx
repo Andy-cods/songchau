@@ -130,22 +130,35 @@ export default function SettingsPage() {
     retry: false,
   });
 
-  // Fetch system info (admin only)
-  // NOTE: chưa có backend endpoint gộp đủ {version, db_tables_count,
-  // uptime_seconds, environment} (xem /api/health + /api/v1/system-health/dashboard
-  // — hai endpoint rời rạc). Giữ nguyên placeholder tạm thời như code cũ, chỉ sửa
-  // để field name khớp với SystemInfo — trước đây object trả về không khớp
-  // interface (db_tables/uptime thay vì db_tables_count/uptime_seconds, thiếu
-  // environment) nên UI luôn hiện "undefined"/NaN, bị ignoreBuildErrors che giấu.
+  // Fetch system info (admin only) — dữ liệu THẬT từ 2 endpoint:
+  //   /api/health                      → version + uptime_seconds + environment (APP_ENV)
+  //   /api/v1/system-health/dashboard  → data.database.tables (số bảng thật, ~182)
+  // Trước đây trả cứng {version:'1.0.0', db_tables_count:64, uptime:0, env:NODE_ENV}
+  // ở CẢ try lẫn catch → số giả (64 bảng sai, uptime luôn 0, env build-time).
   const { data: sysInfo } = useQuery<SystemInfo>({
     queryKey: ['system', 'info'],
     queryFn: async () => {
+      const health = (await api.get('/api/health')) as {
+        version: string;
+        uptime_seconds: number;
+        environment?: string;
+      };
+      let tables = 0;
       try {
-        await api.get('/api/v1/dashboard/kpis');
-        return { version: '1.0.0', db_tables_count: 64, uptime_seconds: 0, environment: process.env.NODE_ENV ?? 'production' };
+        // /dashboard nặng (quét nhiều bảng) — best-effort: nếu lỗi vẫn hiện version/uptime.
+        const dash = (await api.get('/api/v1/system-health/dashboard')) as {
+          data?: { database?: { tables?: number } };
+        };
+        tables = dash?.data?.database?.tables ?? 0;
       } catch {
-        return { version: '1.0.0', db_tables_count: 64, uptime_seconds: 0, environment: process.env.NODE_ENV ?? 'production' };
+        /* giữ tables=0 */
       }
+      return {
+        version: health.version,
+        db_tables_count: tables,
+        uptime_seconds: health.uptime_seconds,
+        environment: health.environment ?? (process.env.NODE_ENV ?? 'production'),
+      };
     },
     enabled: authUser?.role === 'admin',
     retry: false,
@@ -162,7 +175,7 @@ export default function SettingsPage() {
       ? {
           full_name: me.full_name,
           display_name: me.display_name ?? '',
-          phone: '',
+          phone: me.phone ?? '',
           department: me.department ?? '',
         }
       : undefined,
@@ -202,7 +215,12 @@ export default function SettingsPage() {
   const passwordMutation = useMutation({
     mutationFn: (data: PasswordForm) =>
       api.post('/api/v1/auth/change-password', data),
-    onSuccess: () => {
+    onSuccess: (res: unknown) => {
+      // Đổi mật khẩu bump password_version → phiên CŨ bị revoke. BE cấp token
+      // pv-mới; lưu lại để lần refresh kế không 401 TOKEN_REVOKED đá caller ra.
+      const r = res as { access_token?: string; refresh_token?: string } | undefined;
+      if (r?.access_token) localStorage.setItem('access_token', r.access_token);
+      if (r?.refresh_token) localStorage.setItem('refresh_token', r.refresh_token);
       toast.success('Đổi mật khẩu thành công');
       resetPassword();
     },

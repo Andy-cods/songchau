@@ -1,8 +1,8 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { Globe, Check, RefreshCw } from 'lucide-react';
-import { getLocale, setLocale, t, type Locale } from '@/lib/i18n';
+import { Globe, Check, Info } from 'lucide-react';
+import { getLocale, t, type Locale } from '@/lib/i18n';
 import { Button } from '@/components/ui/button';
 import { PageHeader } from '@/components/shared/page-header';
 import { Card } from '@/components/shared/card';
@@ -47,17 +47,16 @@ const LOCALE_OPTIONS: LocaleOption[] = [
 
 export default function LanguagePage() {
   const [currentLocale, setCurrentLocale] = useState<Locale>('vi');
-  const [pending, setPending] = useState(false);
 
   useEffect(() => {
     setCurrentLocale(getLocale());
   }, []);
 
   function handleSelect(locale: Locale) {
-    if (locale === currentLocale) return;
-    setPending(true);
-    // Brief delay so the user sees the loading state before reload
-    setTimeout(() => setLocale(locale), 400);
+    // i18n toàn hệ thống CHƯA nối provider — chỉ đổi highlight xem trước, KHÔNG
+    // ghi localStorage/reload (reload sẽ về UI y hệt tiếng Việt, gây hiểu lầm
+    // "bấm không đổi gì"). Khi i18n đầy đủ xong sẽ nối lại setLocale.
+    setCurrentLocale(locale);
   }
 
   return (
@@ -69,6 +68,18 @@ export default function LanguagePage() {
         subtitle="Chọn ngôn ngữ hiển thị của hệ thống — Select the display language for the system."
         className="mb-6"
       />
+
+      {/* Coming-soon: i18n toàn hệ thống đang phát triển */}
+      <div className="mb-6 flex items-start gap-3 rounded-lg border border-amber-200 bg-amber-50 p-4">
+        <Info className="h-4 w-4 text-amber-600 mt-0.5 flex-shrink-0" />
+        <div className="text-sm text-amber-800">
+          <p className="font-semibold">Sắp có / Coming soon</p>
+          <p className="text-xs text-amber-700 mt-0.5">
+            Đổi ngôn ngữ toàn hệ thống đang được phát triển. Đây là bản xem trước bản dịch —
+            chọn ngôn ngữ chưa dịch toàn bộ giao diện. Full system-wide translation is under development.
+          </p>
+        </div>
+      </div>
 
       {/* Language selector cards */}
       <Card padded={false} className="p-6 mb-6">
@@ -83,14 +94,12 @@ export default function LanguagePage() {
               <button
                 key={option.code}
                 onClick={() => handleSelect(option.code)}
-                disabled={pending}
                 className={cn(
                   'relative flex flex-col items-center gap-2 p-5 rounded-xl border-2 transition-all duration-150',
                   'hover:border-brand-400 hover:bg-brand-50 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:ring-offset-2',
                   isActive
                     ? 'border-brand-600 bg-brand-50 shadow-sm'
-                    : 'border-slate-200 bg-white',
-                  pending && 'opacity-60 cursor-not-allowed'
+                    : 'border-slate-200 bg-white'
                 )}
               >
                 {isActive && (
@@ -112,18 +121,9 @@ export default function LanguagePage() {
           })}
         </div>
 
-        {pending && (
-          <div className="flex items-center gap-2 mt-4 text-sm text-brand-600">
-            <RefreshCw className="h-4 w-4 animate-spin" />
-            Đang áp dụng / Applying...
-          </div>
-        )}
-
-        {!pending && (
-          <p className="mt-4 text-xs text-slate-400">
-            Thay đổi ngôn ngữ sẽ tải lại trang — Language change will reload the page.
-          </p>
-        )}
+        <p className="mt-4 text-xs text-slate-400">
+          Hiện chỉ áp dụng cho bảng xem trước bên dưới — Currently applies to the preview table below only.
+        </p>
       </Card>
 
       {/* Translation preview table */}
@@ -173,11 +173,10 @@ export default function LanguagePage() {
             key={option.code}
             variant="outline"
             onClick={() => handleSelect(option.code)}
-            disabled={pending}
             className="gap-2"
           >
             <span>{option.flag}</span>
-            Switch to {option.nativeLabel}
+            Xem trước {option.nativeLabel}
           </Button>
         ))}
       </div>

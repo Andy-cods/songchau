@@ -36,13 +36,16 @@ const MonthlyComparisonChart = dynamic(
 
 // ─── Types ──────────────────────────────────────────────────────
 
+// Khớp shape THẬT của BE /finance-reports/profit-loss (revenue/cogs là object,
+// các số phẳng có hậu tố _vnd) — trước đây đọc phẳng pl.revenue/pl.gross_profit...
+// nên fmtVnd(object)/undefined → NaN toàn bộ 5 thẻ KPI.
 interface ProfitLossData {
-  revenue: number;
-  cogs: number;
-  gross_profit: number;
-  expenses: number;
-  net_profit: number;
-  margin_pct: number;
+  revenue: { from_deals_vnd: number; from_invoices: number; collected: number };
+  cogs: { cogs_vnd: number; freight_vnd: number; customs_duty_vnd: number; total_cost_vnd: number };
+  gross_profit_vnd: number;
+  avg_margin_pct: number;
+  total_opex_vnd: number;
+  net_profit_vnd: number;
 }
 
 interface MonthlyRow {
@@ -111,37 +114,42 @@ export default function FinanceReportsPage() {
     retry: 1,
   });
 
-  const { data: monthlyData, isLoading: monthlyLoading } = useQuery<{ data: MonthlyRow[] }>({
+  // BE trả data={monthly:[...]} (object, KHÔNG phải mảng) → Array.isArray cũ = false → bảng rỗng.
+  const { data: monthlyData, isLoading: monthlyLoading } = useQuery<{ data: { monthly?: unknown[] } }>({
     queryKey: ['finance-monthly', months],
     queryFn: () => api.get(`/api/v1/finance-reports/monthly-comparison?months=${months}`),
     retry: 1,
   });
 
-  const { data: topCustData } = useQuery<{ data: TopCustomerRow[] }>({
+  // BE trả data={customers:[...]} (object) — tương tự.
+  const { data: topCustData } = useQuery<{ data: { customers?: unknown[] } }>({
     queryKey: ['finance-top-customers'],
     queryFn: () => api.get('/api/v1/finance-reports/top-customers?limit=10'),
     retry: 1,
   });
 
-  // Preserve dual-shape data unwrap.
-  const pl =
-    plData?.data ??
-    (plData as { items?: ProfitLossData } | undefined)?.items ??
-    (plData as ProfitLossData | undefined);
-  const monthlyRaw =
-    monthlyData?.data ??
-    (monthlyData as { items?: MonthlyRow[] } | undefined)?.items ??
-    [];
-  const monthly: MonthlyRow[] = Array.isArray(monthlyRaw) ? monthlyRaw : [];
-  const topCustRaw =
-    topCustData?.data ??
-    (topCustData as { items?: TopCustomerRow[] } | undefined)?.items ??
-    [];
-  const topCustomers: TopCustomerRow[] = Array.isArray(topCustRaw) ? topCustRaw : [];
+  const pl = plData?.data;
+  // Bóc .monthly + map key BE (revenue_vnd/cost_vnd/net_profit_vnd/avg_margin_pct)
+  // sang tên FE (revenue/cost/profit/margin_pct) → chart/bảng giữ nguyên.
+  const monthlyRaw = monthlyData?.data?.monthly ?? [];
+  const monthly: MonthlyRow[] = (Array.isArray(monthlyRaw) ? monthlyRaw : []).map((r: any) => ({
+    month: r.month,
+    revenue: Number(r.revenue_vnd ?? 0),
+    cost: Number(r.cost_vnd ?? 0),
+    profit: Number(r.net_profit_vnd ?? 0),
+    margin_pct: Number(r.avg_margin_pct ?? 0),
+  }));
+  // Bóc .customers + map company_name → customer_name (BE không có customer_name).
+  const topCustRaw = topCustData?.data?.customers ?? [];
+  const topCustomers: TopCustomerRow[] = (Array.isArray(topCustRaw) ? topCustRaw : []).map((r: any) => ({
+    customer_name: r.company_name ?? r.short_name ?? '—',
+    total_revenue: Number(r.total_revenue ?? 0),
+    order_count: Number(r.order_count ?? 0),
+  }));
 
   // Net profit: brand by default; flips to danger (rose) only when negative
   // (a real warning), per the neutral-KPI rule.
-  const netTone: 'rose' | 'brand' = pl && pl.net_profit < 0 ? 'rose' : 'brand';
+  const netTone: 'rose' | 'brand' = pl && pl.net_profit_vnd < 0 ? 'rose' : 'brand';
 
   return (
     <div className="space-y-6">
@@ -186,40 +194,40 @@ export default function FinanceReportsPage() {
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
         <KPICard
           label="Doanh thu"
-          value={pl ? fmtVnd(pl.revenue) : '—'}
+          value={pl ? fmtVnd(pl.revenue.from_deals_vnd) : '—'}
           tone="brand"
           icon={TrendingUp}
           loading={plLoading}
         />
         <KPICard
           label="Giá vốn (COGS)"
-          value={pl ? fmtVnd(pl.cogs) : '—'}
+          value={pl ? fmtVnd(pl.cogs.total_cost_vnd) : '—'}
           tone="slate"
           icon={BarChart2}
           loading={plLoading}
         />
         <KPICard
           label="Lợi nhuận gộp"
-          value={pl ? fmtVnd(pl.gross_profit) : '—'}
+          value={pl ? fmtVnd(pl.gross_profit_vnd) : '—'}
           tone="brand"
           icon={DollarSign}
           loading={plLoading}
         />
         <KPICard
           label="Chi phí"
-          value={pl ? fmtVnd(pl.expenses) : '—'}
+          value={pl ? fmtVnd(pl.total_opex_vnd) : '—'}
           tone="slate"
           icon={TrendingDown}
           loading={plLoading}
         />
         <KPICard
           label="Lợi nhuận ròng"
-          value={pl ? fmtVnd(pl.net_profit) : '—'}
+          value={pl ? fmtVnd(pl.net_profit_vnd) : '—'}
           tone={netTone}
           icon={Wallet}
           sub={
-            pl && pl.margin_pct != null
-              ? `Biên LN ${Number(pl.margin_pct).toFixed(1)}%`
+            pl && pl.avg_margin_pct != null
+              ? `Biên LN ${Number(pl.avg_margin_pct).toFixed(1)}%`
               : undefined
           }
           loading={plLoading}

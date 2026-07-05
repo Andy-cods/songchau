@@ -98,12 +98,20 @@ def require_role(*allowed_roles: str, allow_viewer: bool = True):
                 },
             )
 
-        # Inject RLS context
+        # Inject RLS/audit context.
+        # is_local=false (session-scope) — KHÔNG dùng true: asyncpg auto-commit
+        # từng execute() → GUC set is_local=true bốc hơi ngay cuối implicit-txn
+        # của chính nó, nên khi endpoint query (statement sau) thì rỗng → RLS policy
+        # rỗng + auto_audit_log() ghi user_id=NULL. false giữ GUC suốt vòng đời
+        # connection của request; an toàn với pool vì asyncpg RESET ALL khi release.
+        # Tên khóa role = 'app.current_user_role' cho KHỚP policy sống (init_v3.sql
+        # / _schema_snapshot.sql). Trước đây đặt 'app.current_role' (sai) → nhánh
+        # role của mọi RLS policy luôn NULL.
         await conn.execute(
-            "SELECT set_config('app.current_user_id', $1, true),"
-            "       set_config('app.current_role', $2, true),"
-            "       set_config('app.current_user_email', $3, true),"
-            "       set_config('app.client_ip', $4, true)",
+            "SELECT set_config('app.current_user_id', $1, false),"
+            "       set_config('app.current_user_role', $2, false),"
+            "       set_config('app.current_user_email', $3, false),"
+            "       set_config('app.client_ip', $4, false)",
             token_data.user_id,
             token_data.role,
             token_data.email,

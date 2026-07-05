@@ -11,6 +11,7 @@ import asyncpg
 
 from app.core.database import get_db
 from app.core.cache import cache
+from app.core.config import settings
 
 router = APIRouter(tags=["health"])
 
@@ -80,6 +81,7 @@ async def health_check(conn: asyncpg.Connection = Depends(get_db)):
     return {
         "status": overall,
         "version": "1.0.0",
+        "environment": settings.APP_ENV,
         "database": db_status,
         "redis": redis_status,
         "timestamp": datetime.now(timezone.utc).isoformat(),

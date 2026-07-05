@@ -94,7 +94,7 @@ async def dashboard_kpis(
 
 @router.get("/kpis-v2")
 async def dashboard_kpis_v2(
-    token_data: TokenData = Depends(require_role("staff", "manager", "admin", "accountant", "warehouse", "sales")),
+    token_data: TokenData = Depends(require_role("staff", "manager", "admin", "accountant", "warehouse", "sales", "procurement")),
     conn: asyncpg.Connection = Depends(get_db),
 ):
     """BA/DA Dashboard — ALL data from bqms_rfq in 1 call. Cached 60s in Redis."""

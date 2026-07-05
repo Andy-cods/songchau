@@ -16,6 +16,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { api } from '@/lib/api';
 import { formatDate } from '@/lib/utils';
+import { useAuth } from '@/providers/auth-provider';
 import { KPICard } from '@/components/shared/kpi-card';
 import { TableSkeleton } from '@/components/shared/table-skeleton';
 import { EmptyState } from '@/components/shared/empty-state';
@@ -27,17 +28,19 @@ import { PageHeader } from '@/components/shared/page-header';
 
 // ─── Types ──────────────────────────────────────────────────────────
 
-type InvoiceStatus = 'draft' | 'sent' | 'partial' | 'paid' | 'overdue' | 'cancelled';
+// BE dùng 'partially_paid' (không phải 'partial') — invoice_management.py:578.
+type InvoiceStatus = 'draft' | 'sent' | 'partially_paid' | 'paid' | 'overdue' | 'cancelled';
 
 interface Invoice {
   id: number;
   invoice_number: string;
   customer_name: string;
-  total_amount_vnd: number;
-  paid_amount_vnd: number;
+  // BE list_invoices trả cột thô total_amount/paid_amount/invoice_date (KHÔNG _vnd).
+  total_amount: number;
+  paid_amount: number;
   status: InvoiceStatus;
   due_date?: string;
-  issued_date: string;
+  invoice_date: string;
 }
 
 interface InvoiceStats {
@@ -64,12 +67,12 @@ interface ApiResponse {
 type StatusTone = 'neutral' | 'info' | 'warning' | 'success' | 'danger' | 'muted';
 
 const STATUS_CONFIG: Record<InvoiceStatus, { label: string; tone: StatusTone }> = {
-  draft:     { label: 'Nháp',           tone: 'neutral' },
-  sent:      { label: 'Đã gửi',         tone: 'info' },
-  partial:   { label: 'TT một phần',    tone: 'warning' },
-  paid:      { label: 'Đã thanh toán',  tone: 'success' },
-  overdue:   { label: 'Quá hạn',        tone: 'danger' },
-  cancelled: { label: 'Đã hủy',         tone: 'muted' },
+  draft:          { label: 'Nháp',          tone: 'neutral' },
+  sent:           { label: 'Đã gửi',        tone: 'info' },
+  partially_paid: { label: 'TT một phần',   tone: 'warning' },
+  paid:           { label: 'Đã thanh toán', tone: 'success' },
+  overdue:        { label: 'Quá hạn',       tone: 'danger' },
+  cancelled:      { label: 'Đã hủy',        tone: 'muted' },
 };
 
 const TONE_BADGE: Record<StatusTone, string> = {
@@ -81,7 +84,7 @@ const TONE_BADGE: Record<StatusTone, string> = {
   muted:   'bg-slate-50 text-slate-400 ring-slate-200',
 };
 
-const ALL_STATUSES: InvoiceStatus[] = ['draft', 'sent', 'partial', 'paid', 'overdue', 'cancelled'];
+const ALL_STATUSES: InvoiceStatus[] = ['draft', 'sent', 'partially_paid', 'paid', 'overdue', 'cancelled'];
 
 // ─── Helpers ────────────────────────────────────────────────────────
 
@@ -131,6 +134,9 @@ function StatsCards({ stats, loading }: { stats?: InvoiceStats; loading?: boolea
 
 export default function InvoicesPage() {
   const router = useRouter();
+  const { user } = useAuth();
+  // Tạo hóa đơn (auto-generate) = quyền manager/admin (BE require_role) → ẩn nút role khác.
+  const canManage = user?.role === 'manager' || user?.role === 'admin';
   const [search, setSearch] = useState('');
   // Defer the search input for snappier typing — filtering happens on the
   // last "stable" value (Finding #14).
@@ -190,13 +196,15 @@ export default function InvoicesPage() {
         subtitle="Quản lý hóa đơn và công nợ khách hàng"
         icon={Receipt}
         actions={
-          <Link
-            href="/invoices/new"
-            className="inline-flex items-center gap-2 h-11 px-4 rounded-lg bg-brand-600 hover:bg-brand-700 active:bg-brand-800 text-white text-sm font-semibold shadow-sm shadow-brand-600/20 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/50 focus-visible:ring-offset-2 transition-colors"
-          >
-            <Plus className="h-4 w-4" aria-hidden="true" />
-            Tạo hóa đơn
-          </Link>
+          canManage ? (
+            <Link
+              href="/invoices/new"
+              className="inline-flex items-center gap-2 h-11 px-4 rounded-lg bg-brand-600 hover:bg-brand-700 active:bg-brand-800 text-white text-sm font-semibold shadow-sm shadow-brand-600/20 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500/50 focus-visible:ring-offset-2 transition-colors"
+            >
+              <Plus className="h-4 w-4" aria-hidden="true" />
+              Tạo hóa đơn
+            </Link>
+          ) : undefined
         }
       />
 
@@ -289,10 +297,10 @@ export default function InvoicesPage() {
                   // Finding #8: when overdue, override the status tone to
                   // "danger" so the table cell reflects the actual risk —
                   // a "Đã gửi" invoice 60 days past due should not look info-blue.
-                  const sc = STATUS_CONFIG[inv.status];
+                  const sc = STATUS_CONFIG[inv.status] ?? { label: inv.status ?? '—', tone: 'neutral' as StatusTone };
                   const effectiveTone: StatusTone = overdue ? 'danger' : sc.tone;
                   const effectiveLabel = overdue ? 'Quá hạn' : sc.label;
-                  const fullyPaid = inv.paid_amount_vnd >= inv.total_amount_vnd;
+                  const fullyPaid = Number(inv.paid_amount ?? 0) >= Number(inv.total_amount ?? 0);
                   const handleOpen = () => router.push(`/invoices/${inv.id}`);
                   // Finding #8: prefix "Quá hạn — " to row aria-label.
                   const rowLabel = overdue
@@ -330,7 +338,7 @@ export default function InvoicesPage() {
                       </td>
                       <td className="px-4 py-2.5 text-right">
                         <span className="text-sm font-mono tabular-nums text-slate-900">
-                          {formatVND(inv.total_amount_vnd)}
+                          {formatVND(inv.total_amount)}
                         </span>
                       </td>
                       <td className="px-4 py-2.5">
@@ -367,7 +375,7 @@ export default function InvoicesPage() {
                             fullyPaid ? 'text-emerald-600 font-semibold' : 'text-slate-700'
                           }`}
                         >
-                          {formatVND(inv.paid_amount_vnd)}
+                          {formatVND(inv.paid_amount)}
                         </span>
                       </td>
                     </tr>

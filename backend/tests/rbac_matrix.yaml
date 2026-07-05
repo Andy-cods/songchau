@@ -163,13 +163,15 @@ routes:
     auth: role
     roles: [admin, manager, staff, procurement]
     status: verified
+  # +warehouse 2026-07-05: kho có quyền GHI chất-lượng/xác-nhận-SL từng dòng lô
+  # giao (quality + confirm-qty = _WRITE_ROLES,"warehouse") → phải đọc được lô.
   "GET /api/v1/procurement/deliveries":
     auth: role
-    roles: [admin, manager, staff, procurement]
+    roles: [admin, manager, staff, procurement, warehouse]
     status: verified
   "GET /api/v1/procurement/deliveries/{delivery_id}":
     auth: role
-    roles: [admin, manager, staff, procurement]
+    roles: [admin, manager, staff, procurement, warehouse]
     status: verified
 
   # ---- invoices (app/api/v1/invoice_management.py, prefix /invoices) ----

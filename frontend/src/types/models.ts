@@ -21,6 +21,7 @@ export interface User {
   display_name?: string;
   role: UserRole;
   department?: string;
+  phone?: string;              // GET /api/v1/auth/me trả phone (dùng ở trang Cài đặt)
   avatar_url?: string;
   is_active: boolean;
   created_at: string;

@@ -5979,7 +5979,10 @@ async def list_deliveries(
     po_id: int | None = Query(None),
     page: int = Query(1, ge=1),
     limit: int = Query(20, ge=1, le=100),
-    token_data: TokenData = Depends(require_role("admin", "manager", "staff", "procurement")),
+    # +warehouse: kho ĐÃ được ghi chất-lượng/xác-nhận-SL từng dòng (endpoint
+    # /items/.../quality + /confirm-qty = *_WRITE_ROLES,"warehouse") nhưng lại
+    # không đọc được danh sách để thao tác → vá lệch đọc/ghi (không mở quyền mới).
+    token_data: TokenData = Depends(require_role("admin", "manager", "staff", "procurement", "warehouse")),
     conn: asyncpg.Connection = Depends(get_db),
 ):
     """Danh sách giao hàng."""
@@ -6010,7 +6013,8 @@ async def list_deliveries(
 @router.get("/deliveries/{delivery_id}")
 async def get_delivery(
     delivery_id: int,
-    token_data: TokenData = Depends(require_role("admin", "manager", "staff", "procurement")),
+    # +warehouse: xem chi tiết lô để chấm chất-lượng/xác-nhận-SL (khớp quyền ghi).
+    token_data: TokenData = Depends(require_role("admin", "manager", "staff", "procurement", "warehouse")),
     conn: asyncpg.Connection = Depends(get_db),
 ):
     """Chi tiết giao hàng + items đã giao."""
