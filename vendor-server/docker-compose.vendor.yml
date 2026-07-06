@@ -34,6 +34,10 @@ services:
       - /mnt/erp-data/files:/data/files
       - /mnt/erp-data/public-bid-uploads:/data/public-bid-uploads
       - /mnt/erp-data/quote-overrides:/data/quote-overrides
+      # RFQ folders (raw/images) BQMS — cần cho "Tải file Song Châu chia sẻ" theo mã.
+      # Thiếu mount này → resolve_rfq_file_path KHÔNG thấy folder → tải file 404 dù
+      # danh sách vẫn hiện tên. read-only (NCC chỉ tải).
+      - /mnt/erp-data/onedrive-staging:/data/onedrive-staging:ro
     networks: [vnet]
     deploy:
       resources:
