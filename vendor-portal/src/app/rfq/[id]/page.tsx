@@ -6,7 +6,6 @@ import { api } from '@/lib/api';
 import Link from 'next/link';
 import { CURRENCY_OPTIONS, formatDate, formatMoneyNum, quoteStatusCfg } from '@/lib/format';
 import { Badge } from '@/components/Badge';
-import PortalNav from '@/components/PortalNav';
 import { FieldGrid } from '@/components/ui/FieldGrid';
 import { Deadline } from '@/components/ui/Deadline';
 import { DDay } from '@/components/ui/DDay';
@@ -110,9 +109,15 @@ export default function RfqDetailPage() {
   const [withdrawReason, setWithdrawReason] = useState('');
   const [withdrawing, setWithdrawing] = useState(false);
 
-  // File attachment
+  // File attachment (SINGLE quote-level slot — /upload-file stores one file:
+  // myQuote.attachment_filename is singular). previewUrl = local object-URL for an
+  // image thumbnail; dragActive = dropzone hover; multiDropNote = surfaced when the
+  // vendor drops >1 file (we keep only the first).
   const [uploadingFile, setUploadingFile] = useState(false);
   const [uploadedName, setUploadedName] = useState('');
+  const [previewUrl, setPreviewUrl] = useState('');
+  const [dragActive, setDragActive] = useState(false);
+  const [multiDropNote, setMultiDropNote] = useState(false);
 
   // #15 — gợi ý vị thế cạnh tranh (band-mờ). Chỉ fetch SAU khi đã nộp vòng hiện tại;
   // endpoint trả 404 khi admin chưa bật cờ ⇒ ẩn im lặng (rankHint = null). KHÔNG
@@ -664,8 +669,11 @@ export default function RfqDetailPage() {
     setAttachmentInfo(names);
   };
 
-  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
+  // Upload ONE quote-level file. Accepts a File so BOTH the <input onChange> and the
+  // drag-drop path run identical logic. Endpoint + payload UNCHANGED. On success we
+  // set uploadedName and, for images, a local object-URL preview (revoked by the
+  // effect below when it changes / on unmount).
+  const handleFileUpload = async (file: File) => {
     if (!file) return;
     setUploadingFile(true);
     setError('');
@@ -675,13 +683,38 @@ export default function RfqDetailPage() {
       fd.append('file', file);
       await api.upload('/api/vendor/quotes/upload-file', fd);
       setUploadedName(file.name);
+      setPreviewUrl(file.type.startsWith('image/') ? URL.createObjectURL(file) : '');
     } catch (err: any) {
       setError(err?.detail ?? 'Tải file thất bại');
     } finally {
       setUploadingFile(false);
-      e.target.value = '';
     }
   };
+
+  // Clear the local attachment slot (UI-only — there is no delete endpoint; the next
+  // upload overwrites the single quote-level file server-side).
+  const clearAttachment = () => {
+    setUploadedName('');
+    setPreviewUrl('');
+    setMultiDropNote(false);
+  };
+
+  // Drop handler — mirror the input path. Single slot: keep the FIRST file only and
+  // flag a note when more than one was dropped.
+  const handleFileDrop = (e: React.DragEvent<HTMLLabelElement>) => {
+    e.preventDefault();
+    setDragActive(false);
+    const files = e.dataTransfer.files;
+    if (!files || files.length === 0) return;
+    setMultiDropNote(files.length > 1);
+    handleFileUpload(files[0]);
+  };
+
+  // Revoke the image preview object-URL when it changes or the page unmounts.
+  useEffect(() => {
+    if (!previewUrl) return;
+    return () => URL.revokeObjectURL(previewUrl);
+  }, [previewUrl]);
 
   // Decline modal a11y: Escape-to-close + body-scroll lock while open, plus
   // textarea autofocus (see ref below). handleDecline / payload unchanged.
@@ -756,8 +789,7 @@ export default function RfqDetailPage() {
 
   if (loading)
     return (
-      <div className="min-h-screen bg-slate-50">
-        <PortalNav />
+      <main className="mx-auto max-w-[1400px] px-6">
         <div className="flex items-center justify-center py-32">
           <div className="flex items-center gap-2 text-slate-400">
             <svg className="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none">
@@ -767,15 +799,13 @@ export default function RfqDetailPage() {
             <span className="text-sm">Đang tải...</span>
           </div>
         </div>
-      </div>
+      </main>
     );
 
-  // Load-failure full screen — keep the shared header for orientation.
+  // Load-failure full screen — shell supplies the sidebar chrome for orientation.
   if (error && !batch) {
     return (
-      <div className="min-h-screen bg-slate-50">
-        <PortalNav />
-        <main className="max-w-[1400px] mx-auto px-6 py-16">
+      <main className="max-w-[1400px] mx-auto px-6 py-16">
           <div className="mx-auto max-w-md rounded-xl border border-slate-200 bg-white p-10 text-center shadow-sm">
             <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-xl bg-rose-50">
               <svg className="h-7 w-7 text-rose-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -787,8 +817,7 @@ export default function RfqDetailPage() {
               ← Về trang chủ
             </Link>
           </div>
-        </main>
-      </div>
+      </main>
     );
   }
 
@@ -832,9 +861,6 @@ export default function RfqDetailPage() {
   const showQuoteForm = canQuote || (canEdit && editing);
 
   return (
-    <div className="min-h-screen bg-slate-50">
-      <PortalNav />
-
       <main className={`max-w-[1400px] mx-auto px-6 py-5 ${showQuoteForm ? 'pb-24' : 'pb-10'}`}>
         {/* Success — inline confirmation card; keeps header/context (no full-page swap) */}
         {success ? (
@@ -862,8 +888,9 @@ export default function RfqDetailPage() {
           </div>
         ) : (
           <>
-            {/* ── Context bar (compact, 2-line, sticky under nav) ── */}
-            <div className="sticky top-14 z-20 -mx-6 mb-4 border-b border-slate-200 bg-white/95 px-6 py-2.5 shadow-sm backdrop-blur">
+            {/* ── Context bar (compact, 2-line, sticky). top-14 on mobile (below the
+                h-14 shell top bar); top-0 on lg (no desktop top bar under the shell). ── */}
+            <div className="sticky top-14 lg:top-0 z-20 -mx-6 mb-4 border-b border-slate-200 bg-white/95 px-6 py-2.5 shadow-sm backdrop-blur">
               {/* Line 1 — identity */}
               <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
                 <Link
@@ -1132,6 +1159,59 @@ export default function RfqDetailPage() {
 
             {/* ── TAB: Báo giá (quote entry form) ── */}
             <div className={activeTab === 'quote' ? '' : 'hidden'}>
+              {/* Tệp Song Châu CHIA SẺ cho đợt này — nổi bật phía trên toolbar, hiện cả
+                  khi chỉ xem (không phụ thuộc showQuoteForm). Zero-backend: dùng lại
+                  downloadSharedFile(); giữ nguyên chip per-dòng trong bảng bên dưới. */}
+              {items.some(it => (it.shared_files?.length ?? 0) > 0) && (
+                <div className="mb-4 rounded-xl border border-l-4 border-slate-200 border-l-sky-500 bg-white p-4 shadow-sm">
+                  <div className="mb-3 flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+                    <h3 className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">
+                      Tệp Song Châu chia sẻ cho đợt này
+                    </h3>
+                    <span className="text-[11px] text-slate-400">Bấm để tải về</span>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    {items.flatMap(item =>
+                      (item.shared_files ?? []).map(sf => {
+                        const key = `${item.id}/${sf.kind}/${sf.file_name}`;
+                        const busy = dlKey === key;
+                        const tag = item.bqms_code || `#${item.item_no}`;
+                        return (
+                          <button
+                            key={key}
+                            type="button"
+                            onClick={() => downloadSharedFile(item.id, sf.kind, sf.file_name)}
+                            disabled={busy}
+                            title={`Tải tệp Song Châu chia sẻ: ${sf.file_name}`}
+                            className="group inline-flex max-w-[280px] items-center gap-2.5 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-left transition-colors hover:border-sky-300 hover:bg-sky-50 disabled:opacity-50"
+                          >
+                            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-white text-sky-600 ring-1 ring-inset ring-slate-200 group-hover:ring-sky-200">
+                              {busy ? (
+                                <svg className="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none">
+                                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
+                                </svg>
+                              ) : (
+                                <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                                    d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5 5-5M12 15V3" />
+                                </svg>
+                              )}
+                            </span>
+                            <span className="min-w-0">
+                              <span className="block truncate text-xs font-medium text-slate-700 group-hover:text-sky-700">
+                                {sf.file_name}
+                              </span>
+                              <span className="block truncate font-mono text-[10px] text-slate-400">{tag}</span>
+                            </span>
+                          </button>
+                        );
+                      }),
+                    )}
+                  </div>
+                </div>
+              )}
+
               {showQuoteForm ? (
                 <>
                   {/* Reverse-auction prefill notice */}
@@ -1473,48 +1553,116 @@ export default function RfqDetailPage() {
                     </table>
                   </div>
 
-                  {/* Đính kèm: file + link tham khảo (tùy chọn) — khu vực gọn gần footer */}
+                  {/* ── Ảnh & Tệp đính kèm — vùng kéo-thả nổi bật (Sec-BQMS). SINGLE slot:
+                      /upload-file lưu 1 tệp quote-level (attachment_filename số ít). ── */}
                   <div className="mb-4 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-                    <div className="flex flex-wrap items-center justify-between gap-3">
-                      <div className="min-w-0">
-                        <p className="text-sm font-medium text-slate-700">Đính kèm file (tùy chọn)</p>
-                        <p className="text-xs text-slate-400">Excel (.xlsx, .xls), PDF hoặc ảnh (.jpg, .png), tối đa 10MB</p>
-                        {uploadedName && (
-                          <p className="mt-1 inline-flex items-center gap-1.5 text-xs text-emerald-600">
+                    <div className="mb-3">
+                      <p className="text-sm font-semibold text-slate-700">Ảnh &amp; Tệp đính kèm</p>
+                      <p className="text-xs text-slate-400">Đính kèm bảng giá, ảnh sản phẩm, catalogue…</p>
+                    </div>
+
+                    {uploadedName ? (
+                      /* Preview slot — ảnh: thumbnail 64px; khác: chip tài liệu. */
+                      <div className="flex items-center gap-3 rounded-xl border border-slate-200 bg-slate-50 p-3">
+                        {previewUrl ? (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img
+                            src={previewUrl}
+                            alt={uploadedName}
+                            className="h-16 w-16 shrink-0 rounded-lg border border-slate-200 object-cover"
+                          />
+                        ) : (
+                          <span className="flex h-16 w-16 shrink-0 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-400">
+                            <svg className="h-7 w-7" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.6} d="M7 3h7l5 5v12a1 1 0 01-1 1H7a1 1 0 01-1-1V4a1 1 0 011-1z" />
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.6} d="M14 3v5h5" />
+                            </svg>
+                          </span>
+                        )}
+                        <div className="min-w-0 flex-1">
+                          <p className="inline-flex items-center gap-1.5 text-xs font-medium text-emerald-600">
                             <svg className="h-3.5 w-3.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                             </svg>
-                            <span className="truncate">Đã tải: {uploadedName}</span>
+                            Đã tải lên
                           </p>
-                        )}
+                          <p className="mt-0.5 truncate text-sm text-slate-700">{uploadedName}</p>
+                        </div>
+                        <div className="flex shrink-0 items-center gap-1.5">
+                          <label
+                            className={`inline-flex cursor-pointer items-center gap-1.5 rounded-lg border border-brand-200 px-3 py-1.5 text-xs font-medium text-brand-600 transition-colors hover:bg-brand-50 ${
+                              uploadingFile ? 'pointer-events-none opacity-70' : ''
+                            }`}
+                          >
+                            {uploadingFile ? 'Đang tải...' : 'Đổi tệp'}
+                            <input
+                              type="file"
+                              accept=".xlsx,.xls,.pdf,.jpg,.jpeg,.png"
+                              onChange={e => { const f = e.target.files?.[0]; if (f) { setMultiDropNote(false); handleFileUpload(f); } e.currentTarget.value = ''; }}
+                              disabled={uploadingFile}
+                              className="hidden"
+                            />
+                          </label>
+                          <button
+                            type="button"
+                            onClick={clearAttachment}
+                            aria-label="Gỡ tệp đính kèm"
+                            title="Gỡ tệp"
+                            className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 text-slate-400 transition-colors hover:border-rose-200 hover:bg-rose-50 hover:text-rose-600"
+                          >
+                            <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                            </svg>
+                          </button>
+                        </div>
                       </div>
+                    ) : (
+                      /* Dropzone — kéo-thả hoặc bấm để chọn (cùng logic handleFileUpload). */
                       <label
-                        className={`inline-flex cursor-pointer items-center gap-2 rounded-lg border border-brand-200 px-4 py-2 text-xs font-medium text-brand-600 transition-colors hover:bg-brand-50 ${
-                          uploadingFile ? 'pointer-events-none opacity-70' : ''
-                        }`}
+                        onDragOver={e => { e.preventDefault(); setDragActive(true); }}
+                        onDragLeave={() => setDragActive(false)}
+                        onDrop={handleFileDrop}
+                        className={`flex min-h-[120px] cursor-pointer flex-col items-center justify-center gap-1.5 rounded-xl border-2 border-dashed px-4 py-6 text-center transition-colors ${
+                          dragActive
+                            ? 'border-brand-400 bg-brand-50/60'
+                            : 'border-slate-300 hover:border-brand-400 hover:bg-brand-50/40'
+                        } ${uploadingFile ? 'pointer-events-none opacity-70' : ''}`}
                       >
                         {uploadingFile ? (
-                          <>
-                            <svg className="h-3.5 w-3.5 animate-spin" viewBox="0 0 24 24" fill="none">
+                          <span className="inline-flex items-center gap-2 text-sm text-slate-500">
+                            <svg className="h-5 w-5 animate-spin" viewBox="0 0 24 24" fill="none">
                               <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                               <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
                             </svg>
                             Đang tải...
-                          </>
-                        ) : uploadedName ? (
-                          'Đổi file'
+                          </span>
                         ) : (
-                          'Chọn file'
+                          <>
+                            <svg className="h-8 w-8 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.6} d="M12 16V7m0 0l-3.5 3.5M12 7l3.5 3.5" />
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.6} d="M20 16.5A4.5 4.5 0 0016.5 8h-1.05A6 6 0 104 15" />
+                            </svg>
+                            <span className="text-sm font-medium text-slate-700">Kéo-thả hoặc bấm để chọn</span>
+                            <span className="text-xs text-slate-400">Excel, PDF, ảnh (.jpg/.png) — tối đa 10MB</span>
+                          </>
                         )}
                         <input
                           type="file"
                           accept=".xlsx,.xls,.pdf,.jpg,.jpeg,.png"
-                          onChange={handleFileUpload}
+                          onChange={e => { const f = e.target.files?.[0]; if (f) { setMultiDropNote(false); handleFileUpload(f); } e.currentTarget.value = ''; }}
                           disabled={uploadingFile}
                           className="hidden"
                         />
                       </label>
-                    </div>
+                    )}
+
+                    {/* Kéo nhiều tệp → chỉ giữ tệp đầu (single slot). */}
+                    {multiDropNote && (
+                      <p className="mt-2 text-xs text-amber-600">Chỉ đính kèm 1 tệp — đã dùng tệp đầu</p>
+                    )}
+
+                    {/* TODO backend: multi/per-item image upload — bản nâng cao (nhiều tệp /
+                        ảnh theo từng dòng) sẽ thay slot đơn này khi API sẵn sàng. */}
 
                     {/* Link tham khảo (URL) — cấp báo giá. Chỉ http(s) được server giữ lại. */}
                     <div className="mt-3 border-t border-slate-100 pt-3">
@@ -1754,9 +1902,10 @@ export default function RfqDetailPage() {
               )}
             </div>
 
-            {/* ── Sticky summary footer (chỉ khi form chỉnh báo giá đang hiện) ── */}
+            {/* ── Sticky summary footer (chỉ khi form chỉnh báo giá đang hiện).
+                left-60 on lg so it clears the 240px sidebar (không trượt dưới shell). ── */}
             {showQuoteForm && (
-              <div className="fixed inset-x-0 bottom-0 z-30 border-t border-slate-200 bg-white/95 shadow-[0_-4px_16px_-8px_rgba(0,0,0,0.15)] backdrop-blur">
+              <div className="fixed left-0 lg:left-60 right-0 bottom-0 z-30 border-t border-slate-200 bg-white/95 shadow-[0_-4px_16px_-8px_rgba(0,0,0,0.15)] backdrop-blur">
                 <div className="mx-auto max-w-[1400px] px-6 py-2.5">
                   {/* Submit error — INTO the footer so it's always visible above the fold */}
                   {error && (
@@ -1952,6 +2101,5 @@ export default function RfqDetailPage() {
           </>
         )}
       </main>
-    </div>
   );
 }
