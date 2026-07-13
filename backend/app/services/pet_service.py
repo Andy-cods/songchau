@@ -60,16 +60,38 @@ async def award_exp(
     event_type: str,
     delta: int,
     source_ref: str | None = None,
+    pet_id: str | None = None,
 ) -> dict | None:
-    """Award exp to the user's primary pet (or skip if no pet adopted).
+    """Award exp to a pet of the user.
+
+    pet_id: nếu truyền → cộng EXP cho ĐÚNG pet đó (phải thuộc user) — dùng
+            cho tương tác feed/pet/play (fix 2026-07-13: trước đây tương tác
+            pet B nhưng EXP lại chảy về pet primary → pet phụ không bao giờ
+            lên cấp + farm vượt cooldown qua pet phụ).
+            None → pet primary (avatar / con đầu) — dùng cho EXP từ công việc
+            (báo giá, trúng thầu) vì các event đó không gắn với pet cụ thể.
+
+    UPDATE exp + INSERT log chạy trong 1 transaction (savepoint nếu caller đã
+    mở transaction) — không còn trạng thái "log mà không cộng" hay ngược lại.
 
     Returns: {pet_id, new_exp, new_level, new_form, leveled_up: bool, evolved: bool}
     or None if no pet / failure (logged).
     """
     try:
-        pet = await get_primary_pet(conn, user_id)
+        if pet_id:
+            row = await conn.fetchrow(
+                """
+                SELECT p.*, c.unlock_level_2, c.unlock_level_3
+                FROM user_pets p JOIN pet_species_catalog c ON c.species = p.species
+                WHERE p.id = $1::uuid AND p.user_id = $2::uuid
+                """,
+                pet_id, user_id,
+            )
+            pet = dict(row) if row else None
+        else:
+            pet = await get_primary_pet(conn, user_id)
         if not pet:
-            return None  # User hasn't adopted yet — silent skip
+            return None  # User hasn't adopted yet (or pet_id lạ) — silent skip
 
         old_exp = pet["exp"]
         old_level = pet["level"]
@@ -83,43 +105,48 @@ async def award_exp(
             pet["unlock_level_3"] or 20,
         )
 
-        await conn.execute(
-            """
-            UPDATE user_pets
-            SET exp = $1,
-                level = $2,
-                current_form = $3,
-                updated_at = NOW()
-            WHERE id = $4
-            """,
-            new_exp, new_level, new_form, pet["id"],
-        )
+        async with conn.transaction():
+            await conn.execute(
+                """
+                UPDATE user_pets
+                SET exp = $1,
+                    level = $2,
+                    current_form = $3,
+                    updated_at = NOW()
+                WHERE id = $4
+                """,
+                new_exp, new_level, new_form, pet["id"],
+            )
 
-        await conn.execute(
-            """
-            INSERT INTO pet_exp_log (user_pet_id, event_type, exp_delta, source_ref)
-            VALUES ($1, $2, $3, $4)
-            """,
-            pet["id"], event_type, delta, source_ref,
-        )
+            await conn.execute(
+                """
+                INSERT INTO pet_exp_log (user_pet_id, event_type, exp_delta, source_ref)
+                VALUES ($1, $2, $3, $4)
+                """,
+                pet["id"], event_type, delta, source_ref,
+            )
 
         leveled_up = new_level > old_level
         evolved = new_form > old_form
 
-        # On evolution, drop a system notification (best-effort)
+        # On evolution, drop a system notification (best-effort).
+        # Bọc savepoint riêng (2026-07-13): caller (interact) có thể đang giữ
+        # transaction ngoài — nếu INSERT này lỗi mà không có savepoint thì
+        # transaction ngoài bị abort dù mình đã except → COMMIT cuối fail.
         if evolved:
             try:
                 title = f"🎉 Pet đã tiến hóa lên Form {new_form}!"
                 body = f"Pet của bạn vừa đạt Level {new_level} và chuyển sang hình thái mới."
-                await conn.execute(
-                    """
-                    INSERT INTO notifications
-                      (recipient_id, type, title, body, ref_type, ref_id, metadata)
-                    VALUES ($1::uuid, 'bqms_rfq_new', $2, $3, 'user_pet', NULL,
-                      jsonb_build_object('pet_id', $4::text, 'old_form', $5, 'new_form', $6))
-                    """,
-                    user_id, title, body, str(pet["id"]), old_form, new_form,
-                )
+                async with conn.transaction():
+                    await conn.execute(
+                        """
+                        INSERT INTO notifications
+                          (recipient_id, type, title, body, ref_type, ref_id, metadata)
+                        VALUES ($1::uuid, 'bqms_rfq_new', $2, $3, 'user_pet', NULL,
+                          jsonb_build_object('pet_id', $4::text, 'old_form', $5, 'new_form', $6))
+                        """,
+                        user_id, title, body, str(pet["id"]), old_form, new_form,
+                    )
             except Exception as exc:
                 logger.warning("pet evolution notify failed: %s", exc)
 

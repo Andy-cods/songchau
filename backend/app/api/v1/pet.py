@@ -16,10 +16,17 @@ from pydantic import BaseModel, Field
 from app.core.database import get_db
 from app.core.rbac import require_role
 from app.core.security import TokenData
-from app.services.pet_service import compute_level, compute_form, award_exp
+from app.services.pet_service import award_exp
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["pet"])
+
+# Roles được chơi pet — dùng chung cho mọi endpoint (DRY 2026-07-13).
+# Lưu ý: FE (components/pet/pet-dna.ts PET_ALLOWED_ROLES) phải khớp list này.
+PET_ROLES = (
+    "admin", "manager", "staff", "sales",
+    "procurement", "warehouse", "accountant",
+)
 
 
 # ---------------------------------------------------------------------------
@@ -62,10 +69,7 @@ def _ser_pet(row: dict) -> dict:
 @router.get("/pets/catalog")
 async def list_catalog(
     conn: asyncpg.Connection = Depends(get_db),
-    token_data: TokenData = Depends(require_role(
-        "admin", "manager", "staff", "sales",
-        "procurement", "warehouse", "accountant",
-    )),
+    token_data: TokenData = Depends(require_role(*PET_ROLES)),
 ):
     """Get full pet species catalog (9 species)."""
     rows = await conn.fetch(
@@ -82,10 +86,7 @@ async def list_catalog(
 
 @router.get("/me/pets")
 async def list_my_pets(
-    token_data: TokenData = Depends(require_role(
-        "admin", "manager", "staff", "sales",
-        "procurement", "warehouse", "accountant",
-    )),
+    token_data: TokenData = Depends(require_role(*PET_ROLES)),
     conn: asyncpg.Connection = Depends(get_db),
 ):
     """List my adopted pets (sorted by avatar first, then created_at)."""
@@ -117,10 +118,7 @@ async def list_my_pets(
 @router.post("/me/pets/adopt")
 async def adopt_pet(
     body: AdoptIn,
-    token_data: TokenData = Depends(require_role(
-        "admin", "manager", "staff", "sales",
-        "procurement", "warehouse", "accountant",
-    )),
+    token_data: TokenData = Depends(require_role(*PET_ROLES)),
     conn: asyncpg.Connection = Depends(get_db),
 ):
     """Adopt a new pet (max 3 per user, no duplicate species)."""
@@ -175,10 +173,7 @@ async def adopt_pet(
 async def interact_with_pet(
     pet_id: str,
     body: InteractIn,
-    token_data: TokenData = Depends(require_role(
-        "admin", "manager", "staff", "sales",
-        "procurement", "warehouse", "accountant",
-    )),
+    token_data: TokenData = Depends(require_role(*PET_ROLES)),
     conn: asyncpg.Connection = Depends(get_db),
 ):
     """Feed/pet/play — adds +1 EXP per kind, 1h cooldown per kind."""
@@ -210,17 +205,26 @@ async def interact_with_pet(
                 f"Pet còn no — đợi thêm ~{remaining_min} phút"
             )
 
-    # Update cooldown timestamp
-    await conn.execute(
-        f"UPDATE user_pets SET {cooldown_field} = NOW() WHERE id = $1::uuid",
-        pet_id,
-    )
-
-    # Award EXP
-    result = await award_exp(
-        conn, token_data.user_id,
-        f"interaction_{body.kind}", delta=1, source_ref=pet_id,
-    )
+    # Cooldown + EXP trong MỘT transaction (fix 2026-07-13):
+    #  - EXP cộng cho ĐÚNG pet được tương tác (pet_id) — trước đây award_exp
+    #    mặc định cộng pet primary → pet phụ không lên cấp + farm 9 lượt/giờ.
+    #  - award_exp fail (trả None dù pet đã verify tồn tại) → raise để rollback
+    #    cooldown — không còn "mất lượt mà không được EXP".
+    async with conn.transaction():
+        # cooldown_field an toàn: lấy từ dict cứng phía trên, body.kind đã bị
+        # Pydantic ràng pattern ^(feed|pet|play)$ — không phải user input tự do.
+        await conn.execute(
+            f"UPDATE user_pets SET {cooldown_field} = NOW() WHERE id = $1::uuid",
+            pet_id,
+        )
+        result = await award_exp(
+            conn, token_data.user_id,
+            f"interaction_{body.kind}", delta=1, source_ref=pet_id,
+            pet_id=pet_id,
+        )
+        if result is None:
+            # pet đã verify ở trên → None nghĩa là lỗi thật sự bên trong
+            raise HTTPException(500, "Cộng EXP lỗi — thử lại sau")
 
     return {
         "data": result or {},
@@ -232,10 +236,7 @@ async def interact_with_pet(
 @router.post("/me/pets/{pet_id}/set-avatar")
 async def set_pet_as_avatar(
     pet_id: str,
-    token_data: TokenData = Depends(require_role(
-        "admin", "manager", "staff", "sales",
-        "procurement", "warehouse", "accountant",
-    )),
+    token_data: TokenData = Depends(require_role(*PET_ROLES)),
     conn: asyncpg.Connection = Depends(get_db),
 ):
     """Set this pet as profile avatar (unset previous if any)."""
@@ -250,15 +251,18 @@ async def set_pet_as_avatar(
     if not pet:
         raise HTTPException(404, "Pet không tồn tại")
 
-    # Atomic: unset all my pets, set this one
-    await conn.execute(
-        "UPDATE user_pets SET is_avatar = false WHERE user_id = $1::uuid",
-        token_data.user_id,
-    )
-    await conn.execute(
-        "UPDATE user_pets SET is_avatar = true WHERE id = $1::uuid",
-        pet_id,
-    )
+    # Atomic THẬT (fix 2026-07-13): 2 UPDATE trước đây là autocommit rời —
+    # 2 request đua nhau có thể vi phạm partial-unique uq_user_pets_avatar → 500,
+    # hoặc user thoáng chốc không có avatar nào. Gói vào 1 transaction.
+    async with conn.transaction():
+        await conn.execute(
+            "UPDATE user_pets SET is_avatar = false WHERE user_id = $1::uuid AND is_avatar = true",
+            token_data.user_id,
+        )
+        await conn.execute(
+            "UPDATE user_pets SET is_avatar = true WHERE id = $1::uuid",
+            pet_id,
+        )
 
     # Also update users.avatar_url to the current sprite (if column exists)
     sprite_map = {1: pet["form_1_sprite"], 2: pet["form_2_sprite"], 3: pet["form_3_sprite"]}
@@ -279,13 +283,11 @@ async def set_pet_as_avatar(
 async def pet_exp_history(
     pet_id: str,
     limit: int = 50,
-    token_data: TokenData = Depends(require_role(
-        "admin", "manager", "staff", "sales",
-        "procurement", "warehouse", "accountant",
-    )),
+    token_data: TokenData = Depends(require_role(*PET_ROLES)),
     conn: asyncpg.Connection = Depends(get_db),
 ):
     """Recent EXP gain events for a pet."""
+    limit = min(max(1, limit), 200)  # chặn trần ?limit=999999
     # Verify ownership
     own = await conn.fetchval(
         "SELECT 1 FROM user_pets WHERE id = $1::uuid AND user_id = $2::uuid",
@@ -318,10 +320,7 @@ async def pet_exp_history(
 @router.delete("/me/pets/{pet_id}")
 async def release_pet(
     pet_id: str,
-    token_data: TokenData = Depends(require_role(
-        "admin", "manager", "staff", "sales",
-        "procurement", "warehouse", "accountant",
-    )),
+    token_data: TokenData = Depends(require_role(*PET_ROLES)),
     conn: asyncpg.Connection = Depends(get_db),
 ):
     """Release a pet (delete) — frees adoption slot."""

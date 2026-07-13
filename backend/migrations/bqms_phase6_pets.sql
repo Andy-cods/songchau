@@ -2,7 +2,8 @@
 --
 -- 9 species (chó, mèo, koi, hải âu, vịt, rồng, ngựa, hoa, cây) × 3 forms each
 -- = 27 unique sprites. EXP rule: 1 quote = +1 exp, 1 won quote = +5 exp,
--- daily interaction = +1 exp each (max 3 types × 24h cooldown).
+-- daily interaction = +1 exp each (3 types × 1h cooldown — code
+-- INTERACT_COOLDOWN_SECONDS trong pet.py là nguồn sự thật).
 -- Level formula: level = 1 + floor(exp / 10). Form unlock at lv 5 / 20.
 -- User can adopt up to 3 pets, designate 1 as avatar.
 

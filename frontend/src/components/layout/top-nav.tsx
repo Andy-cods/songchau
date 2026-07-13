@@ -10,6 +10,8 @@ import { getSidebarConfig, type SidebarSection, ROLE_LABELS } from '@/lib/consta
 import { Breadcrumb } from '@/components/layout/breadcrumb';
 import { NotificationBell } from '@/components/layout/notification-bell';
 import { CommandSearch } from '@/components/shared/command-search';
+import { UserAvatar } from '@/components/shared/user-avatar';
+import { useMyAvatarPet } from '@/components/pet/use-my-avatar-pet';
 
 /**
  * Horizontal top navigation. Replaces the legacy left-sidebar layout.
@@ -19,6 +21,9 @@ import { CommandSearch } from '@/components/shared/command-search';
  */
 export function TopNav() {
   const { user, logout } = useAuth();
+  // Pet avatar (2026-07-13): pet đang được đặt làm avatar — chia sẻ query
+  // cache ['my-pets'] với /profile nên đổi avatar là header đổi theo ngay.
+  const avatarPet = useMyAvatarPet();
   const pathname = usePathname();
   const router = useRouter();
   const [sections, setSections] = useState<SidebarSection[]>([]);
@@ -41,13 +46,6 @@ export function TopNav() {
   if (!user) return null;
 
   const displayName = user.display_name || user.full_name || user.email;
-  const initials = displayName
-    .split(/\s+/)
-    .map((s) => s[0])
-    .filter(Boolean)
-    .slice(0, 2)
-    .join('')
-    .toUpperCase();
   const roleLabel = ROLE_LABELS[user.role] || user.role;
 
   const handleLogout = async () => {
@@ -196,9 +194,14 @@ export function TopNav() {
               aria-haspopup="menu"
               aria-expanded={userMenu}
             >
-              <div className="h-8 w-8 rounded-full bg-slate-800 text-white flex items-center justify-center text-xs font-bold ring-2 ring-white shadow-sm">
-                {initials}
-              </div>
+              {/* Avatar: pet nếu user đã đặt, ngược lại initials (UserAvatar tự fallback) */}
+              <UserAvatar
+                name={displayName}
+                petSpecies={avatarPet?.species}
+                petForm={avatarPet?.form}
+                avatarUrl={user.avatar_url}
+                size={32}
+              />
               <div className="hidden xl:block text-left leading-tight max-w-[140px]">
                 <div className="text-[12px] font-semibold text-slate-900 truncate">{displayName}</div>
                 <div className="text-[11px] uppercase tracking-wide text-slate-500 font-medium truncate">

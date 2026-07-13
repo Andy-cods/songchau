@@ -33,7 +33,9 @@ def _compute_notification_link(
     meta = metadata or {}
 
     if t.startswith("workflow_"):
-        return f"/approvals/{rid}" if rid else "/approvals"
+        # /approvals đã thành redirect-stub về /workflows (11/07); /approvals/{rid}
+        # không có trang → 404. Trỏ thẳng /workflows.
+        return "/workflows"
     # Đợt 6 — procurement (đấu thầu NCC). All 5 types deep-link to the bidding
     # batch page; ref_id carries the batch_id (set by dispatch_procurement_event).
     if t in ("procurement_award", "procurement_quote", "procurement_contract",
@@ -41,6 +43,12 @@ def _compute_notification_link(
         return f"/vendor-bidding/{rid}" if rid else "/vendor-bidding"
     if t == "po_received":
         return f"/purchase-orders/{rid}" if rid else "/purchase-orders"
+    if rt == "user_pet":
+        # Pet tiến hóa/level-up (pet_service.award_exp) — mượn type
+        # bqms_rfq_new (tránh ALTER TYPE enum) nhưng ref_type='user_pet'.
+        # Fix 2026-07-13: trước đây rơi xuống nhánh bqms_rfq_new bên dưới
+        # → đưa user tới /bqms thay vì trang pet. Check TRƯỚC nhánh đó.
+        return "/profile"
     if t == "bqms_rfq_new":
         # The /bqms page only consumes `?focus_rfq=<rfq_number>` (the string RFQ
         # number, e.g. QT26071059) — it does NOT resolve a numeric ref_id. So
@@ -52,7 +60,9 @@ def _compute_notification_link(
     if t == "stock_alert":
         return f"/inventory?product_id={rid}" if rid else "/inventory"
     if t == "deadline_reminder":
-        return f"/tasks/{rid}" if rid else "/tasks"
+        return "/tasks"  # không có trang /tasks/[id] → deep-link theo id sẽ 404
+    if rt == "task_assignments":
+        return "/tasks"  # fallback /{ref_type}/{rid} ra /task_assignments/{id} = 404
     if t == "report_ready":
         return f"/reports/{rid}" if rid else "/reports/daily"
     if rt and rid:

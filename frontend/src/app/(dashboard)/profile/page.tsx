@@ -1,28 +1,27 @@
 'use client';
 
-// Phase 6 "Full Vision" (Thang 2026-05-12) — Pet gamification profile page.
+// Phase 6 "Full Vision" (Thang 2026-05-12) — trang Pet gamification.
+// Pet redesign 2026-07-13: pixel-sprite → rig SVG anime-chibi nguyên bản
+// (components/pet). Pet giờ SỐNG: chớp mắt, nhìn theo chuột, vẫy đuôi khi
+// hover, chạy lại ăn khi cho ăn, chơi bóng, tim khi vuốt ve, burst level-up,
+// lắc đầu khi còn no (429), ngủ gật khi bị bỏ quên. Reduced-motion: chỉ đổi
+// biểu cảm. API/DB giữ nguyên 100%.
 //
 // Layout:
-//  - Hero: active pet (big sprite + idle animation) + name + EXP bar
-//  - Interactions row: Cho ăn / Vuốt ve / Chơi (each +1 EXP, 1h cooldown)
-//  - Tabs:
-//      * Đàn của tôi — list owned pets (max 3), click to switch active
-//      * Cửa hàng — adopt new pets (legendary needs 100+ total EXP)
-//      * Bộ sưu tập — 27 sprite grid (greyscale if not unlocked)
-//      * Lịch sử EXP — recent events for current pet
-//
-// Uses framer-motion v11 for idle bounce + click squash + level-up burst.
+//  - Hero: sân khấu pet (AnimatedPet interactive) + tên + EXP + mood + nút
+//  - Tabs: Đàn của tôi / Cửa hàng / Lịch sử EXP
 
-import { useState, useEffect } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useEffect, useRef, useState } from 'react';
+import { AnimatePresence, motion } from 'framer-motion';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
-  Heart, Drumstick, Gamepad2, Crown, Sparkles, RefreshCw,
-  Star, Lock, Trash2, ImageIcon,
+  Crown, Drumstick, Gamepad2, Heart, Lock, RefreshCw, Sparkles, Star, Trash2,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { api } from '@/lib/api';
 import { cn } from '@/lib/utils';
+import { AnimatedPet, type PetAction, type PetMood } from '@/components/pet/AnimatedPet';
+import { PET_DNA, isPetSpecies, type PetForm, type PetSpecies } from '@/components/pet/pet-dna';
 
 type Pet = {
   id: string;
@@ -69,6 +68,45 @@ type ExpEvent = {
   created_at: string;
 };
 
+// ─── Helpers ────────────────────────────────────────────────────
+
+function asSpecies(s: string): PetSpecies {
+  return isPetSpecies(s) ? s : 'dog';
+}
+
+function asForm(f: number): PetForm {
+  return (f === 2 || f === 3 ? f : 1) as PetForm;
+}
+
+const HOUR = 3_600_000;
+
+/** Suy ra tâm trạng idle từ dấu thời gian tương tác. */
+function petMood(pet: Pet): PetMood {
+  const now = Date.now();
+  const since = (iso: string | null) => (iso ? now - new Date(iso).getTime() : Infinity);
+  const fed = since(pet.last_fed_at);
+  const touched = Math.min(fed, since(pet.last_pet_at), since(pet.last_play_at));
+  if (fed > 8 * HOUR) return 'hungry';     // >8h chưa ăn → đói
+  if (touched > 24 * HOUR) return 'sad';   // >24h không ai ngó → tủi thân
+  return 'content';
+}
+
+const MOOD_CHIP: Record<PetMood, { label: string; cls: string }> = {
+  hungry:  { label: '🍖 Đang đói — cho ăn đi!', cls: 'bg-amber-50 text-amber-700 border-amber-200' },
+  sad:     { label: '🥺 Nhớ bạn lắm rồi',        cls: 'bg-slate-50 text-slate-600 border-slate-200' },
+  sleepy:  { label: '😴 Buồn ngủ',               cls: 'bg-indigo-50 text-indigo-600 border-indigo-200' },
+  content: { label: '😊 Vui vẻ',                 cls: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
+};
+
+/** Phút còn lại của cooldown 1h (ước lượng FE — BE vẫn là nguồn sự thật). */
+function cooldownLeftMin(lastAt: string | null): number {
+  if (!lastAt) return 0;
+  const left = HOUR - (Date.now() - new Date(lastAt).getTime());
+  return left > 0 ? Math.ceil(left / 60_000) : 0;
+}
+
+// ─── Page ───────────────────────────────────────────────────────
+
 export default function ProfilePage() {
   const qc = useQueryClient();
   const [activeTab, setActiveTab] = useState<'collection' | 'shop' | 'history'>('collection');
@@ -84,15 +122,17 @@ export default function ProfilePage() {
     queryFn: () => api.get('/api/v1/pets/catalog'),
   });
 
-  // Default active pet = avatar (or first)
+  // Pet đang xem = avatar (hoặc con đầu); tự sửa nếu pet bị thả (delete)
   useEffect(() => {
-    if (!activePetId && myPets.data?.data?.length) {
-      const avatar = myPets.data.data.find(p => p.is_avatar) ?? myPets.data.data[0];
+    const pets = myPets.data?.data;
+    if (!pets?.length) return;
+    if (!activePetId || !pets.some((p) => p.id === activePetId)) {
+      const avatar = pets.find((p) => p.is_avatar) ?? pets[0];
       setActivePetId(avatar.id);
     }
   }, [myPets.data, activePetId]);
 
-  const activePet = myPets.data?.data?.find(p => p.id === activePetId) ?? null;
+  const activePet = myPets.data?.data?.find((p) => p.id === activePetId) ?? null;
 
   return (
     <div className="max-w-6xl mx-auto p-4 space-y-5">
@@ -101,20 +141,23 @@ export default function ProfilePage() {
         <h1 className="text-xl font-bold text-slate-800">Hồ sơ + Pet của tôi</h1>
       </div>
 
-      {/* Hero — active pet display */}
+      {/* Hero — sân khấu pet */}
       {myPets.isLoading ? (
-        <div className="bg-gradient-to-br from-slate-100 to-slate-50 rounded-3xl h-64 animate-pulse" />
+        <div className="bg-slate-100 rounded-3xl h-72 animate-pulse" />
       ) : !myPets.data?.data?.length ? (
         <EmptyHero onAdopt={() => setActiveTab('shop')} />
       ) : activePet ? (
-        <PetHero pet={activePet} onRefresh={() => qc.invalidateQueries({ queryKey: ['my-pets'] })} />
+        <PetHero
+          pet={activePet}
+          onRefresh={() => qc.invalidateQueries({ queryKey: ['my-pets'] })}
+        />
       ) : null}
 
       {/* Tabs */}
       <div className="flex items-center gap-1 border-b border-slate-200">
         {([
           { v: 'collection', label: 'Đàn của tôi', icon: Heart },
-          { v: 'shop',       label: 'Cửa hàng',   icon: Star },
+          { v: 'shop',       label: 'Cửa hàng',    icon: Star },
           { v: 'history',    label: 'Lịch sử EXP', icon: RefreshCw },
         ] as const).map(({ v, label, icon: Icon }) => (
           <button
@@ -143,156 +186,213 @@ export default function ProfilePage() {
       {activeTab === 'shop' && (
         <ShopTab
           species={catalog.data?.data ?? []}
-          owned={(myPets.data?.data ?? []).map(p => p.species)}
+          owned={(myPets.data?.data ?? []).map((p) => p.species)}
           totalExp={(myPets.data?.data ?? []).reduce((s, p) => s + p.exp, 0)}
           onAdopted={() => qc.invalidateQueries({ queryKey: ['my-pets'] })}
         />
       )}
-      {activeTab === 'history' && activePet && (
-        <HistoryTab petId={activePet.id} />
-      )}
+      {activeTab === 'history' && activePet && <HistoryTab petId={activePet.id} />}
     </div>
   );
 }
 
-// ────────────────────────────────────────────────────────────────────────────
+// ─── Hero — pet sống + tương tác ────────────────────────────────
 
 function PetHero({ pet, onRefresh }: { pet: Pet; onRefresh: () => void }) {
-  const expForNextLevel = (pet.level) * 10;
+  const dna = PET_DNA[asSpecies(pet.species)];
   const expIntoLevel = pet.exp - (pet.level - 1) * 10;
   const pct = Math.min(100, Math.round((expIntoLevel / 10) * 100));
+  const mood = petMood(pet);
+
+  // Choreography: action đang chạy trên sân khấu; celebrateRef = có level-up/
+  // tiến hoá chờ diễn sau khi ăn/chơi xong; refresh dời tới khi diễn xong để
+  // form mới không nhảy vào giữa animation.
+  const [action, setAction] = useState<PetAction | null>(null);
+  const celebrateRef = useRef(false);
+  const needRefreshRef = useRef(false);
 
   const interact = useMutation({
     mutationFn: (kind: 'feed' | 'pet' | 'play') =>
       api.post(`/api/v1/me/pets/${pet.id}/interact`, { kind }),
     onSuccess: (r: any) => {
-      toast.success(r.message || 'Pet vui rồi!');
+      needRefreshRef.current = true;
       if (r.data?.evolved) {
-        toast.success(`🎉 Pet tiến hóa lên Form ${r.data.new_form}!`, { duration: 5000 });
+        celebrateRef.current = true;
+        toast.success(`🎉 ${pet.nickname} tiến hóa lên Form ${r.data.new_form}!`, { duration: 5000 });
       } else if (r.data?.leveled_up) {
-        toast.success(`⭐ Level up! Hiện ở Lv ${r.data.new_level}`);
+        celebrateRef.current = true;
+        toast.success(`⭐ Level up! ${pet.nickname} đạt Lv ${r.data.new_level}`);
+      } else {
+        toast.success(r.message || 'Pet vui rồi!');
       }
-      onRefresh();
     },
-    onError: (e: any) => toast.error(e?.detail || 'Tương tác lỗi'),
+    onError: (e: any) => {
+      // 429 "còn no" (hoặc lỗi khác) → pet lắc đầu từ chối
+      setAction('refuse');
+      toast.error(typeof e?.detail === 'string' ? e.detail : 'Tương tác lỗi');
+    },
   });
+
+  const doInteract = (kind: 'feed' | 'pet' | 'play') => {
+    if (action || interact.isPending) return; // đang diễn — chờ xong đã
+    setAction(kind === 'feed' ? 'eat' : kind === 'pet' ? 'stroke' : 'play');
+    interact.mutate(kind);
+  };
+
+  const handleActionDone = () => {
+    if (celebrateRef.current) {
+      celebrateRef.current = false;
+      setAction('levelup');
+      return;
+    }
+    setAction(null);
+    if (needRefreshRef.current) {
+      needRefreshRef.current = false;
+      onRefresh();
+    }
+  };
 
   const setAvatar = useMutation({
     mutationFn: () => api.post(`/api/v1/me/pets/${pet.id}/set-avatar`, {}),
     onSuccess: () => {
-      toast.success('Đã đặt làm avatar');
+      toast.success('Đã đặt làm avatar — header cập nhật luôn rồi đó!');
       onRefresh();
     },
+    onError: (e: any) => toast.error(typeof e?.detail === 'string' ? e.detail : 'Đặt avatar lỗi'),
   });
 
-  return (
-    <div
-      className="rounded-3xl p-6 shadow-xl text-white relative overflow-hidden"
-      style={{ background: `linear-gradient(135deg, ${pet.color_theme}dd, ${pet.color_theme}88)` }}
-    >
-      <div className="flex items-start gap-6 flex-wrap">
-        {/* Sprite display with framer-motion idle animation */}
-        <motion.div
-          animate={{ y: [0, -8, 0] }}
-          transition={{ duration: 2.5, repeat: Infinity, ease: 'easeInOut' }}
-          whileTap={{ scale: 0.9, rotate: -6 }}
-          className="flex-shrink-0 cursor-pointer"
-        >
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={pet.current_sprite} alt={pet.nickname}
-               className="w-40 h-40 drop-shadow-2xl"
-               onError={(e) => { (e.target as HTMLImageElement).src = '/pets/dog_1.svg'; }} />
-        </motion.div>
+  const cool = {
+    feed: cooldownLeftMin(pet.last_fed_at),
+    pet: cooldownLeftMin(pet.last_pet_at),
+    play: cooldownLeftMin(pet.last_play_at),
+  };
 
+  return (
+    <div className="rounded-3xl border border-slate-200 bg-white shadow-sm p-5 md:p-6">
+      <div className="flex items-center gap-5 md:gap-8 flex-wrap md:flex-nowrap">
+        {/* Sân khấu */}
+        <div
+          className="relative flex-shrink-0 rounded-2xl mx-auto md:mx-0"
+          style={{ background: `radial-gradient(circle at 50% 62%, ${dna.palette.accent}1c 0%, ${dna.palette.accent}08 55%, transparent 78%)` }}
+        >
+          <AnimatedPet
+            species={asSpecies(pet.species)}
+            form={asForm(pet.current_form)}
+            size={210}
+            interactive
+            mood={mood}
+            action={action}
+            onActionDone={handleActionDone}
+          />
+        </div>
+
+        {/* Thông tin + nút */}
         <div className="flex-1 min-w-[260px]">
-          <div className="inline-flex items-center gap-1.5 px-2 py-0.5 bg-white/20 backdrop-blur rounded-full text-[11px] font-mono uppercase tracking-wider border border-white/30 mb-2">
+          <div className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[11px] font-mono uppercase tracking-wider border mb-2"
+            style={{ color: dna.palette.accent, borderColor: `${dna.palette.accent}55`, background: `${dna.palette.accent}0f` }}>
             <Heart className="h-3 w-3" />
             Pet của tôi · {pet.rarity}
           </div>
+
           <div className="flex items-baseline gap-3 flex-wrap">
-            <h2 className="text-3xl font-bold">{pet.nickname}</h2>
-            <span className="text-sm opacity-90">{pet.display_name_vi}</span>
-            <span className="px-2 py-0.5 bg-white/25 rounded text-xs font-semibold">
-              Lv {pet.level}
-            </span>
-            <span className="px-2 py-0.5 bg-amber-300/40 rounded text-xs font-semibold">
-              Form {pet.current_form}
-            </span>
+            <h2 className="text-3xl font-bold text-slate-800">{pet.nickname}</h2>
+            <span className="text-sm text-slate-500">{pet.display_name_vi}</span>
+            <span className="px-2 py-0.5 bg-slate-100 text-slate-700 rounded text-xs font-semibold">Lv {pet.level}</span>
+            <span className="px-2 py-0.5 bg-amber-100 text-amber-800 rounded text-xs font-semibold">Form {pet.current_form}</span>
             {pet.is_avatar && (
-              <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-yellow-300/40 rounded text-xs font-semibold">
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-yellow-100 text-yellow-800 rounded text-xs font-semibold">
                 <Crown className="h-3 w-3" />Avatar
               </span>
             )}
           </div>
 
+          {/* Mood */}
+          <div className={cn('inline-flex items-center gap-1 mt-2 px-2.5 py-1 rounded-full border text-xs font-medium', MOOD_CHIP[mood].cls)}>
+            {MOOD_CHIP[mood].label}
+          </div>
+
           {/* EXP bar */}
-          <div className="mt-4 bg-black/20 rounded-full h-3 overflow-hidden max-w-md">
+          <div className="mt-4 bg-slate-100 rounded-full h-3 overflow-hidden max-w-md border border-slate-200">
             <motion.div
-              className="h-full bg-gradient-to-r from-yellow-300 to-amber-100"
+              className="h-full rounded-full bg-gradient-to-r from-amber-400 to-amber-300"
               initial={{ width: 0 }}
               animate={{ width: `${pct}%` }}
               transition={{ duration: 0.8, ease: 'easeOut' }}
             />
           </div>
-          <div className="mt-1.5 text-xs opacity-80 max-w-md flex justify-between">
-            <span>EXP: <strong>{pet.exp}</strong> / lên Lv {pet.level + 1} cần {expForNextLevel}</span>
+          <div className="mt-1.5 text-xs text-slate-500 max-w-md flex justify-between">
+            <span>EXP: <strong className="text-slate-700">{pet.exp}</strong> · lên Lv {pet.level + 1} cần {pet.level * 10}</span>
             <span>{pct}%</span>
           </div>
           {pet.current_form < 3 && (
-            <div className="mt-1 text-[11px] opacity-70">
-              Form tiếp: Lv {pet.current_form === 1 ? pet.unlock_level_2 : pet.unlock_level_3}
+            <div className="mt-1 text-[11px] text-slate-400">
+              Tiến hóa Form {pet.current_form + 1} ở Lv {pet.current_form === 1 ? pet.unlock_level_2 : pet.unlock_level_3}
             </div>
           )}
 
-          {/* Interaction buttons */}
+          {/* Nút tương tác */}
           <div className="mt-4 flex items-center gap-2 flex-wrap">
-            <InteractBtn icon={Drumstick} label="Cho ăn" disabled={interact.isPending}
-              onClick={() => interact.mutate('feed')} />
-            <InteractBtn icon={Heart} label="Vuốt ve" disabled={interact.isPending}
-              onClick={() => interact.mutate('pet')} />
-            <InteractBtn icon={Gamepad2} label="Chơi" disabled={interact.isPending}
-              onClick={() => interact.mutate('play')} />
+            <InteractBtn icon={Drumstick} label="Cho ăn" cooldownMin={cool.feed}
+              disabled={!!action || interact.isPending} onClick={() => doInteract('feed')} />
+            <InteractBtn icon={Heart} label="Vuốt ve" cooldownMin={cool.pet}
+              disabled={!!action || interact.isPending} onClick={() => doInteract('pet')} />
+            <InteractBtn icon={Gamepad2} label="Chơi" cooldownMin={cool.play}
+              disabled={!!action || interact.isPending} onClick={() => doInteract('play')} />
             {!pet.is_avatar && (
               <button
                 onClick={() => setAvatar.mutate()}
                 disabled={setAvatar.isPending}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/15 hover:bg-white/25 text-xs font-semibold border border-white/30 active:scale-95 transition-all"
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white hover:bg-slate-50 text-slate-700 text-xs font-semibold border border-slate-300 shadow-sm active:scale-95 transition-all disabled:opacity-60"
               >
-                <Crown className="h-3.5 w-3.5" />Đặt làm avatar
+                <Crown className="h-3.5 w-3.5 text-amber-500" />Đặt làm avatar
               </button>
             )}
           </div>
+          <p className="mt-2 text-[11px] text-slate-400">
+            Mẹo: rê chuột để pet nhìn theo, click vào pet để &quot;boop&quot; 💛 · mỗi tương tác +1 EXP (cooldown 1 giờ)
+          </p>
         </div>
       </div>
     </div>
   );
 }
 
-function InteractBtn({ icon: Icon, label, disabled, onClick }: {
-  icon: any; label: string; disabled: boolean; onClick: () => void;
+function InteractBtn({ icon: Icon, label, disabled, cooldownMin, onClick }: {
+  icon: any; label: string; disabled: boolean; cooldownMin: number; onClick: () => void;
 }) {
+  const onCooldown = cooldownMin > 0;
   return (
     <button
       onClick={onClick}
       disabled={disabled}
-      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white text-slate-800 hover:bg-slate-50 text-xs font-semibold shadow-md hover:shadow-lg active:scale-95 transition-all disabled:opacity-60"
+      title={onCooldown ? `Còn no — khoảng ${cooldownMin} phút nữa` : `+1 EXP`}
+      className={cn(
+        'inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold shadow-sm active:scale-95 transition-all disabled:opacity-60',
+        onCooldown
+          ? 'bg-slate-100 text-slate-400 border border-slate-200'
+          : 'bg-amber-500 hover:bg-amber-400 text-white',
+      )}
     >
-      <Icon className="h-3.5 w-3.5" />{label}
+      <Icon className="h-3.5 w-3.5" />
+      {label}
+      {onCooldown && <span className="font-mono text-[10px]">({cooldownMin}p)</span>}
     </button>
   );
 }
 
 function EmptyHero({ onAdopt }: { onAdopt: () => void }) {
   return (
-    <div className="rounded-3xl p-8 bg-gradient-to-br from-amber-50 to-rose-50 border border-amber-200 text-center">
-      <div className="text-5xl mb-2">🥺</div>
-      <h2 className="text-lg font-semibold text-slate-800">Bạn chưa nuôi pet nào</h2>
+    <div className="rounded-3xl p-8 bg-white border border-slate-200 shadow-sm text-center">
+      <div className="flex justify-center">
+        <AnimatedPet species="dog" form={1} size={130} mood="sad" showShadow />
+      </div>
+      <h2 className="text-lg font-semibold text-slate-800 mt-2">Bạn chưa nuôi pet nào</h2>
       <p className="text-sm text-slate-600 mt-1 max-w-md mx-auto">
-        Mỗi lần báo giá BQMS bạn sẽ nhận +1 EXP. Pet trúng thầu được +5 EXP. Hãy nhận nuôi 1 con đầu tiên!
+        Mỗi lần báo giá BQMS pet nhận +1 EXP, trúng thầu +5 EXP. Hãy nhận nuôi một bé đầu tiên!
       </p>
       <button
         onClick={onAdopt}
-        className="mt-4 inline-flex items-center gap-2 px-5 py-2.5 rounded-lg bg-amber-600 hover:bg-amber-500 text-white text-sm font-semibold shadow-md hover:shadow-lg active:scale-95 transition-all"
+        className="mt-4 inline-flex items-center gap-2 px-5 py-2.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-white text-sm font-semibold shadow-md hover:shadow-lg active:scale-95 transition-all"
       >
         <Star className="h-4 w-4" />
         Đến cửa hàng nhận nuôi
@@ -301,12 +401,15 @@ function EmptyHero({ onAdopt }: { onAdopt: () => void }) {
   );
 }
 
+// ─── Đàn của tôi ────────────────────────────────────────────────
+
 function MyPetsTab({ pets, activeId, onSelect, onChanged }: {
   pets: Pet[]; activeId: string | null; onSelect: (id: string) => void; onChanged: () => void;
 }) {
   const release = useMutation({
     mutationFn: (petId: string) => api.delete(`/api/v1/me/pets/${petId}`),
     onSuccess: () => { toast.success('Đã chia tay pet'); onChanged(); },
+    onError: (e: any) => toast.error(typeof e?.detail === 'string' ? e.detail : 'Thả pet lỗi'),
   });
 
   if (!pets.length) {
@@ -323,12 +426,14 @@ function MyPetsTab({ pets, activeId, onSelect, onChanged }: {
             'rounded-2xl p-4 border-2 text-left transition-all hover:shadow-md',
             activeId === p.id
               ? 'border-amber-500 bg-amber-50 shadow-sm'
-              : 'border-slate-200 bg-white hover:border-slate-300'
+              : 'border-slate-200 bg-white hover:border-slate-300',
           )}
         >
           <div className="flex items-center gap-3">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={p.current_sprite} alt={p.nickname} className="w-16 h-16 flex-shrink-0" />
+            <AnimatedPet
+              species={asSpecies(p.species)} form={asForm(p.current_form)}
+              size={72} animated={false} showShadow={false}
+            />
             <div className="flex-1 min-w-0">
               <div className="font-semibold text-slate-800 truncate">{p.nickname}</div>
               <div className="text-xs text-slate-500">{p.display_name_vi} · Lv {p.level} · F{p.current_form}</div>
@@ -362,6 +467,8 @@ function MyPetsTab({ pets, activeId, onSelect, onChanged }: {
   );
 }
 
+// ─── Cửa hàng ───────────────────────────────────────────────────
+
 function ShopTab({ species, owned, totalExp, onAdopted }: {
   species: Species[]; owned: string[]; totalExp: number; onAdopted: () => void;
 }) {
@@ -379,7 +486,7 @@ function ShopTab({ species, owned, totalExp, onAdopted }: {
       setNickname('');
       onAdopted();
     },
-    onError: (e: any) => toast.error(e?.detail || 'Adopt lỗi'),
+    onError: (e: any) => toast.error(typeof e?.detail === 'string' ? e.detail : 'Adopt lỗi'),
   });
 
   const isLocked = (sp: Species) => sp.rarity === 'legendary' && totalExp < 100;
@@ -395,27 +502,27 @@ function ShopTab({ species, owned, totalExp, onAdopted }: {
               key={sp.species}
               className={cn(
                 'rounded-2xl p-3 border-2 transition-all',
-                locked ? 'border-slate-200 bg-slate-50 opacity-60'
+                locked ? 'border-slate-200 bg-slate-50 opacity-70'
                   : isOwned ? 'border-emerald-300 bg-emerald-50'
-                  : 'border-slate-200 bg-white hover:border-amber-400 hover:shadow-md cursor-pointer'
+                  : 'border-slate-200 bg-white hover:border-amber-400 hover:shadow-md cursor-pointer',
               )}
               onClick={() => !isOwned && !locked && setSelected(sp)}
             >
               <div className="flex items-start justify-between">
-                <div className="flex-1">
-                  <div className="text-xs font-semibold text-slate-700 flex items-center gap-1">
-                    {sp.display_name_vi}
-                    {sp.rarity === 'rare' && <Star className="h-3 w-3 text-amber-500" />}
-                    {sp.rarity === 'legendary' && <Crown className="h-3 w-3 text-brand-500" />}
-                  </div>
+                <div className="text-xs font-semibold text-slate-700 flex items-center gap-1">
+                  {sp.display_name_vi}
+                  {sp.rarity === 'rare' && <Star className="h-3 w-3 text-amber-500" />}
+                  {sp.rarity === 'legendary' && <Crown className="h-3 w-3 text-brand-500" />}
                 </div>
                 {locked && <Lock className="h-3.5 w-3.5 text-slate-400" />}
                 {isOwned && <span className="text-[11px] text-emerald-600 font-semibold">✓ Đã nuôi</span>}
               </div>
-              <div className="flex justify-center my-2">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={sp.form_1_sprite} alt={sp.species}
-                  className={cn('w-20 h-20', locked && 'grayscale')} />
+              <div className={cn('flex justify-center my-2', locked && 'grayscale')}>
+                <AnimatedPet
+                  species={asSpecies(sp.species)} form={1}
+                  size={92} animated={false} showShadow={false}
+                  staticExpr={locked ? 'neutral' : 'happy'}
+                />
               </div>
               <div className="text-[11px] text-slate-500 leading-tight">{sp.description_vi}</div>
               {locked && (
@@ -443,8 +550,8 @@ function ShopTab({ species, owned, totalExp, onAdopted }: {
               onClick={(e) => e.stopPropagation()}
             >
               <div className="flex items-center gap-3 mb-3">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={selected.form_1_sprite} alt={selected.species} className="w-20 h-20" />
+                {/* preview sống — rê chuột là bé nhìn theo */}
+                <AnimatedPet species={asSpecies(selected.species)} form={1} size={110} interactive />
                 <div>
                   <h3 className="font-semibold text-slate-800 text-lg">{selected.display_name_vi}</h3>
                   <p className="text-xs text-slate-600">{selected.description_vi}</p>
@@ -465,7 +572,7 @@ function ShopTab({ species, owned, totalExp, onAdopted }: {
                 <button
                   onClick={() => adopt.mutate()}
                   disabled={adopt.isPending}
-                  className="px-4 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-500 text-white text-sm font-semibold disabled:opacity-60"
+                  className="px-4 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-white text-sm font-semibold disabled:opacity-60"
                 >
                   {adopt.isPending ? 'Đang…' : 'Nhận nuôi'}
                 </button>
@@ -477,6 +584,8 @@ function ShopTab({ species, owned, totalExp, onAdopted }: {
     </div>
   );
 }
+
+// ─── Lịch sử EXP ────────────────────────────────────────────────
 
 function HistoryTab({ petId }: { petId: string }) {
   const { data, isLoading } = useQuery<{ data: ExpEvent[] }>({

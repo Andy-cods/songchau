@@ -25,6 +25,8 @@ import { PageHeader } from '@/components/shared/page-header';
 import { Card } from '@/components/shared/card';
 import { EmptyState } from '@/components/shared/empty-state';
 import { Skeleton } from '@/components/ui/skeleton';
+import { UserAvatar } from '@/components/shared/user-avatar';
+import { useMyAvatarPet } from '@/components/pet/use-my-avatar-pet';
 
 // ─── Types ───────────────────────────────────────────────────────
 
@@ -121,6 +123,7 @@ function FormField({
 
 export default function SettingsPage() {
   const { user: authUser } = useAuth();
+  const avatarPet = useMyAvatarPet(); // pet đang làm avatar (null nếu chưa đặt)
   const [profileSaved, setProfileSaved] = useState(false);
 
   // Fetch full profile
@@ -262,11 +265,21 @@ export default function SettingsPage() {
             description="Cập nhật tên hiển thị và thông tin liên lạc"
           />
 
-          {/* Avatar + role row */}
+          {/* Avatar + role row — pet avatar (2026-07-13) nếu user đã đặt,
+              fallback chữ cái đầu như cũ */}
           <div className="flex items-center gap-4 mb-6 p-4 bg-slate-50 rounded-lg">
-            <div className="h-14 w-14 rounded-full bg-brand-100 text-brand-700 flex items-center justify-center text-xl font-bold flex-shrink-0">
-              {(me?.display_name || me?.full_name || 'U').charAt(0).toUpperCase()}
-            </div>
+            {avatarPet ? (
+              <UserAvatar
+                name={me?.display_name || me?.full_name}
+                petSpecies={avatarPet.species}
+                petForm={avatarPet.form}
+                size={56}
+              />
+            ) : (
+              <div className="h-14 w-14 rounded-full bg-brand-100 text-brand-700 flex items-center justify-center text-xl font-bold flex-shrink-0">
+                {(me?.display_name || me?.full_name || 'U').charAt(0).toUpperCase()}
+              </div>
+            )}
             <div>
               <p className="text-sm font-semibold text-slate-800">
                 {me?.display_name || me?.full_name}

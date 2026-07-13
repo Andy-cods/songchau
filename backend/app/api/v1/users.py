@@ -35,11 +35,30 @@ async def list_users(
     token_data: TokenData = Depends(require_role("admin")),
     conn: asyncpg.Connection = Depends(get_db),
 ):
-    rows = await conn.fetch(
-        "SELECT id, email, full_name, display_name, role, department, phone, "
-        "is_active, last_login_at, created_at "
-        "FROM users ORDER BY created_at DESC"
-    )
+    # Pet-avatar upgrade (Thang 2026-07-13): trả kèm pet đang làm avatar
+    # (species + form) để FE render avatar thú cưng trong danh sách nhân sự.
+    # KHÔNG đổi schema — nguồn sự thật là user_pets.is_avatar (cột
+    # users.avatar_url chưa từng tồn tại, xem pet.py set_pet_as_avatar).
+    # Fallback: nếu migration bqms_phase6_pets.sql chưa chạy (thiếu bảng
+    # user_pets) thì trả query cũ, không làm gãy trang Users.
+    try:
+        rows = await conn.fetch(
+            "SELECT u.id, u.email, u.full_name, u.display_name, u.role, "
+            "u.department, u.phone, u.is_active, u.last_login_at, u.created_at, "
+            "pa.species AS pet_species, pa.current_form AS pet_form "
+            "FROM users u "
+            "LEFT JOIN LATERAL ("
+            "  SELECT species, current_form FROM user_pets "
+            "  WHERE user_id = u.id AND is_avatar = true LIMIT 1"
+            ") pa ON true "
+            "ORDER BY u.created_at DESC"
+        )
+    except asyncpg.UndefinedTableError:
+        rows = await conn.fetch(
+            "SELECT id, email, full_name, display_name, role, department, phone, "
+            "is_active, last_login_at, created_at "
+            "FROM users ORDER BY created_at DESC"
+        )
     return {
         "data": [
             {**dict(r), "id": str(r["id"])}
@@ -72,6 +91,43 @@ async def create_user(
     )
 
     return {"data": {"id": str(user_id)}, "message": "Tạo người dùng thành công"}
+
+
+@router.get("/{user_id}")
+async def get_user(
+    user_id: str,
+    token_data: TokenData = Depends(require_role("admin")),
+    conn: asyncpg.Connection = Depends(get_db),
+):
+    """Chi tiết 1 người dùng (Thang audit #5: route này chưa tồn tại → trang
+    users/[id] luôn 404). Cùng danh sách cột với list_users + updated_at.
+    Cùng chính sách quyền với GET "" (admin; viewer đọc được qua allow_viewer
+    mặc định của require_role) để nhất quán với endpoint liệt kê.
+    FE (users/[id]/page.tsx) đã unwrap {data} lẫn object phẳng nên trả {"data": {...}}."""
+    # Cùng pattern pet-avatar với list_users (fallback nếu chưa migrate pets).
+    try:
+        row = await conn.fetchrow(
+            "SELECT u.id, u.email, u.full_name, u.display_name, u.role, "
+            "u.department, u.phone, u.is_active, u.last_login_at, u.created_at, "
+            "u.updated_at, pa.species AS pet_species, pa.current_form AS pet_form "
+            "FROM users u "
+            "LEFT JOIN LATERAL ("
+            "  SELECT species, current_form FROM user_pets "
+            "  WHERE user_id = u.id AND is_avatar = true LIMIT 1"
+            ") pa ON true "
+            "WHERE u.id = $1",
+            user_id,
+        )
+    except asyncpg.UndefinedTableError:
+        row = await conn.fetchrow(
+            "SELECT id, email, full_name, display_name, role, department, phone, "
+            "is_active, last_login_at, created_at, updated_at "
+            "FROM users WHERE id = $1",
+            user_id,
+        )
+    if not row:
+        raise HTTPException(status_code=404, detail="Người dùng không tồn tại")
+    return {"data": {**dict(row), "id": str(row["id"])}}
 
 
 @router.put("/{user_id}")

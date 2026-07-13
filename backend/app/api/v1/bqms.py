@@ -31,6 +31,17 @@ logger = logging.getLogger(__name__)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Cap số RFQ mỗi mẻ nền chạm Samsung để BẢO VỆ phiên (Thang 2026-07-11).
+# Áp cho POST /vendor-staging/quote-batch (create_quote_batch): mỗi RFQ = 1 lần
+# login Samsung RIÊNG chạy tuần tự trên sc-worker → chặn tạo mẻ hàng trăm login
+# liên tiếp gây khoá tài khoản.
+# LƯU Ý: POST /push-to-sec/batch (push_to_sec_batch) có cap RIÊNG CHẶT HƠN
+# (8 mã/mẻ) nên CỐ Ý không dùng hằng số này — tránh nới lỏng giới hạn an toàn.
+# ─────────────────────────────────────────────────────────────────────────────
+MAX_RFQS_PER_PUSH_BATCH = 20
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # BQMS user-edit guard (Thang 2026-05-15): when `bqms_user_edit_disabled` flag
 # is true in app_config, ALL endpoints that mutate BQMS data return 403.
 # Use as a single-line guard at top of each edit endpoint:
@@ -64,6 +75,111 @@ router = APIRouter()
 
 # Shared service instance
 _bqms_service = BQMSService()
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Samsung scraping guard — tầng API (Thang 2026-07-09, plans/scraper-hardening
+# DESIGN.md §4 G1/G6/G7). `bqms_guard` là nguồn-chân-lý DUY NHẤT (DB-backed) cho:
+# kill-switch tổng (master), circuit-breaker bền vững (blocked_until/block_state),
+# rate-limit login. Các helper dưới bọc guard cho endpoint:
+#   • _gate_samsung_or_409 — chặn endpoint login-Samsung-ĐỒNG-BỘ khi cổng đóng
+#     → trả 409 (kèm lý do) thay vì cố login mù rồi làm KHOÁ tài khoản.
+#   • _samsung_blocked_until / _assert_samsung_enable_allowed — interlock khi BẬT.
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+async def _gate_samsung_or_409(conn: asyncpg.Connection, who: str) -> None:
+    """Cổng cho endpoint login Samsung ĐỒNG BỘ chạy trong sc-api.
+
+    (Review M1) CHỈ KIỂM TRA gate (master OFF / hard-block) — KHÔNG đặt-chỗ
+    rate-limit ở đây. Trước đây gọi `assert_samsung_allowed` (reserve 1 slot) →
+    scraper phía dưới lại reserve slot thứ 2 trong <180s → tự rate-limit chính
+    mình → mọi nút quét thủ công FAIL + để lại 'attempt' rác đếm vào cap 8/giờ.
+    Điểm reserve DUY NHẤT là ở chính lần login của scraper. Cổng đóng → 409 (UI
+    hiện lý do) thay vì mở browser login mù. KHÔNG dùng cho test-login."""
+    from app.services.bqms_guard import samsung_gate_async
+
+    allowed, reason = await samsung_gate_async(conn)
+    if not allowed:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"Samsung scraping đang tắt/bị chặn ({reason}). Bật công tắc "
+                f"tổng (master) hoặc chờ hết thời gian chặn rồi thử lại."
+            ),
+        )
+
+
+# C-2 (2026-07-11): các endpoint API login THẲNG vào Samsung (không qua worker
+# concurrency=1) từng KHÔNG giành samsung_session_lock → login mới đá văng phiên
+# push/scraper đang chạy của nhân viên khác. Hai helper dưới giành/nhả ĐÚNG khóa
+# hiện có (SAMSUNG_LOCK_KEY) theo kiểu NON-BLOCKING: bận thì 409 ngay, không chờ.
+async def _acquire_samsung_lock_or_409(conn: asyncpg.Connection) -> None:
+    """Giành samsung_session_lock (session-level, đúng key hiện có) KHÔNG chờ.
+    Không lấy được → 409. Caller PHẢI nhả qua `_release_samsung_lock` trong finally."""
+    from app.services.samsung_session_lock import SAMSUNG_LOCK_KEY
+
+    got = await conn.fetchval(
+        "SELECT pg_try_advisory_lock(hashtext($1))", SAMSUNG_LOCK_KEY,
+    )
+    if not got:
+        raise HTTPException(
+            status_code=409,
+            detail="Đang có phiên Samsung khác chạy (đẩy báo giá/scraper), thử lại sau ít phút.",
+        )
+
+
+async def _release_samsung_lock(conn: asyncpg.Connection) -> None:
+    """Nhả samsung_session_lock (best-effort — pool reset gọi pg_advisory_unlock_all
+    làm lưới an toàn nếu conn trả về pool trước khi nhả)."""
+    from app.services.samsung_session_lock import SAMSUNG_LOCK_KEY
+
+    try:
+        await conn.execute(
+            "SELECT pg_advisory_unlock(hashtext($1))", SAMSUNG_LOCK_KEY,
+        )
+    except Exception as exc:  # pragma: no cover — nhả hụt không nên làm hỏng response
+        logger.warning("release samsung_session_lock failed: %s", exc)
+
+
+async def _samsung_blocked_until(conn: asyncpg.Connection) -> str | None:
+    """Trả ISO ts `bqms_blocked_until` nếu hard-block ĐANG hiệu lực (> NOW()),
+    ngược lại None (không block / đã hết hạn / key vắng)."""
+    return await conn.fetchval(
+        "SELECT value #>> '{}' FROM app_config "
+        "WHERE key = 'bqms_blocked_until' AND (value #>> '{}')::timestamptz > NOW()"
+    )
+
+
+async def _assert_samsung_enable_allowed(conn: asyncpg.Connection) -> None:
+    """Interlock khi BẬT — dùng chung cho bật từng cờ scraper + bật master.
+
+    Yêu cầu (vi phạm → HTTP 409):
+      (a) test-login Samsung thành công trong 24h — tránh spam mật khẩu cũ → khoá.
+      (b) KHÔNG có hard-block đang hiệu lực (bqms_blocked_until > NOW()).
+    (Điều kiện "master đang bật" KHÔNG nằm ở đây: endpoint bật cờ tự thêm, còn
+    endpoint bật master thì miễn — vì nó CHÍNH LÀ hành động bật master.)"""
+    ok_recent = await conn.fetchval(
+        "SELECT (value #>> '{}')::timestamptz > NOW() - INTERVAL '24 hours' "
+        "FROM app_config WHERE key = 'bqms_last_login_ok_at'"
+    )
+    if not ok_recent:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Cần Test đăng nhập Samsung thành công (trong 24 giờ) trước khi "
+                "bật — tránh spam mật khẩu cũ làm khoá tài khoản."
+            ),
+        )
+    blocked_until = await _samsung_blocked_until(conn)
+    if blocked_until:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"Đang trong thời gian chặn tới {blocked_until} — chờ hết hạn "
+                f"hoặc reset circuit-breaker rồi mới bật lại."
+            ),
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -100,22 +216,39 @@ async def trigger_sync(
             detail="Khoảng thời gian tối đa là 365 ngày",
         )
 
-    # Create a sync log entry first (synchronously to return the ID)
-    sync_id = await conn.fetchval(
-        """
-        INSERT INTO etl_sync_log (sync_type, source_file, status)
-        VALUES ('bqms_po', $1, 'queued')
-        RETURNING id
-        """,
-        f"Samsung API {date_from} - {date_to}",
-    )
+    # Guard: /sync login vào Samsung ĐỒNG BỘ (thread → playwright_fetch_pos) →
+    # gate master/block/rate-limit TRƯỚC khi tạo sync-log để không để lại dòng
+    # 'queued' mồ côi khi cổng đóng.
+    await _gate_samsung_or_409(conn, who="api:sync")
 
-    # Check for already-running sync
-    running = await conn.fetchval(
-        "SELECT id FROM etl_sync_log WHERE sync_type = 'bqms_po' AND status = 'running' LIMIT 1"
-    )
-    if running:
-        raise HTTPException(400, f"Đồng bộ đang chạy (job #{running}). Vui lòng đợi hoàn thành.")
+    # C-2 (2026-07-11): probe NHANH samsung_session_lock → 409 NGAY nếu worker
+    # (push/scraper) đang giữ phiên; khỏi tạo sync-log mồ côi. Lock THẬT do thread
+    # _do_sync giữ suốt phiên Playwright (nhả ngay ở đây, thread giành lại bên dưới).
+    await _acquire_samsung_lock_or_409(conn)
+    await _release_samsung_lock(conn)
+
+    # C-6 (2026-07-11): dedup check+insert ATOMIC qua advisory xact lock → 2 request
+    # /sync gần nhau không cùng tạo 2 job (trước đây INSERT 'queued' RỒI mới check
+    # 'running' → cả hai lọt). Tính cả 'queued' vào điều kiện bận.
+    async with conn.transaction():
+        await conn.execute(
+            "SELECT pg_advisory_xact_lock(hashtext($1))", "bqms:sync",
+        )
+        running = await conn.fetchval(
+            "SELECT id FROM etl_sync_log WHERE sync_type = 'bqms_po' "
+            "AND status IN ('queued','running') LIMIT 1"
+        )
+        if running:
+            raise HTTPException(400, f"Đồng bộ đang chạy (job #{running}). Vui lòng đợi hoàn thành.")
+        # Create the sync log entry (giữ trong lock để trả ID + chống trùng)
+        sync_id = await conn.fetchval(
+            """
+            INSERT INTO etl_sync_log (sync_type, source_file, status)
+            VALUES ('bqms_po', $1, 'queued')
+            RETURNING id
+            """,
+            f"Samsung API {date_from} - {date_to}",
+        )
 
     logger.info(
         "BQMS sync triggered: job_id=%d, range=%s→%s, by=%s",
@@ -134,34 +267,55 @@ async def trigger_sync(
             from app.etl.bqms_playwright import playwright_fetch_pos
             from app.tasks.bqms_sync import _upsert_pos, _update_sync_log
             from app.core.config import settings as cfg
+            from app.services.samsung_session_lock import SAMSUNG_LOCK_KEY
 
             db_url = str(cfg.DATABASE_URL).replace("+asyncpg", "").replace("postgresql+asyncpg", "postgresql")
+            # C-2 (2026-07-11): GIỮ samsung_session_lock trên CHÍNH conn của thread
+            # (non-blocking) suốt phiên Playwright — /sync login đầy đủ nên phải nối
+            # lock kẻo đá văng phiên push/scraper của worker. Không lấy được (thua
+            # race sau probe ở handler) → ghi sync-log 'error' rồi thoát, KHÔNG login.
             bconn = await apg.connect(db_url)
             try:
+                got = await bconn.fetchval(
+                    "SELECT pg_try_advisory_lock(hashtext($1))", SAMSUNG_LOCK_KEY,
+                )
+                if not got:
+                    _update_sync_log(sid, {
+                        "status": "error",
+                        "error_message": "Đang có phiên Samsung khác chạy (đẩy báo giá/scraper), thử lại sau ít phút.",
+                    })
+                    return
+
                 await bconn.execute(
                     "UPDATE etl_sync_log SET status = 'running', started_at = NOW() WHERE id = $1", sid
                 )
+
+                result = {"new_pos": 0, "updated_pos": 0, "status": "running"}
+                try:
+                    po_list = await playwright_fetch_pos()
+                    new_list, upd = _upsert_pos(po_list)
+                    result["new_pos"] = len(new_list)
+                    result["updated_pos"] = upd
+                    result["status"] = "success"
+
+                    # Bridge: tất cả PO → bqms_deliveries (trang Giao Hàng)
+                    from app.tasks.bqms_sync import _bridge_po_to_deliveries
+                    new_del, upd_del = _bridge_po_to_deliveries(po_list)
+                    result["deliveries_created"] = new_del
+                    result["deliveries_updated"] = upd_del
+                except Exception as exc:
+                    result["status"] = "error"
+                    result["error_message"] = str(exc)[:500]
+
+                _update_sync_log(sid, result)
             finally:
-                await bconn.close()
-
-            result = {"new_pos": 0, "updated_pos": 0, "status": "running"}
-            try:
-                po_list = await playwright_fetch_pos()
-                new_list, upd = _upsert_pos(po_list)
-                result["new_pos"] = len(new_list)
-                result["updated_pos"] = upd
-                result["status"] = "success"
-
-                # Bridge: tất cả PO → bqms_deliveries (trang Giao Hàng)
-                from app.tasks.bqms_sync import _bridge_po_to_deliveries
-                new_del, upd_del = _bridge_po_to_deliveries(po_list)
-                result["deliveries_created"] = new_del
-                result["deliveries_updated"] = upd_del
-            except Exception as exc:
-                result["status"] = "error"
-                result["error_message"] = str(exc)[:500]
-
-            _update_sync_log(sid, result)
+                # Nhả lock TRÊN CHÍNH conn của thread rồi mới đóng (đúng key hiện có).
+                try:
+                    await bconn.execute(
+                        "SELECT pg_advisory_unlock(hashtext($1))", SAMSUNG_LOCK_KEY,
+                    )
+                finally:
+                    await bconn.close()
 
         _aio.run(_do_sync())
 
@@ -227,45 +381,80 @@ async def sync_latest(
 @router.get("/sync/circuit")
 async def sync_circuit_status(
     token_data: TokenData = Depends(require_role("admin", "manager")),
+    conn: asyncpg.Connection = Depends(get_db),
 ):
-    """Trạng thái circuit breaker Samsung BQMS — bảo vệ tài khoản khỏi bị khóa."""
-    from app.etl.bqms_playwright import _load_circuit, _BACKOFF_SECONDS
-    import time as _time
-    circuit = _load_circuit()
-    failures = circuit.get("failures", 0)
-    last_fail = circuit.get("last_failure_at", 0)
+    """Trạng thái circuit-breaker Samsung BQMS — bảo vệ tài khoản khỏi bị khoá.
 
-    if failures == 0:
-        state = "closed"
-        wait_remaining = 0
+    Thang 2026-07-09: breaker /tmp cũ (`_load_circuit`/`_BACKOFF_SECONDS`) đã bị
+    gỡ khỏi `bqms_playwright`. Nay đọc từ guard DB-backed (`bqms_guard.guard_status`
+    → app_config + bqms_login_ledger). Giữ nguyên shape FE đang dùng
+    (state/failures/wait_*), bổ sung khối `guard` đầy đủ (không phá vỡ cũ)."""
+    from app.services.bqms_guard import guard_status
+
+    status = await guard_status(conn)
+
+    # Map trạng thái guard → shape cũ (state/failures/wait_remaining_*).
+    blocked_until = status.get("blocked_until")
+    bu_dt = None
+    if blocked_until:
+        try:
+            bu_dt = datetime.fromisoformat(str(blocked_until).replace("Z", "+00:00"))
+        except ValueError:
+            bu_dt = None
+        if bu_dt is not None and bu_dt.tzinfo is None:
+            bu_dt = bu_dt.replace(tzinfo=timezone.utc)
+
+    now = datetime.now(timezone.utc)
+    block_stage = int(status.get("block_stage", -1))
+    wait_remaining = 0
+    if bu_dt is not None and bu_dt > now:
+        state = "open"
+        wait_remaining = int((bu_dt - now).total_seconds())
+        last_error = f"blocked_until={blocked_until}"
+    elif block_stage >= 0:
+        # Từng bị chặn, hard-block đã qua nhưng master còn phải bật TAY lại.
+        state = "half-open"
+        last_error = "recovering — bật lại công tắc tổng (master) để tiếp tục"
     else:
-        idx = min(failures - 1, len(_BACKOFF_SECONDS) - 1)
-        wait_total = _BACKOFF_SECONDS[idx]
-        elapsed = _time.time() - last_fail
-        if elapsed < wait_total:
-            state = "open"
-            wait_remaining = int(wait_total - elapsed)
-        else:
-            state = "half-open"
-            wait_remaining = 0
+        state = "closed"
+        last_error = ""
 
     return {
+        # ── shape cũ (giữ nguyên tên field FE đang đọc) ──
         "state": state,
-        "failures": failures,
-        "last_error": circuit.get("last_error", ""),
+        "failures": max(block_stage + 1, 0),
+        "last_error": last_error,
         "wait_remaining_seconds": wait_remaining,
         "wait_remaining_minutes": wait_remaining // 60,
+        # ── guard mới (bổ sung: master_enabled, blocked_until, block_stage,
+        #    last_login_ok_at, logins_last_hour, next_login_earliest_at) ──
+        "guard": status,
     }
 
 
 @router.post("/sync/circuit/reset")
 async def reset_circuit_breaker(
     token_data: TokenData = Depends(require_role("admin")),
+    conn: asyncpg.Connection = Depends(get_db),
 ):
-    """Admin reset circuit breaker — cho phép thử login lại ngay."""
-    from app.etl.bqms_playwright import _record_success
-    _record_success()
-    return {"message": "Circuit breaker đã reset. Có thể thử đồng bộ lại."}
+    """Admin reset circuit-breaker — CHỈ xoá block state (stage=-1, xoá
+    bqms_blocked_until). KHÔNG đóng dấu last_login_ok_at.
+
+    Thang 2026-07-11: reset gọi `clear_block(..., stamp_login_ok=False)` nên
+    KHÔNG stamp bqms_last_login_ok_at. Nếu stamp thì sẽ LÁCH interlock 24h
+    (_assert_samsung_enable_allowed) — cho bật lại master mà chưa Test đăng nhập
+    Samsung thật. Muốn bật lại master phải test-login thật. CỐ Ý không tự bật
+    master (kill-switch tổng vẫn phải bật TAY — an toàn nhất, tránh storm lại)."""
+    from app.services.bqms_guard import clear_block, guard_status
+
+    await clear_block(conn, who="api:circuit_reset", stamp_login_ok=False)
+    return {
+        "message": (
+            "Circuit-breaker đã reset (block xoá, master GIỮ nguyên — bật tay "
+            "nếu cần thử đồng bộ lại)."
+        ),
+        "guard": await guard_status(conn),
+    }
 
 
 @router.get("/sync/steps")
@@ -634,6 +823,36 @@ async def pareto_analysis(
 # RFQ Table — Unified BQMS Page (main endpoint)
 # ---------------------------------------------------------------------------
 
+# ─── Cache mức process cho probe schema _has_vround (A3, Thang 2026-07-11) ───
+# Cột qt_state (migration bqms_vround_tracking.sql) hầu như KHÔNG đổi lúc
+# runtime. Trước đây rfq-table query information_schema MỖI request → thừa 1
+# round-trip DB trên endpoint nóng nhất (FE poll 60s/user). Cache ở mức process:
+# mỗi uvicorn worker tự giữ bản riêng — AN TOÀN đa-worker vì chỉ ĐỌC boolean,
+# không chia sẻ/ghi state giữa process, không cần khoá. TTL 300s: nếu migration
+# được áp lúc chạy thì chậm nhất 5 phút mỗi worker sẽ tự nhận cột mới (fail-safe:
+# khi chưa nhận thì SELECT vẫn degrade bằng NULL literals — không bao giờ 500).
+_HAS_VROUND_TTL = 300.0  # giây — schema đổi rất hiếm nên TTL dài vẫn an toàn
+_has_vround_cache: dict[str, Any] = {}  # {"value": bool, "expires": monotonic-deadline}
+
+
+async def _probe_has_vround(conn: asyncpg.Connection) -> bool:
+    """Trả True nếu bqms_rfq đã có cột qt_state (V-round tracking).
+
+    Cache mức process TTL 300s để tránh query information_schema mỗi request.
+    Mỗi worker tự cache — không chia sẻ giữa process (mỗi process tự probe là đủ).
+    """
+    now = time.monotonic()
+    if _has_vround_cache.get("expires", 0.0) > now:
+        return bool(_has_vround_cache.get("value", False))
+    val = bool(await conn.fetchval(
+        "SELECT EXISTS (SELECT 1 FROM information_schema.columns "
+        "WHERE table_name='bqms_rfq' AND column_name='qt_state')"
+    ))
+    _has_vround_cache["value"] = val
+    _has_vround_cache["expires"] = now + _HAS_VROUND_TTL
+    return val
+
+
 @router.get("/rfq-table")
 async def rfq_table(
     year: int | None = Query(None, description="Năm lọc (VD: 2026)"),
@@ -671,12 +890,11 @@ async def rfq_table(
         raise HTTPException(400, "round_filter không hợp lệ")
 
     # Batch 2C: V-round / D-N tracking columns are added by a later migration
-    # (bqms_vround_tracking.sql). Probe once so the SELECT degrades gracefully
+    # (bqms_vround_tracking.sql). Probe so the SELECT degrades gracefully
     # (NULL literals) when the migration hasn't been applied yet — never 500.
-    _has_vround = bool(await conn.fetchval(
-        "SELECT EXISTS (SELECT 1 FROM information_schema.columns "
-        "WHERE table_name='bqms_rfq' AND column_name='qt_state')"
-    ))
+    # A3 (2026-07-11): kết quả probe cache mức process (TTL 300s) qua
+    # _probe_has_vround → bỏ query information_schema mỗi request.
+    _has_vround = await _probe_has_vround(conn)
     if _has_vround:
         _vround_select = (
             "            r.deadline_dt,\n"
@@ -1637,6 +1855,29 @@ async def update_rfq_result(
     except Exception as _exc:
         logger.warning("audit_log result failed: %s", _exc)
 
+    # Phase 6 pet (wire 2026-07-13): trúng thầu = +5 EXP cho pet primary.
+    # Event 'quote_won' được hứa từ đầu (pet_service.EVENT_TYPES + label FE)
+    # nhưng chưa từng được gọi ở đâu. Chống farm: mỗi (user, rfq_number) chỉ
+    # award 1 lần — toggle won→pending→won không ăn thêm. Best-effort như mọi
+    # pet-hook khác: lỗi pet không được làm hỏng việc đánh dấu kết quả.
+    if val == "won":
+        try:
+            from app.services.pet_service import award_exp as _award_pet_exp
+            already = await conn.fetchval(
+                "SELECT 1 FROM pet_exp_log l "
+                "JOIN user_pets p ON p.id = l.user_pet_id "
+                "WHERE p.user_id = $1::uuid AND l.event_type = 'quote_won' "
+                "  AND l.source_ref = $2 LIMIT 1",
+                token_data.user_id, row["rfq_number"],
+            )
+            if not already:
+                await _award_pet_exp(
+                    conn, str(token_data.user_id),
+                    "quote_won", delta=5, source_ref=row["rfq_number"],
+                )
+        except Exception as exc:
+            logger.warning("pet quote_won award failed: %s", exc)
+
     return {
         "message": "Đã cập nhật kết quả",
         "ok": True,
@@ -2313,6 +2554,10 @@ async def force_rescan_rfq(
             "message": "Folder + ảnh + detail đã có sẵn",
         }
 
+    # Guard: sắp login Samsung ĐỒNG BỘ để drill → gate master/block/rate-limit
+    # (đặt SAU nhánh "đã drill sẵn" để không tốn slot rate-limit khi không login).
+    await _gate_samsung_or_409(conn, who="api:force-rescan")
+
     # Acquire Samsung session lock then drill
     from app.services.samsung_session_lock import samsung_session_lock
     from app.core.config import settings as cfg
@@ -2855,6 +3100,7 @@ async def get_scraper_settings(
     NEVER returns the Samsung password value — only `password_set` + `source`.
     """
     from app.services.bqms_credentials import get_bqms_credentials_meta
+    from app.services.bqms_guard import guard_status
 
     flags = await _read_scraper_flags(conn)
 
@@ -2877,6 +3123,10 @@ async def get_scraper_settings(
             "source": meta["source"],          # 'db' (override) | 'env' (fallback)
             "updated_at": cred_updated_at,
         },
+        # Guard snapshot (G6): master_enabled, blocked_until, block_stage,
+        # last_login_ok_at, logins_last_hour, next_login_earliest_at — cho admin
+        # console biết VÌ SAO scraping đang đứng im.
+        "guard": await guard_status(conn),
     }
 
 
@@ -2918,22 +3168,27 @@ async def update_scraper_flags(
                    f"Valid: {', '.join(_SCRAPER_FLAG_KEYS)}",
         )
 
-    # Safety interlock: ENABLING any scraper requires a successful Samsung test-login
-    # within the last 24h. This stops re-enabling a scraper with an outdated password
-    # (repeated bad logins lock the Samsung account). Disabling is ALWAYS allowed so
-    # the kill-switch works even when credentials are wrong.
+    # Safety interlock: ENABLING any scraper requires (a) a successful Samsung
+    # test-login within the last 24h, (b) the master kill-switch ON, and (c) no
+    # active hard-block. (a) stops re-enabling with an outdated password (repeated
+    # bad logins lock the Samsung account); (b) makes per-flag enable meaningful
+    # (with master OFF every login is gate-blocked anyway); (c) stops re-arming a
+    # scraper mid-block. Disabling is ALWAYS allowed so the kill-switch works even
+    # when credentials are wrong / master is off.
     if any(bool(v) for v in updates.values()):
-        ok_recent = await conn.fetchval(
-            """
-            SELECT (value #>> '{}')::timestamptz > NOW() - INTERVAL '24 hours'
-            FROM app_config WHERE key = 'bqms_last_login_ok_at'
-            """
+        from app.services.bqms_guard import _read_app_config_bool_async
+
+        # (a) test-login OK trong 24h + (c) không hard-block đang hiệu lực.
+        await _assert_samsung_enable_allowed(conn)
+
+        # (b) công tắc tổng (master) phải BẬT trước khi bật từng scraper.
+        master_on = await _read_app_config_bool_async(
+            conn, "bqms_scraping_master_enabled", False
         )
-        if not ok_recent:
+        if not master_on:
             raise HTTPException(
                 status_code=409,
-                detail="Cần Test đăng nhập Samsung thành công (trong 24 giờ) trước khi "
-                       "bật scrape — tránh spam mật khẩu cũ làm khoá tài khoản.",
+                detail="Bật công tắc tổng (master) trước khi bật từng scraper.",
             )
 
     for ui_key, enabled in updates.items():
@@ -2964,6 +3219,64 @@ async def update_scraper_flags(
     flags = await _read_scraper_flags(conn)
     logger.info("bqms scraper flags updated by %s: %s", token_data.email, updates)
     return {"flags": flags}
+
+
+class MasterSwitchUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    enabled: bool
+
+
+@router.put("/scraper-settings/master")
+async def update_scraper_master(
+    body: MasterSwitchUpdate,
+    token_data: TokenData = Depends(require_role("admin")),
+    conn: asyncpg.Connection = Depends(get_db),
+):
+    """Công tắc TỔNG (master kill-switch) cho MỌI đường login Samsung (G1/G7).
+
+    BẬT (enabled=true): cần interlock GIỐNG bật cờ — test-login Samsung OK trong
+      24h + KHÔNG có hard-block đang hiệu lực. (KHÔNG yêu cầu "master đang bật" vì
+      đây chính là hành động bật master.)
+    TẮT (enabled=false): LUÔN cho phép — đây là nút dừng khẩn; ghi
+      `bqms_scraping_master_enabled=false` là mọi login bị chặn ở lần gate kế tiếp,
+      không phụ thuộc điều kiện nào.
+
+    Trả về guard status mới. Audit như endpoint flags.
+    """
+    from app.services.bqms_guard import guard_status
+
+    # Interlock CHỈ khi bật (tắt là kill-switch, luôn cho phép).
+    if body.enabled:
+        await _assert_samsung_enable_allowed(conn)
+
+    await conn.execute(
+        """
+        INSERT INTO app_config (key, value, updated_at, updated_by)
+        VALUES ('bqms_scraping_master_enabled', $1::jsonb, NOW(), $2::uuid)
+        ON CONFLICT (key) DO UPDATE SET
+            value      = EXCLUDED.value,
+            updated_at = EXCLUDED.updated_at,
+            updated_by = EXCLUDED.updated_by
+        """,
+        "true" if body.enabled else "false", token_data.user_id,
+    )
+    try:
+        await conn.execute(
+            """
+            INSERT INTO audit_log
+                (user_id, action, table_name, record_id, new_data, created_at)
+            VALUES ($1::uuid, 'bqms.scraper_master', 'app_config',
+                    'bqms_scraping_master_enabled', $2::jsonb, NOW())
+            """,
+            token_data.user_id, _json.dumps({"enabled": body.enabled}),
+        )
+    except Exception as exc:
+        logger.warning("audit log scraper_master failed: %s", exc)
+
+    logger.info(
+        "bqms master switch → %s by %s", body.enabled, token_data.email,
+    )
+    return {"guard": await guard_status(conn)}
 
 
 class ScraperCredsUpdate(BaseModel):
@@ -3077,10 +3390,18 @@ async def test_scraper_login(
     try:
         async with samsung_session_lock(
             pool, who=f"test-login-{token_data.email}", timeout_seconds=45,
+            # Probe hợp lệ: PHẢI chạy được kể cả khi master OFF (cách bật lại an
+            # toàn duy nhất). enforce_gate=False bỏ qua kill-switch tổng khi giành
+            # lock; nhưng playwright_bqms_login vẫn tôn trọng hard-block bên trong.
+            enforce_gate=False,
         ):
             # Hard outer bound so a hung Samsung/Playwright login can't hang the
             # request indefinitely (the 45s above only bounds lock ACQUISITION).
-            cookies = await asyncio.wait_for(playwright_bqms_login(), timeout=90)
+            # allow_gate_bypass=True: miễn master_off cho probe (vẫn tôn trọng
+            # hard-block + tính vào rate-limit). Login OK sẽ tự clear block trong guard.
+            cookies = await asyncio.wait_for(
+                playwright_bqms_login(allow_gate_bypass=True), timeout=90,
+            )
         ok = bool(cookies and cookies.get("JSESSIONID"))
         message = (
             "Đăng nhập Samsung BQMS thành công."
@@ -3372,6 +3693,7 @@ async def bqms_data_gaps_rescan(
     max_rfqs: int = Query(50, ge=1, le=200, description="Max RFQs to drill this run"),
     budget_seconds: int = Query(1800, ge=60, le=3600, description="Hard time cap"),
     token_data: TokenData = Depends(require_role("admin", "manager")),
+    conn: asyncpg.Connection = Depends(get_db),
 ):
     """Quét bù: drill detail cho các RFQ pending còn thiếu items.
 
@@ -3379,6 +3701,9 @@ async def bqms_data_gaps_rescan(
     đã drill + số file tải. Dùng cùng logic với periodic cron — chỉ khác
     là user trigger ngay thay vì chờ 30 phút tiếp theo.
     """
+    # Guard: drill login vào Samsung ĐỒNG BỘ → gate master/block/rate-limit.
+    await _gate_samsung_or_409(conn, who="api:data-gaps-rescan")
+
     import asyncpg
     from app.tasks.bqms_periodic_scrape import _auto_drill_new_rfqs
     from app.core.config import settings as _settings
@@ -3518,10 +3843,14 @@ async def stats_win_lost(
 async def trigger_selection_result_scrape(
     limit: int = Query(0, ge=0, le=2000, description="0 = all available rows"),
     token_data: TokenData = Depends(require_role("admin", "manager")),
+    conn: asyncpg.Connection = Depends(get_db),
 ):
     """Manually fire a Selection Result scrape NOW (synchronous, ~1-2 min).
     Use this to refresh win/lost data without waiting for cron.
     Per Thang 2026-05-11: cron is OFF by default, this gives manual control."""
+    # Guard: scrape login vào Samsung ĐỒNG BỘ → gate master/block/rate-limit.
+    await _gate_samsung_or_409(conn, who="api:scrape-trigger-selection-result")
+
     import asyncpg
     from app.etl.bqms_l1_l3_scraper import scrape_selection_result
     from app.core.config import settings
@@ -3894,7 +4223,7 @@ async def delivery_kpi(
     status: str | None = Query(None),
     month: int | None = Query(None, ge=1, le=12),
     year: int | None = Query(None, ge=2020, le=2099),
-    token_data: TokenData = Depends(require_role("staff", "manager", "admin")),
+    token_data: TokenData = Depends(require_role("staff", "manager", "admin", allow_viewer=False)),
     conn: asyncpg.Connection = Depends(get_db),
 ):
     """KPI thống kê giao hàng — tính trên toàn bộ dữ liệu đã lọc (không phân trang).
@@ -3978,7 +4307,7 @@ async def delivery_revenue_stats(
     bqms_code: str | None = Query(None),
     group_by: str = Query("day"),
     breakdown_limit: int = Query(20, ge=1, le=100),
-    token_data: TokenData = Depends(require_role("staff", "manager", "admin")),
+    token_data: TokenData = Depends(require_role("staff", "manager", "admin", allow_viewer=False)),
     conn: asyncpg.Connection = Depends(get_db),
 ):
     """Doanh thu PO: summary + timeseries + breakdown.
@@ -4330,7 +4659,7 @@ async def delivery_tracking(
     page: int = Query(1, ge=1),
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
-    token_data: TokenData = Depends(require_role("staff", "manager", "admin")),
+    token_data: TokenData = Depends(require_role("staff", "manager", "admin", allow_viewer=False)),
     conn: asyncpg.Connection = Depends(get_db),
 ):
     where, params = _build_delivery_filters(status, month, year, date_from, date_to)
@@ -4465,12 +4794,14 @@ async def create_delivery(
             po_number, bqms_code, item_name, specification, quantity, unit,
             unit_price, delivery_status, delivery_date,
             shipping_no, sev_type, buyer_email, recipient_name,
-            delivery_method, notes, data_source
+            delivery_method, notes, data_source,
+            buyer_phone, receiving_warehouse, country_origin
         ) VALUES (
             $1, $2, $3, $4, $5, $6,
             $7, $8::delivery_status, $9,
             $10, $11, $12, $13,
-            $14, $15, 'manual'
+            $14, $15, 'manual',
+            $16, $17, $18
         )
         RETURNING *
         """,
@@ -4489,6 +4820,9 @@ async def create_delivery(
         body.get("recipient_name"),
         body.get("delivery_method"),
         body.get("notes"),
+        body.get("buyer_phone"),
+        body.get("receiving_warehouse"),
+        body.get("country_origin"),
     )
     return {"data": dict(row), "message": "Đã tạo đơn giao hàng"}
 
@@ -4730,18 +5064,54 @@ async def create_delivery_dossier(
         raise HTTPException(400,
             f"Mix SEV/SEVT không cho phép — items có {sorted(found_company_set)}. Tạo riêng từng hồ sơ.")
 
-    # Insert job row
-    job_row = await conn.fetchrow(
-        """
-        INSERT INTO bqms_dossier_jobs
-            (user_id, sev_type, po_numbers, delivery_row_ids, form_data, status, progress_step)
-        VALUES ($1::uuid, $2, $3, $4, $5::jsonb, 'queued', 'Đang chờ Samsung session')
-        RETURNING id
-        """,
-        token_data.user_id, body.sev_type, distinct_pos, delivery_ids,
-        _json.dumps(body.model_dump(), default=str, ensure_ascii=False),
+    # C-1 (2026-07-11): chống 2 người (hoặc 1 người mở 2 tab) cùng tạo hồ sơ cho
+    # CÙNG PO → 2 Delivery THẬT trên Samsung (không hoàn tác) + actual_delivered_qty
+    # cộng đôi. Khóa theo TỪNG PO (sorted → tránh deadlock) rồi check-then-insert
+    # ATOMIC trong 1 transaction: job thứ 2 thấy hồ sơ đang chạy của PO trùng → 409.
+    # (Đợt giao thứ 2 CHỦ ĐÍCH vẫn được — chỉ chặn khi hồ sơ trước còn IN-FLIGHT.)
+    creator_name = await conn.fetchval(
+        "SELECT COALESCE(full_name, email) FROM users WHERE id = $1::uuid",
+        token_data.user_id,
     )
-    job_id = int(job_row["id"])
+    async with conn.transaction():
+        for _po in sorted(distinct_pos):
+            await conn.execute(
+                "SELECT pg_advisory_xact_lock(hashtext($1))", f"dossier:po:{_po}",
+            )
+        dup = await conn.fetchrow(
+            """
+            SELECT j.id,
+                   COALESCE(j.created_by_name, u.full_name, u.email, 'người khác') AS who
+              FROM bqms_dossier_jobs j
+              LEFT JOIN users u ON u.id = j.user_id
+             WHERE j.status IN ('queued','running','awaiting_confirm',
+                                'invoice_ready','po_downloaded','excel_built')
+               AND j.po_numbers && $1::text[]
+             ORDER BY j.id DESC
+             LIMIT 1
+            """,
+            distinct_pos,
+        )
+        if dup:
+            raise HTTPException(
+                409,
+                f"PO này đang có hồ sơ #{dup['id']} đang tạo bởi {dup['who']} — "
+                f"vui lòng chờ hoàn tất rồi tạo đợt mới.",
+            )
+        # Insert job row (giữ trong lock → trigger set_dossier_attempt_no cũng hết đua)
+        job_row = await conn.fetchrow(
+            """
+            INSERT INTO bqms_dossier_jobs
+                (user_id, sev_type, po_numbers, delivery_row_ids, form_data, status,
+                 progress_step, created_by_name)
+            VALUES ($1::uuid, $2, $3, $4, $5::jsonb, 'queued', 'Đang chờ Samsung session', $6)
+            RETURNING id
+            """,
+            token_data.user_id, body.sev_type, distinct_pos, delivery_ids,
+            _json.dumps(body.model_dump(), default=str, ensure_ascii=False),
+            creator_name,
+        )
+        job_id = int(job_row["id"])
 
     # Enqueue Procrastinate task — App not auto-opened in FastAPI context.
     try:
@@ -4930,18 +5300,41 @@ async def upload_dossier_image(
 # ---------------------------------------------------------------------------
 
 
-async def _set_confirm_signal(conn, job_id: int, signal: str) -> dict:
-    """Set confirm_signal nếu job đang ở awaiting_confirm. Task poll sẽ nhặt."""
+async def _set_confirm_signal(
+    conn, job_id: int, signal: str, token_data: TokenData | None = None,
+) -> dict:
+    """Set confirm_signal nếu job đang ở awaiting_confirm. Task poll sẽ nhặt.
+
+    C-4 (2026-07-11): CHỈ chủ job (người tạo) hoặc admin/manager được xác nhận/huỷ
+    — chặn user B kích hoạt tạo Delivery THẬT của user A. `token_data` có default
+    None để không phá caller cũ; khi truyền vào thì bắt buộc check owner + ghi audit.
+    """
     row = await conn.fetchrow(
-        "SELECT id, status FROM bqms_dossier_jobs WHERE id = $1", job_id,
+        "SELECT id, status, user_id FROM bqms_dossier_jobs WHERE id = $1", job_id,
     )
     if not row:
         raise HTTPException(404, f"Job #{job_id} không tồn tại")
+    if token_data is not None:
+        is_owner = str(row["user_id"]) == str(token_data.user_id)
+        is_boss = token_data.role in ("admin", "manager")
+        if not (is_owner or is_boss):
+            logger.info(
+                "C-4 CHẶN dossier %s: job=%d bởi user=%s role=%s (không phải chủ job)",
+                signal, job_id, token_data.user_id, token_data.role,
+            )
+            raise HTTPException(
+                403, "Chỉ người tạo hồ sơ hoặc quản lý mới được xác nhận/huỷ job này",
+            )
     if row["status"] != "awaiting_confirm":
         raise HTTPException(
             409,
             f"Job đang ở status={row['status']}, không phải đang chờ xác nhận",
         )
+    logger.info(
+        "C-4 audit dossier %s: job=%d bởi user=%s role=%s",
+        signal, job_id,
+        getattr(token_data, "user_id", "?"), getattr(token_data, "role", "?"),
+    )
     await conn.execute(
         "UPDATE bqms_dossier_jobs SET confirm_signal = $1 WHERE id = $2",
         signal, job_id,
@@ -4958,7 +5351,8 @@ async def confirm_dossier_job(
     conn: asyncpg.Connection = Depends(get_db),
 ):
     """User xác nhận → scraper sẽ bấm Create Delivery (tạo Delivery thật)."""
-    data = await _set_confirm_signal(conn, job_id, "confirm")
+    # C-4 (2026-07-11): truyền token_data để _set_confirm_signal check owner + audit.
+    data = await _set_confirm_signal(conn, job_id, "confirm", token_data)
     return {"data": data, "message": "Đã xác nhận — đang tạo Delivery trên Samsung"}
 
 
@@ -4971,7 +5365,8 @@ async def cancel_dossier_job(
     conn: asyncpg.Connection = Depends(get_db),
 ):
     """User huỷ tại checkpoint → đóng popup, KHÔNG tạo Delivery."""
-    data = await _set_confirm_signal(conn, job_id, "cancel")
+    # C-4 (2026-07-11): truyền token_data để _set_confirm_signal check owner + audit.
+    data = await _set_confirm_signal(conn, job_id, "cancel", token_data)
     return {"data": data, "message": "Đã huỷ — không tạo Delivery"}
 
 
@@ -5014,7 +5409,7 @@ async def list_dossier_jobs(
     rows = await conn.fetch(
         """
         SELECT id, sev_type, po_numbers, status, output_folder,
-               created_at, updated_at,
+               created_at, updated_at, created_by_name,
                (form_data->>'vendor_invoice_no') AS invoice_no
           FROM bqms_dossier_jobs
          ORDER BY created_at DESC
@@ -5167,6 +5562,63 @@ async def download_dossier_folder_zip(
             "Content-Length": str(len(data)),
         },
     )
+
+
+@router.post("/deliveries/dossier-job/{job_id}/sync-onedrive")
+async def sync_dossier_job_onedrive(
+    job_id: int,
+    token_data: TokenData = Depends(require_role(
+        "admin", "manager", "staff", "warehouse", "sales", "procurement", "accountant",
+    )),
+    conn: asyncpg.Connection = Depends(get_db),
+):
+    """Đẩy THỦ CÔNG toàn bộ thư mục hồ sơ của 1 đợt giao lên OneDrive.
+
+    Người dùng chủ động bấm nút → BỎ QUA cờ onedrive_delivery_sync_enabled
+    (force=True) nhưng VẪN yêu cầu M365 đã cấu hình (onedrive_is_configured):
+    chưa cấu hình → 409, KHÔNG chạm Graph. Đẩy lên cây riêng
+    /Giao_Hang_BQMS/BBGH {year}/{SEV}/{folder}/ (suy từ output_folder local).
+    Idempotent (upload conflict_behavior=replace — bấm lại chỉ cập nhật bản sao
+    của đúng hồ sơ này).
+    """
+    import os
+    from app.services.onedrive_docs import onedrive_is_configured
+    from app.services.delivery_onedrive import sync_dossier_to_onedrive
+
+    # Cổng dormant: M365 chưa cấu hình → 409, đứng im (không chạm Graph).
+    if not onedrive_is_configured():
+        raise HTTPException(409, "OneDrive chưa được cấu hình")
+
+    row = await conn.fetchrow(
+        "SELECT output_folder FROM bqms_dossier_jobs WHERE id = $1", job_id,
+    )
+    if not row:
+        raise HTTPException(404, f"Job #{job_id} không tồn tại")
+    if not row["output_folder"]:
+        raise HTTPException(404, "Hồ sơ chưa có thư mục")
+
+    # Chống path-traversal: thư mục BẮT BUỘC nằm trong gốc BBGH (.../Giao hàng),
+    # đồng thời là gốc DELIVERY_ROOT nên service suy được cây con hợp lệ.
+    base = os.path.realpath("/data/onedrive-staging/Puplic/BQMS/Giao hàng")
+    real = os.path.realpath(str(row["output_folder"]))
+    if real != base and not real.startswith(base + os.sep):
+        raise HTTPException(403, "Đường dẫn không hợp lệ")
+    if not os.path.isdir(real):
+        raise HTTPException(404, "Thư mục không còn trên máy chủ")
+
+    # force=True → bỏ qua CHỈ cổng cờ onedrive_delivery_sync_enabled (đẩy thủ công),
+    # KHÔNG bao giờ bỏ qua onedrive_is_configured() (đã kiểm tra ở trên).
+    summary = await sync_dossier_to_onedrive(Path(real), conn=conn, force=True)
+    if summary.get("skipped"):
+        # is_configured đã pass ở trên → lý do còn lại chỉ có thể là ngoài DELIVERY_ROOT.
+        raise HTTPException(400, f"Không đồng bộ được: {summary.get('reason')}")
+
+    return {
+        "ok": True,
+        "synced": summary.get("synced", 0),
+        "errors": summary.get("errors", 0),
+        "folder": summary.get("folder"),
+    }
 
 
 @router.post("/deliveries/dossier-job/{job_id}/update-regenerate")
@@ -5708,6 +6160,8 @@ async def confirm_pos_endpoint(
     payload = [p.model_dump() for p in body.pos]
     try:
         result = await confirm_pos(payload)
+    except HTTPException:
+        raise  # C-2: giữ nguyên 503 "Phiên Samsung đang bận" từ po_api, đừng wrap 502
     except Exception as exc:
         logger.exception("BQMS confirm_pos failed")
         raise HTTPException(status_code=502, detail=f"BQMS confirm error: {exc}")
@@ -5724,6 +6178,8 @@ async def cancel_confirm_pos_endpoint(
     payload = [p.model_dump() for p in body.pos]
     try:
         result = await cancel_confirm_pos(payload)
+    except HTTPException:
+        raise  # C-2: giữ nguyên 503 "Phiên Samsung đang bận" từ po_api, đừng wrap 502
     except Exception as exc:
         logger.exception("BQMS cancel_confirm_pos failed")
         raise HTTPException(status_code=502, detail=f"BQMS cancel-confirm error: {exc}")
@@ -5749,7 +6205,7 @@ async def list_won_quotations(
     has_hs: str | None = Query(None, description="filled | missing | all"),
     page: int = Query(1, ge=1),
     page_size: int = Query(100, ge=10, le=500),
-    token_data: TokenData = Depends(require_role("admin", "manager", "staff", "sales", "procurement", "warehouse", "accountant")),
+    token_data: TokenData = Depends(require_role("admin", "manager", "staff", "sales", "procurement", "warehouse", "accountant", allow_viewer=False)),
     conn: asyncpg.Connection = Depends(get_db),
 ):
     """List won quotations from sheet TRUNG BG.
@@ -6449,6 +6905,7 @@ async def scrape_contracts_trigger(
     drill_items: bool = Query(True, description="Click into each contract to fetch Item Information"),
     dry_run: bool = Query(True, description="When true, save raw JSON only — no INSERT into staging"),
     token_data: TokenData = Depends(require_role("admin")),
+    conn: asyncpg.Connection = Depends(get_db),
 ):
     """Trigger a one-shot scrape of Vendor Portal -> Contract Mgmt.
 
@@ -6459,6 +6916,9 @@ async def scrape_contracts_trigger(
     Synchronous — blocks for the duration of the scrape (~12s/contract).
     Single login per call enforced by the scraper module itself.
     """
+    # Guard: scrape login vào Samsung ĐỒNG BỘ → gate master/block/rate-limit.
+    await _gate_samsung_or_409(conn, who="api:scrape-contracts")
+
     import threading
     import asyncio as _aio
 
@@ -6496,10 +6956,16 @@ async def scrape_contracts_trigger(
         _aio.run(_do())
 
     t = threading.Thread(target=_thread_scrape, daemon=True)
-    t.start()
-    # Cap thread wait at 5 minutes (50 contracts * ~12s headroom) — protects
-    # the request worker if BQMS hangs.
-    t.join(timeout=300)
+    # C-2 (2026-07-11): giành samsung_session_lock (non-blocking) quanh phiên Samsung
+    # của thread — 409 nếu worker/scraper khác đang giữ phiên; nhả sau khi join xong.
+    await _acquire_samsung_lock_or_409(conn)
+    try:
+        t.start()
+        # Cap thread wait at 5 minutes (50 contracts * ~12s headroom) — protects
+        # the request worker if BQMS hangs.
+        t.join(timeout=300)
+    finally:
+        await _release_samsung_lock(conn)
 
     if t.is_alive():
         raise HTTPException(504, "Scrape timed out after 5 minutes")
@@ -6525,6 +6991,7 @@ async def scrape_mro_po_trigger(
     limit: int = Query(0, ge=0, le=200, description="Max rows (0 = all on first page)"),
     dry_run: bool = Query(True, description="When true, save raw JSON only — no INSERT into staging"),
     token_data: TokenData = Depends(require_role("admin")),
+    conn: asyncpg.Connection = Depends(get_db),
 ):
     """Trigger a one-shot scrape of Vendor Portal -> Execution > MRO > P/O Receipt.
 
@@ -6534,6 +7001,9 @@ async def scrape_mro_po_trigger(
 
     Rows land in bqms_vendor_portal_staging with module='po'.
     """
+    # Guard: scrape login vào Samsung ĐỒNG BỘ → gate master/block/rate-limit.
+    await _gate_samsung_or_409(conn, who="api:scrape-mro-po")
+
     import threading
     import asyncio as _aio
 
@@ -6570,8 +7040,13 @@ async def scrape_mro_po_trigger(
         _aio.run(_do())
 
     t = threading.Thread(target=_thread_scrape, daemon=True)
-    t.start()
-    t.join(timeout=120)
+    # C-2 (2026-07-11): giành samsung_session_lock quanh phiên Samsung của thread.
+    await _acquire_samsung_lock_or_409(conn)
+    try:
+        t.start()
+        t.join(timeout=120)
+    finally:
+        await _release_samsung_lock(conn)
     if t.is_alive():
         raise HTTPException(504, "MRO scrape timed out after 2 minutes")
     if "error" in result_holder:
@@ -6596,6 +7071,7 @@ async def scrape_bidding_trigger(
     page_num: int = Query(1, ge=1, le=100, description="Page number (1-based, ~98 pages of 10)"),
     smart_skip: bool = Query(True, description="Skip drill+staging for QTs already in bqms_rfq with images"),
     token_data: TokenData = Depends(require_role("admin")),
+    conn: asyncpg.Connection = Depends(get_db),
 ):
     """Trigger a one-shot scrape of Bidding · Quotation Submit.
 
@@ -6605,6 +7081,9 @@ async def scrape_bidding_trigger(
 
     Has an IBSheet locale popup — handled internally by the scraper.
     """
+    # Guard: scrape login vào Samsung ĐỒNG BỘ → gate master/block/rate-limit.
+    await _gate_samsung_or_409(conn, who="api:scrape-bidding")
+
     import threading
     import asyncio as _aio
 
@@ -6645,10 +7124,15 @@ async def scrape_bidding_trigger(
         _aio.run(_do())
 
     t = threading.Thread(target=_thread_scrape, daemon=True)
-    t.start()
     # Drill mode: 10 RFQ × ~10s/drill ≈ 100s + login overhead → cap 5 min
     timeout_s = 300 if drill_details else 120
-    t.join(timeout=timeout_s)
+    # C-2 (2026-07-11): giành samsung_session_lock quanh phiên Samsung của thread.
+    await _acquire_samsung_lock_or_409(conn)
+    try:
+        t.start()
+        t.join(timeout=timeout_s)
+    finally:
+        await _release_samsung_lock(conn)
     if t.is_alive():
         raise HTTPException(504, f"Bidding scrape timed out after {timeout_s}s")
     if "error" in result_holder:
@@ -6676,9 +7160,13 @@ async def scrape_announcement_trigger(
     page_size: int = Query(100, ge=10, le=100),
     page_num: int = Query(1, ge=1, le=100),
     token_data: TokenData = Depends(require_role("admin")),
+    conn: asyncpg.Connection = Depends(get_db),
 ):
     """Phase L1 — Bidding · Quotation Announcement (menu 5).
     REQUEST-level invitations, không auto-merge."""
+    # Guard: scrape login vào Samsung ĐỒNG BỘ → gate master/block/rate-limit.
+    await _gate_samsung_or_409(conn, who="api:scrape-announcement")
+
     import threading
     import asyncio as _aio
     result_holder: dict[str, Any] = {}
@@ -6705,7 +7193,13 @@ async def scrape_announcement_trigger(
                 if db_pool: await db_pool.close()
         _aio.run(_do())
 
-    t = threading.Thread(target=_thread, daemon=True); t.start(); t.join(timeout=180)
+    t = threading.Thread(target=_thread, daemon=True)
+    # C-2 (2026-07-11): giành samsung_session_lock quanh phiên Samsung của thread.
+    await _acquire_samsung_lock_or_409(conn)
+    try:
+        t.start(); t.join(timeout=180)
+    finally:
+        await _release_samsung_lock(conn)
     if t.is_alive(): raise HTTPException(504, "Announcement scrape timed out")
     if "error" in result_holder: raise HTTPException(500, result_holder["error"])
     p = result_holder.get("payload") or {}
@@ -6720,10 +7214,14 @@ async def scrape_selection_trigger(
     page_size: int = Query(100, ge=10, le=100),
     page_num: int = Query(1, ge=1, le=100),
     token_data: TokenData = Depends(require_role("admin")),
+    conn: asyncpg.Connection = Depends(get_db),
 ):
     """Phase L3 — Selection Result (menu 18).
     Side effect: auto-mark bqms_rfq.result = 'won' / 'lost' from Selected/Unselected.
     """
+    # Guard: scrape login vào Samsung ĐỒNG BỘ → gate master/block/rate-limit.
+    await _gate_samsung_or_409(conn, who="api:scrape-selection-result")
+
     import threading
     import asyncio as _aio
     result_holder: dict[str, Any] = {}
@@ -6751,7 +7249,13 @@ async def scrape_selection_trigger(
                 if db_pool: await db_pool.close()
         _aio.run(_do())
 
-    t = threading.Thread(target=_thread, daemon=True); t.start(); t.join(timeout=180)
+    t = threading.Thread(target=_thread, daemon=True)
+    # C-2 (2026-07-11): giành samsung_session_lock quanh phiên Samsung của thread.
+    await _acquire_samsung_lock_or_409(conn)
+    try:
+        t.start(); t.join(timeout=180)
+    finally:
+        await _release_samsung_lock(conn)
     if t.is_alive(): raise HTTPException(504, "Selection scrape timed out")
     if "error" in result_holder: raise HTTPException(500, result_holder["error"])
     p = result_holder.get("payload") or {}
@@ -7108,6 +7612,16 @@ async def create_quote_batch(
     ids = list({sid for sid in payload.staging_ids if sid > 0})
     if not ids:
         raise HTTPException(400, "staging_ids rỗng")
+    # Cap mẻ: mỗi RFQ = 1 lần login Samsung riêng → chặn mẻ login-storm gây khoá
+    # tài khoản (Pydantic max_length=200 chỉ là chặn trên thô; đây mới là cap thật).
+    if len(ids) > MAX_RFQS_PER_PUSH_BATCH:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Tối đa {MAX_RFQS_PER_PUSH_BATCH} mã mỗi mẻ đẩy để bảo vệ phiên "
+                f"Samsung. Vui lòng chia nhỏ."
+            ),
+        )
 
     # Validate: chỉ accept module='bidding' rows ở status='pending_review' or 'approved'
     rows = await conn.fetch(
@@ -7253,6 +7767,10 @@ async def download_files_for_bidding_staging(
         import json as _j
         raw = _j.loads(raw or "{}")
 
+    # Guard: download_files_for_rfq login vào Samsung ĐỒNG BỘ (thread) → gate
+    # master/block/rate-limit (đặt SAU validation để không tốn slot khi 404/400).
+    await _gate_samsung_or_409(conn, who="api:bidding-download-files")
+
     import threading
     import asyncio as _aio
 
@@ -7282,9 +7800,15 @@ async def download_files_for_bidding_staging(
         _aio.run(_do())
 
     t = threading.Thread(target=_thread_dl, daemon=True)
-    t.start()
-    # Login + nav + many downloads — give it 5 minutes max
-    t.join(timeout=300)
+    # C-2 (2026-07-11): giành samsung_session_lock (non-blocking) quanh phiên Samsung
+    # của thread — 409 nếu worker/scraper khác đang giữ phiên; nhả sau khi join xong.
+    await _acquire_samsung_lock_or_409(conn)
+    try:
+        t.start()
+        # Login + nav + many downloads — give it 5 minutes max
+        t.join(timeout=300)
+    finally:
+        await _release_samsung_lock(conn)
     if t.is_alive():
         raise HTTPException(504, "Download timed out after 5 minutes")
     if "error" in result_holder:
@@ -8298,18 +8822,42 @@ async def push_to_sec(
         "quote_valid_date": body.quote_valid_date,
         "attachment_paths": body.attachment_paths,
     }
-    await conn.execute(
-        """UPDATE bqms_rfq SET
-            bqms_push_status='queued',
-            bqms_push_payload=$1::jsonb,
-            bqms_push_error=NULL,
-            bqms_push_round_active=$2,
-            bqms_push_step_index=0,
-            bqms_push_started_at=NOW(),
-            bqms_push_heartbeat_at=NOW()
-           WHERE id=$3""",
-        _json.dumps(payload), int(body.round), rfq_id,
+    # C-5 (2026-07-11): tên người bấm đẩy → popup /push-queue/status hiển thị attribution.
+    pusher_name = await conn.fetchval(
+        "SELECT COALESCE(full_name, email) FROM users WHERE id = $1::uuid",
+        token_data.user_id,
     )
+    # C-6 (2026-07-11): check-then-act ATOMIC. Khóa theo rfq_number (ĐÚNG đơn vị dedup —
+    # 1 RFQ có nhiều row item) trong 1 transaction → 2 click song song không cùng lọt
+    # cửa sổ ms rồi tạo 2 job (job sau override im lặng payload job trước trên Samsung).
+    async with conn.transaction():
+        await conn.execute(
+            "SELECT pg_advisory_xact_lock(hashtext($1))", f"push:rfq:{rfq['rfq_number']}",
+        )
+        busy2 = await conn.fetchval(
+            "SELECT bqms_push_status FROM bqms_rfq "
+            "WHERE rfq_number = $1 AND bqms_push_status IN ('queued','running') LIMIT 1",
+            rfq["rfq_number"],
+        )
+        if busy2:
+            raise HTTPException(
+                409,
+                f"QT {rfq['rfq_number']} đang được đẩy (status={busy2}). "
+                f"Vào popup ở giữa màn hình bấm \"Hủy queue\" nếu muốn đẩy lại.",
+            )
+        await conn.execute(
+            """UPDATE bqms_rfq SET
+                bqms_push_status='queued',
+                bqms_push_payload=$1::jsonb,
+                bqms_push_error=NULL,
+                bqms_push_round_active=$2,
+                bqms_push_step_index=0,
+                bqms_push_started_at=NOW(),
+                bqms_push_heartbeat_at=NOW(),
+                pushed_by=$4
+               WHERE id=$3""",
+            _json.dumps(payload), int(body.round), rfq_id, pusher_name,
+        )
 
     from app.tasks.bqms_auto_submit import bqms_submit_quote_task
     from app.core.procrastinate_app import app as proc_app
@@ -8365,6 +8913,11 @@ async def push_to_sec_batch(
     if len(rfq_ids) > 8:
         raise HTTPException(400, "Tối đa 8 mã mỗi lần đẩy (giới hạn phiên Samsung) — chia nhỏ giúp em.")
     round_n = max(1, min(4, int(body.round or 1)))
+    # C-5 (2026-07-11): tên người bấm đẩy → attribution trên popup /push-queue/status.
+    pusher_name = await conn.fetchval(
+        "SELECT COALESCE(full_name, email) FROM users WHERE id = $1::uuid",
+        token_data.user_id,
+    )
 
     enqueued: list[dict] = []
     skipped: list[dict] = []
@@ -8424,8 +8977,8 @@ async def push_to_sec_batch(
                 """UPDATE bqms_rfq SET bqms_push_status='queued', bqms_push_payload=$1::jsonb,
                    bqms_push_error=NULL, bqms_push_round_active=$2, bqms_push_step_index=0,
                    bqms_push_progress_pct=0, bqms_push_progress_step='Chờ trong hàng đợi...',
-                   bqms_push_started_at=NOW(), bqms_push_heartbeat_at=NOW() WHERE id=$3""",
-                _json.dumps(payload), round_n, rid)
+                   bqms_push_started_at=NOW(), bqms_push_heartbeat_at=NOW(), pushed_by=$4 WHERE id=$3""",
+                _json.dumps(payload), round_n, rid, pusher_name)  # C-5: ghi người bấm
             batch_rfqs.append({"rfq_id": rid, "payload": payload})
             enqueued.append({"rfq_id": rid, "rfq_number": rno})
         except HTTPException as he:
@@ -8487,7 +9040,7 @@ async def get_push_queue_status(
                    r.bqms_push_error, r.bqms_pushed_at, r.bqms_pushed_round,
                    r.bqms_push_screenshot_path,
                    r.bqms_push_progress_pct, r.bqms_push_progress_step,
-                   r.bqms_push_started_at,
+                   r.bqms_push_started_at, r.pushed_by,  -- C-5 (2026-07-11): attribution
                    r.bqms_push_round_active, r.bqms_push_step_index,
                    r.bqms_push_total_steps, r.bqms_push_step_key,
                    j.status AS job_status, j.scheduled_at, j.attempts,
@@ -8551,6 +9104,34 @@ async def cancel_push_queue(
 
     Chỉ hủy được status='queued' (chưa chạy). Job đang 'running' phải chờ.
     """
+    # C-4 (2026-07-11): chỉ người ĐÃ bấm đẩy (pushed_by) hoặc admin/manager được hủy
+    # queue — chặn hủy nhầm job của đồng nghiệp. So khớp theo TÊN (pushed_by) vì
+    # bqms_rfq không lưu user_id người đẩy; COALESCE(full_name,email) là định danh ổn
+    # định (email duy nhất). Rows chưa gán (pushed_by NULL) chỉ admin/manager hủy được.
+    if token_data.role not in ("admin", "manager"):
+        me = await conn.fetchval(
+            "SELECT COALESCE(full_name, email) FROM users WHERE id = $1::uuid",
+            token_data.user_id,
+        )
+        owners = await conn.fetch(
+            "SELECT DISTINCT pushed_by FROM bqms_rfq "
+            "WHERE rfq_number = $1 AND bqms_push_status = 'queued'",
+            rfq_number,
+        )
+        foreign = [o["pushed_by"] for o in owners if (o["pushed_by"] or "") != (me or "")]
+        if foreign:
+            logger.info(
+                "C-4 CHẶN hủy queue: rfq=%s bởi user=%s role=%s (không phải người đẩy: %s)",
+                rfq_number, token_data.user_id, token_data.role, foreign,
+            )
+            raise HTTPException(
+                403, "Chỉ người đã bấm đẩy hoặc quản lý mới được hủy queue này",
+            )
+    logger.info(
+        "C-4 audit hủy queue: rfq=%s round=%s bởi user=%s role=%s",
+        rfq_number, round_n, token_data.user_id, token_data.role,
+    )
+
     conditions = ["rfq_number = $1", "bqms_push_status = 'queued'"]
     params: list[Any] = [rfq_number]
     if round_n is not None:

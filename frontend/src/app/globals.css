@@ -83,3 +83,66 @@
     border-top-width: 3px;
   }
 }
+
+/* ─── Pet rig animations (components/pet) — 2026-07-13 ─────────────────────
+   Loop CSS cho part của pet (đuôi/cánh/lá/lửa/chớp mắt). Dùng CSS thay vì
+   framer cho loop vô hạn: chạy trên compositor, không re-render React.
+   transform-box: fill-box để transform-origin tính theo bbox của part. */
+
+.pet-part {
+  transform-box: fill-box;
+}
+
+.pet-wag    { animation: pet-wag 1.8s ease-in-out infinite; }
+.pet-sway   { animation: pet-sway 3.4s ease-in-out infinite; }
+.pet-flap   { animation: pet-flap 2.8s ease-in-out infinite; }
+.pet-flick  { animation: pet-flick 3.6s ease-in-out infinite; }
+.pet-flame  { animation: pet-flame 0.9s ease-in-out infinite; }
+.pet-bloom  { animation: pet-sway 4.2s ease-in-out infinite; }
+
+/* Hover vào sân khấu → pet "hào hứng": đuôi vẫy nhanh, cánh vỗ dồn */
+.pet-stage:hover .pet-wag  { animation-duration: 0.55s; }
+.pet-stage:hover .pet-flap { animation-duration: 1.1s; }
+.pet-stage:hover .pet-flick { animation-duration: 1.2s; }
+
+/* Chớp mắt CSS-only cho avatar tĩnh (không JS timer) */
+.pet-css-blink {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: pet-blink 5.2s infinite;
+}
+
+@keyframes pet-wag {
+  0%, 100% { transform: rotate(-7deg); }
+  50%      { transform: rotate(9deg); }
+}
+@keyframes pet-sway {
+  0%, 100% { transform: rotate(-3.5deg); }
+  50%      { transform: rotate(3.5deg); }
+}
+@keyframes pet-flap {
+  0%, 100% { transform: rotate(-4deg); }
+  50%      { transform: rotate(7deg); }
+}
+@keyframes pet-flick {
+  0%, 86%, 100% { transform: rotate(0deg); }
+  90%           { transform: rotate(-8deg); }
+  95%           { transform: rotate(5deg); }
+}
+@keyframes pet-flame {
+  0%, 100% { transform: scale(1) rotate(-2deg); opacity: 1; }
+  50%      { transform: scale(1.12) rotate(3deg); opacity: 0.92; }
+}
+@keyframes pet-blink {
+  0%, 93%, 100% { transform: scaleY(1); }
+  95%, 97%      { transform: scaleY(0.08); }
+}
+
+/* Tôn trọng reduced-motion: tắt toàn bộ loop pet */
+@media (prefers-reduced-motion: reduce) {
+  .pet-wag, .pet-sway, .pet-flap, .pet-flick, .pet-flame, .pet-bloom,
+  .pet-css-blink,
+  .pet-stage:hover .pet-wag, .pet-stage:hover .pet-flap, .pet-stage:hover .pet-flick {
+    animation: none !important;
+  }
+}

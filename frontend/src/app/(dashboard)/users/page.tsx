@@ -7,16 +7,16 @@ import Link from 'next/link';
 import { createColumnHelper } from '@tanstack/react-table';
 import { Users, ShieldAlert, Plus } from 'lucide-react';
 import { useAuth } from '@/providers/auth-provider';
-import { getUsers } from '@/services/users';
+import { getUsers, type User } from '@/services/users';
 import { DataTable } from '@/components/shared/data-table';
 import { EmptyState } from '@/components/shared/empty-state';
+import { UserAvatar } from '@/components/shared/user-avatar';
 import { PageHeader } from '@/components/shared/page-header';
 import { StatusBadge } from '@/components/shared/status-badge';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { ROLE_LABELS } from '@/lib/constants';
-import { formatDate, formatRelativeTime } from '@/lib/utils';
-import type { User, PaginatedResponse } from '@/types/models';
+import { formatRelativeTime } from '@/lib/utils';
 
 // ─── Role badge variant mapping ────────────────────────────────
 
@@ -28,6 +28,8 @@ const ROLE_BADGE_VARIANT: Record<string, 'default' | 'success' | 'warning' | 'da
   warehouse: 'neutral',
   sales: 'success',
   viewer: 'neutral',
+  procurement: 'info',
+  staff: 'neutral',
 };
 
 // ─── Column Definitions ────────────────────────────────────────
@@ -45,11 +47,24 @@ const columns = [
   }),
   columnHelper.accessor('full_name', {
     header: 'Họ tên',
-    cell: (info) => (
-      <span className="text-sm font-medium text-slate-900">
-        {info.getValue()}
-      </span>
-    ),
+    // Pet avatar (2026-07-13): hiện avatar thú cưng (nếu nhân viên đã đặt)
+    // cạnh họ tên — pet_species/pet_form từ BE, fallback initials.
+    cell: (info) => {
+      const u = info.row.original;
+      return (
+        <div className="flex items-center gap-2.5">
+          <UserAvatar
+            name={u.display_name || u.full_name}
+            petSpecies={u.pet_species}
+            petForm={u.pet_form}
+            size={28}
+          />
+          <span className="text-sm font-medium text-slate-900">
+            {info.getValue()}
+          </span>
+        </div>
+      );
+    },
   }),
   columnHelper.accessor('role', {
     header: 'Vai trò',
@@ -79,7 +94,9 @@ const columns = [
       />
     ),
   }),
-  columnHelper.accessor('updated_at', {
+  // Thang audit #5: đọc last_login_at (cột thật BE trả) — trước đây đọc
+  // updated_at (cột không liên quan tới đăng nhập, luôn hiển thị sai).
+  columnHelper.accessor('last_login_at', {
     header: 'Đăng nhập cuối',
     cell: (info) => (
       <span className="text-sm text-slate-500">
@@ -108,23 +125,25 @@ function AccessDenied() {
 export default function UsersPage() {
   const { user: currentUser } = useAuth();
   const router = useRouter();
-  const [page, setPage] = useState(1);
   const [search, setSearch] = useState('');
 
   // Only admin can view this page
   const isAdmin = currentUser?.role === 'admin';
 
-  const { data, isLoading } = useQuery<PaginatedResponse<User>>({
-    queryKey: ['users', page, search],
-    queryFn: () => getUsers({ page, page_size: 20, search: search || undefined }),
+  // Thang audit #5: BE list_users trả {"data": [...]} không phân trang
+  // (bảng nhỏ ~18 user) — getUsers() đã unwrap thành mảng phẳng. KHÔNG còn
+  // gửi page/page_size/search (BE luôn lờ đi những param này — trước đây
+  // FE tưởng lọc được nhưng thực chất không). Tìm kiếm dùng bộ lọc
+  // client-side có sẵn của DataTable (globalFilter) qua toàn bộ user trả về.
+  const { data: users = [], isLoading } = useQuery({
+    queryKey: ['users'],
+    queryFn: () => getUsers(),
     enabled: isAdmin,
   });
 
   if (!isAdmin) {
     return <AccessDenied />;
   }
-
-  const users = data?.items ?? [];
 
   return (
     <div>
@@ -152,17 +171,6 @@ export default function UsersPage() {
         searchPlaceholder="Tìm kiếm theo email, họ tên..."
         globalFilter={search}
         onGlobalFilterChange={setSearch}
-        pagination={
-          data
-            ? {
-                page: data.page,
-                pageSize: data.page_size,
-                total: data.total,
-                totalPages: data.total_pages,
-              }
-            : undefined
-        }
-        onPageChange={setPage}
         onRowClick={(row) => router.push(`/users/${row.id}`)}
         emptyState={
           <EmptyState
